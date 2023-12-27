@@ -10,9 +10,8 @@ public class TypeTen extends Tank implements Cannon{
     private final int reloadTime = 4;
     private final int aimTime = 1;
     private final int shootingRange = 1000;
-    private final int drivingRange = 200;
     public TypeTen(Point position) {
-        super(position, 400, 1200, 3, 500, 90);
+        super(position, 400, 1200, 3, 500, 90, 200);
     }
 
     @Override
@@ -46,7 +45,4 @@ public class TypeTen extends Tank implements Cannon{
         return shootingRange;
     }
 
-    public int getDrivingRange() {
-        return drivingRange;
-    }
 }
