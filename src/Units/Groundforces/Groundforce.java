@@ -7,11 +7,13 @@ import java.awt.*;
 public abstract class Groundforce extends Unit {
     private int healthPoints;
     private int crewNumber;
+    private int movingRange;
 
-    public Groundforce(Point position, int healthPoints, int crewNumber) {
-        super(position);
+    public Groundforce(String name, Point position, int resourceCost, int healthPoints, int crewNumber, int movingRange) {
+        super(name, position, resourceCost);
         this.healthPoints = healthPoints;
         this.crewNumber = crewNumber;
+        this.movingRange = movingRange;
     }
 
     public int getHealthPoints() {

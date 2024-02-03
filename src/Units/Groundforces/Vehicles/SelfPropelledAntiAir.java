@@ -5,7 +5,7 @@ import java.awt.*;
 
 public abstract class SelfPropelledAntiAir extends Vehicle {
 
-    public SelfPropelledAntiAir(Point position, int healthPoints, int horsePower, int crewNumber, int speed, int drivingRange) {
-        super(position, healthPoints, horsePower, crewNumber, speed, drivingRange);
+    public SelfPropelledAntiAir(String name, Point position, int resourceCost, int healthPoints, int horsePower, int crewNumber, int drivingRange) {
+        super(name ,position, resourceCost, healthPoints, horsePower, crewNumber, drivingRange);
     }
 }

@@ -4,8 +4,8 @@ import java.awt.*;
 
 public abstract class Tank extends Vehicle {
     private final int armorValue;
-    public Tank(Point position, int healthPoints, int horsePower, int crewNumber, int armorValue, int speed, int drivingRange) {
-        super(position, healthPoints, horsePower, crewNumber, speed, drivingRange);
+    public Tank(String name, Point position, int resourceCost, int healthPoints, int horsePower, int crewNumber, int armorValue, int drivingRange) {
+        super(name, position,resourceCost, healthPoints, horsePower, crewNumber, drivingRange);
         this.armorValue = armorValue;
     }
     public int getArmorValue() {
