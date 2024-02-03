@@ -84,6 +84,11 @@ public class Game {
 
     }
 
+    private void scout(Unit unit) {
+
+    }
+
+
     public HashMap<Point, Boolean> midpointCircleAlgorithm(Point center, int radius) {
         HashMap<Point, Boolean> circlePoints = new HashMap<>();
         int x = radius;
