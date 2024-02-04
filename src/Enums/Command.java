@@ -4,8 +4,9 @@ public enum Command {
     ADD,
     ATTACK,
     MOVE,
-    STOP,
     REPAIR,
+    STOP,
+    HELP,
     SKIP
 
 }
