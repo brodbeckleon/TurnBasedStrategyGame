@@ -18,6 +18,9 @@ public class Base {
     public int getHealthPoints() {
         return healthPoints;
     }
+    public int getMaxHealthPoints() {
+        return maxHealthPoints;
+    }
 
     public void setHealthPoints(int healthPoints) {
         this.healthPoints = healthPoints;
