@@ -6,5 +6,6 @@ public enum Command {
     MOVE,
     STOP,
     REPAIR,
+    SKIP
 
 }

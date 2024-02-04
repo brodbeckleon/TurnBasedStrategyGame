@@ -1,12 +1,15 @@
+package Game;
+
 import Units.Unit;
+import Enums.*;
 
 import java.awt.*;
-import java.util.*;
-import java.util.List;
 
 public class Game {
     private final int maxResourcePoints = 10;
     private boolean isRunning = true;
+    private boolean isPlayerOneTurn = true;
+    private boolean isPlayerTwoTurn = true;
     private final ConsoleIO consoleIO = new ConsoleIO();
     private final UnitFactory unitFactory = new UnitFactory();
     private Battlefield battlefield;
@@ -21,30 +24,49 @@ public class Game {
 
     public void run() {
         while (isRunning) {
-            gameCycle(playerOne);
-            attack(playerOne, playerTwo);
-            gameCycle(playerTwo);
-            attack(playerTwo, playerOne);
+            while (isPlayerOneTurn) {
+                gameCycle(playerOne);
+            }
+            while (isPlayerTwoTurn) {
+                gameCycle(playerTwo);
+            }
         }
     }
 
-    private void stop() {
-        isRunning = false;
-    }
     public void gameCycle(Player player) {
-        consoleIO.println("Player " + player.getPlayerID() + ": " + player.getResourcePoints() + "/" + maxResourcePoints);
-        while (player.getResourcePoints() > 0) {
-            consoleIO.print("Do you want to add a unit? (y/n): ");
-            String answer = consoleIO.readString();
+        consoleIO.println("Game.Player " + player.getPlayerID() + ": " + player.getResourcePoints() + "/" + maxResourcePoints);
+        consoleIO.println("Command:");
+        String input = consoleIO.readString().toUpperCase();
+        try {
+            Command command = Command.valueOf(input);
+            switch (command) {
+                case ADD:
+                    addUnitToTable(player);
+                    break;
+                case ATTACK:
+                    //scout
 
-            if (answer.equals("y")) {
-                addUnitToTable(player);
-            } else if (answer.equals("n")) {
-                break;
-            } else {
-                consoleIO.printError("Invalid input!");
+                    //attack
+
+                    break;
+                case MOVE:
+                    // handle MOVE command
+                    break;
+                case STOP:
+                    // handle STOP command
+                    break;
+                case REPAIR:
+                    // handle REPAIR command
+                    break;
+                case SKIP:
+                    changeTurn();
+                    break;
+                default:
+                    consoleIO.printError("Invalid command!");
+                    break;
             }
-            consoleIO.println(player.getPlayerDeck().toString());
+        } catch (IllegalArgumentException e) {
+            consoleIO.printError("Invalid command!");
         }
         if (player.getResourcePoints() < maxResourcePoints) {
             player.addResourcePoints();
@@ -78,6 +100,8 @@ public class Game {
         } else {
             consoleIO.printError("Position is not free!");
         }
+
+        consoleIO.println(player.getPlayerDeck().toString());
     }
 
     private void attack(Player attacker, Player defender) {
@@ -88,4 +112,12 @@ public class Game {
 
     }
 
+    private void stop() {
+        isRunning = false;
+    }
+
+    private void changeTurn() {
+        isPlayerOneTurn = !isPlayerOneTurn;
+        isPlayerTwoTurn = !isPlayerTwoTurn;
+    }
 }
