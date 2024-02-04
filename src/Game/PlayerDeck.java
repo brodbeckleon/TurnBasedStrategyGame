@@ -46,9 +46,13 @@ public class PlayerDeck {
     }
     public String toString() {
         String unitsString = "";
+        unitsString += "Base\t (" + getBase().getPosition().x + ", " + getBase().getPosition().y + ")" + "\n";
+        unitsString += "Base Health: \t" + getBase().getHealthPoints() + "/" + getBase().getMaxHealthPoints() +"\n";
+        unitsString += "Units:\n";
         for (Unit unit : units.keySet()) {
             Point position = unit.getPosition();
-            unitsString += unit.getUnitName() + "\t [X=" + position.x + ", Y=" + position.y + "]" + "\n";
+            unitsString += unit.getUnitName() + "\t (" + position.x + ", " + position.y + ")" + "\n";
+            unitsString += "Health: \t" + unit.getHealthPoints() + "/" + unit.getMaxHealthPoints() + "\n";
         }
         return unitsString;
     }
