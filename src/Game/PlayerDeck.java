@@ -9,18 +9,19 @@ import java.util.Map;
 public class PlayerDeck {
     private Base base;
     private Unit unit;
-    //private Map<Unit, Point> units = new HashMap<Unit, Point>();
     private Map<Integer, Unit> units = new HashMap<Integer, Unit>();
+    private static int unitID = 0;
 
     public PlayerDeck(Point positionBase) {
         base = new Base(positionBase);
     }
 
-    public void addUnit(int unitID, Unit unit) {
-        units.put(unitID, unit);
+    public void addUnit(Unit unit) {
+        units.put(getUnitID(), unit);
+        unitIDCounter();
     }
-    public void removeUnit(Unit unit) {
-        units.remove(unit);
+    public void removeUnit(int unitID) {
+        units.remove(unitID);
     }
     public void moveUnit(int unitID, Unit unit) {
         units.put(unitID, unit);
@@ -75,5 +76,11 @@ public class PlayerDeck {
             }
         }
         return true;
+    }
+    private void unitIDCounter(){
+        unitID++;
+    }
+    private int getUnitID(){
+        return unitID;
     }
 }
