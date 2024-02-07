@@ -12,7 +12,9 @@ public class ConsoleIO {
 
     public int readInt() {
         try {
-            return scanner.nextInt();
+            int number = scanner.nextInt();
+            scanner.nextLine();
+            return number;
         } catch (InputMismatchException e) {
             printError("Invalid input. Please enter an integer.");
             scanner.next(); // discard the invalid token
