@@ -1,5 +1,6 @@
 package Game;
 
+import java.util.InputMismatchException;
 import java.util.Scanner;
 
 public class ConsoleIO {
@@ -10,7 +11,13 @@ public class ConsoleIO {
     }
 
     public int readInt() {
-        return scanner.nextInt();
+        try {
+            return scanner.nextInt();
+        } catch (InputMismatchException e) {
+            printError("Invalid input. Please enter an integer.");
+            scanner.next(); // discard the invalid token
+            return readInt(); // try again
+        }
     }
 
     public void print(String message) {
