@@ -9,20 +9,21 @@ import java.util.Map;
 public class PlayerDeck {
     private Base base;
     private Unit unit;
-    private Map<Unit, Point> units = new HashMap<Unit, Point>();
+    //private Map<Unit, Point> units = new HashMap<Unit, Point>();
+    private Map<Integer, Unit> units = new HashMap<Integer, Unit>();
 
     public PlayerDeck(Point positionBase) {
         base = new Base(positionBase);
     }
 
-    public void addUnit(Unit unit, Point position) {
-        units.put(unit, position);
+    public void addUnit(int unitID, Unit unit) {
+        units.put(unitID, unit);
     }
     public void removeUnit(Unit unit) {
         units.remove(unit);
     }
-    public void moveUnit(Unit unit, Point position) {
-        units.put(unit, position);
+    public void moveUnit(int unitID, Unit unit) {
+        units.put(unitID, unit);
     }
     public Base getBase() {
         return base;
@@ -32,13 +33,14 @@ public class PlayerDeck {
         return units;
     }
 
-    public Point getUnitPosition(Unit unit) {
-        return units.get(unit);
+    public Unit getUnit(int unitID) {
+        return units.get(unitID);
     }
+
     public String[] getUnits() {
         String[] unitsString = new String[units.size()];
         int i = 0;
-        for (Unit unit : units.keySet()) {
+        for (Unit unit : units.values()) {
             unitsString[i] = unit.getUnitName();
             i++;
         }
@@ -49,7 +51,7 @@ public class PlayerDeck {
         unitsString += "Base: \t\t\t( " + getBase().getPosition().x + ", " + getBase().getPosition().y + " )" + "\n";
         unitsString += "\t Health: \t" + getBase().getHealthPoints() + "/" + getBase().getMaxHealthPoints() +"\n";
         unitsString += "Units:\n";
-        for (Unit unit : units.keySet()) {
+        for (Unit unit : units.values()) {
             Point position = unit.getPosition();
             unitsString += unit.getUnitName() + ": \t\t( " + position.x + ", " + position.y + " )" + "\n";
             unitsString += "\t Health: \t" + unit.getHealthPoints() + "/" + unit.getMaxHealthPoints() + "\n";
@@ -67,8 +69,8 @@ public class PlayerDeck {
             return false;
         }
         //if the position is the same as another unit
-        for (Point point : units.values()) {
-            if (point.equals(position)) {
+        for (Unit unit : units.values()) {
+            if (unit.getPosition().equals(position)) {
                 return false;
             }
         }
