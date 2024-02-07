@@ -23,8 +23,9 @@ public class PlayerDeck {
     public void removeUnit(int unitID) {
         units.remove(unitID);
     }
-    public void moveUnit(int unitID, Unit unit) {
-        units.put(unitID, unit);
+
+    public void moveUnit(int unitID, Point newPosition) {
+        getUnit(unitID).setPosition(newPosition);
     }
     public Base getBase() {
         return base;
