@@ -9,7 +9,7 @@ public class Game {
     private final int maxResourcePoints = 10;
     private boolean isRunning = true;
     private boolean isPlayerOneTurn = true;
-    private boolean isPlayerTwoTurn = true;
+    private boolean isPlayerTwoTurn = false;
     private final ConsoleIO consoleIO = new ConsoleIO();
     private final UnitFactory unitFactory = new UnitFactory();
     private Battlefield battlefield;
@@ -27,14 +27,18 @@ public class Game {
             while (isPlayerOneTurn) {
                 gameCycle(playerOne);
             }
+            addResourcePoints(playerOne);
+
             while (isPlayerTwoTurn) {
                 gameCycle(playerTwo);
             }
+            addResourcePoints(playerTwo);
         }
     }
 
     public void gameCycle(Player player) {
-        consoleIO.println("Game.Player " + player.getPlayerID() + ": " + player.getResourcePoints() + "/" + maxResourcePoints);
+        consoleIO.println("Game.Player " + player.getPlayerID() + ": \t" + player.getResourcePoints() + "/" + maxResourcePoints);
+        consoleIO.println(player.getPlayerDeck().toString());
         consoleIO.println("Command:");
         String input = consoleIO.readString().toUpperCase();
         try {
@@ -45,21 +49,22 @@ public class Game {
                     break;
                 case ATTACK:
                     //scout
-
-                    //attack
-
+                    attack(player);
                     break;
                 case MOVE:
-                    // handle MOVE command
-                    break;
-                case STOP:
-                    // handle STOP command
+                    move(player);
                     break;
                 case REPAIR:
-                    // handle REPAIR command
+                    repair(player);
                     break;
                 case SKIP:
                     changeTurn();
+                    break;
+                case STOP:
+                    stop();
+                    break;
+                case HELP:
+                    help();
                     break;
                 default:
                     consoleIO.printError("Invalid command!");
@@ -68,6 +73,9 @@ public class Game {
         } catch (IllegalArgumentException e) {
             consoleIO.printError("Invalid command!");
         }
+    }
+
+    private void addResourcePoints(Player player) {
         if (player.getResourcePoints() < maxResourcePoints) {
             player.addResourcePoints();
         }
@@ -77,12 +85,9 @@ public class Game {
         consoleIO.print("What unit do you want to add?");
         String unitName = consoleIO.readString();
 
-        consoleIO.print("What position do you want to add the unit?");
-        String positionString = consoleIO.readString();
-        String[] positionStringArray = positionString.split(",");
-        Point position = new Point(Integer.parseInt(positionStringArray[0]), Integer.parseInt(positionStringArray[1]));
+        Point position = readPoint();
 
-        if (player.getPlayerDeck().checkIfPoistionIsAvailable(position, battlefield.getSize())) {
+        if (checkIfPositionIsFree(position)){
 
             Unit unit = unitFactory.createUnit(unitName, position);
 
@@ -91,7 +96,7 @@ public class Game {
                 if (player.getResourcePoints() < unit.getResourceCost()) {
                     consoleIO.printError("Not enough resource points!");
                 } else {
-                    player.getPlayerDeck().addUnit(unit, position);
+                    player.getPlayerDeck().addUnit(unit);
                     player.removeResourcePoints(unit.getResourceCost());
                 }
             } else {
@@ -100,11 +105,11 @@ public class Game {
         } else {
             consoleIO.printError("Position is not free!");
         }
-
-        consoleIO.println(player.getPlayerDeck().toString());
     }
 
-    private void attack(Player attacker, Player defender) {
+    private void attack(Player attacker) {
+        Player defender = defineEnemyPlayer(attacker);
+
 
     }
 
@@ -112,12 +117,64 @@ public class Game {
 
     }
 
-    private void stop() {
-        isRunning = false;
+    private void move(Player player) {
+        int unitID = readUnitID();
+
+        Point newPosition = readPoint();
+        if (checkIfPositionIsFree(newPosition)) {
+            //TODO adjust method
+            player.getPlayerDeck().moveUnit(unitID, newPosition);
+
+        } else {
+            consoleIO.printError("Position is not free!");
+        }
+    }
+
+
+    private void repair(Player player) {
+
     }
 
     private void changeTurn() {
         isPlayerOneTurn = !isPlayerOneTurn;
         isPlayerTwoTurn = !isPlayerTwoTurn;
+    }
+
+    private void stop() {
+        isRunning = false;
+    }
+
+    private void help() {
+        consoleIO.println("Available commands:");
+        for (Command c : Command.values()) {
+            consoleIO.println(c.toString());
+        }
+    }
+
+    private boolean checkIfPositionIsFree(Point position) {
+        return playerOne.getPlayerDeck().checkIfPoistionIsAvailable(position, battlefield.getSize()) &&
+               playerTwo.getPlayerDeck().checkIfPoistionIsAvailable(position, battlefield.getSize());
+    }
+
+    private Player defineEnemyPlayer(Player player){
+        if (player.getPlayerID() == 1) {
+            return playerTwo;
+        } else {
+            return playerOne;
+        }
+    }
+
+    private Point readPoint(){
+        consoleIO.println("Where should the unit be at?");
+        String positionString = consoleIO.readString();
+        String[] positionStringArray = positionString.split(",");
+        Point coordinate = new Point(Integer.parseInt(positionStringArray[0]), Integer.parseInt(positionStringArray[1]));
+        return coordinate;
+    }
+
+    private int readUnitID() {
+        consoleIO.println("Which unit do you want to move?");
+        int unitID = consoleIO.readInt();
+        return unitID;
     }
 }
