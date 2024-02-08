@@ -9,8 +9,8 @@ public abstract class Groundforce extends AssaultClass {
 
     private int crewNumber;
 
-    public Groundforce(String name, Point position, int resourceCost, int healthPoints, int crewNumber, int shootingRange, int movingRange) {
-        super(name, position, resourceCost, healthPoints, shootingRange, movingRange);
+    public Groundforce(String name, Point position, int resourceCost, int healthPoints, int crewNumber, int shootingRange, int movingRange, int damage) {
+        super(name, position, resourceCost, healthPoints, shootingRange, movingRange, damage);
         this.crewNumber = crewNumber;
     }
 

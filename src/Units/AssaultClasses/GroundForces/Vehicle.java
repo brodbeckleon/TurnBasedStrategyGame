@@ -7,8 +7,8 @@ import java.awt.*;
 public abstract class Vehicle extends Groundforce {
     private int horsePower;
 
-    public Vehicle(String name, Point position, int resourceCost, int healthPoints, int horsePower, int crewNumber, int shootingRange, int movingRange) {
-        super(name, position, resourceCost, healthPoints, crewNumber, shootingRange, movingRange);
+    public Vehicle(String name, Point position, int resourceCost, int healthPoints, int horsePower, int crewNumber, int shootingRange, int movingRange, int damage) {
+        super(name, position, resourceCost, healthPoints, crewNumber, shootingRange, movingRange, damage);
         this.horsePower = horsePower;
     }
 }
