@@ -3,12 +3,12 @@ package Game;
 import Units.Unit;
 
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
 public class PlayerDeck {
     private Base base;
-    private Unit unit;
     private Map<Integer, Unit> units = new HashMap<Integer, Unit>();
     private static int unitID = 0;
 
@@ -31,7 +31,7 @@ public class PlayerDeck {
         return base;
     }
 
-    public Map getUnitsMap() {
+    public Map getUnits() {
         return units;
     }
 
@@ -39,15 +39,6 @@ public class PlayerDeck {
         return units.get(unitID);
     }
 
-    public String[] getUnits() {
-        String[] unitsString = new String[units.size()];
-        int i = 0;
-        for (Unit unit : units.values()) {
-            unitsString[i] = unit.getUnitName();
-            i++;
-        }
-        return unitsString;
-    }
     public String toString() {
         String unitsString = "";
         unitsString += "Base: \t\t\t(" + getBase().getPosition().x + ", " + getBase().getPosition().y + ")" + "\n";
@@ -85,5 +76,46 @@ public class PlayerDeck {
     }
     private int getUnitID(){
         return unitID;
+    }
+
+    public ArrayList<Integer> getUnitIDsInRange(Point midpoint, int radius){
+        ArrayList<Point> coordinatesInRange = getCoordinatesInRange(midpoint, radius);
+        ArrayList<Integer> targetIDs = new ArrayList<Integer>();
+
+        for (Point coordinate : coordinatesInRange) {
+            for (int unitID : units.keySet()) {
+                if (getUnit(unitID).getPosition().equals(coordinate)) {
+                    targetIDs.add(unitID);
+                }
+            }
+        }
+        return targetIDs;
+    }
+
+    private ArrayList<Point> getCoordinatesInRange(Point midpoint, int radius){
+        ArrayList<Point> coordinatesInRange = new ArrayList<Point>();
+        int midX = midpoint.x;
+        int midY = midpoint.y;
+
+        for (int y = 0; y <= radius * 2; y++) {
+            for (int x = 0; x <= radius * 2; x++) {
+                int deltaX = radius - x;
+                int deltaY = radius - y;
+                double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+                // Point lies outside of the circle
+                if (distance - radius > 1) {
+                    continue;
+                }
+
+                // Edge threshold
+                if ((double) radius / distance < 0.9) {
+                    continue;
+                }
+
+                coordinatesInRange.add(new Point(midX - radius + x, midY - radius + y));
+            }
+        }
+        return coordinatesInRange;
     }
 }
