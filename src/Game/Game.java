@@ -4,6 +4,7 @@ import Units.Unit;
 import Enums.*;
 
 import java.awt.*;
+import java.util.ArrayList;
 
 public class Game {
     private final int maxResourcePoints = 10;
@@ -122,7 +123,6 @@ public class Game {
 
         Point newPosition = readPoint();
         if (checkIfPositionIsFree(newPosition)) {
-            //TODO adjust method
             player.getPlayerDeck().moveUnit(unitID, newPosition);
 
         } else {
@@ -173,8 +173,33 @@ public class Game {
     }
 
     private int readUnitID() {
-        consoleIO.println("Which unit do you want to move?");
+        consoleIO.println("With which unit do you want to proceed?");
         int unitID = consoleIO.readInt();
         return unitID;
+    }
+
+    private ArrayList<Point> getCoordinatesInRange(Point midpoint, int radius){
+        ArrayList<Point> coordinatesInRange = new ArrayList<Point>();
+        int midX = midpoint.x;
+        int midY = midpoint.y;
+
+        for (int y = 0; y <= radius * 2; y++) {
+            for (int x = 0; x <= radius * 2; x++) {
+                int deltaX = midX - x;
+                int deltaY = midY - y;
+                double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+                // Point lies outside of the circle
+                if (distance - radius > 1)
+                    continue;
+
+                // Edge threshold
+                if ((double) radius / distance < 0.9)
+                    continue;
+
+                coordinatesInRange.add(new Point(x, y));
+            }
+        }
+        return coordinatesInRange;
     }
 }
