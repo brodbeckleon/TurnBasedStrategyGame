@@ -9,12 +9,12 @@ public abstract class Unit {
     private int healthPoints;
     private final int maxHealthPoints;
 
-    public Unit (String name, Point position, int resourceCost, int healthPoints, int maxHealthPoints) {
+    public Unit (String name, Point position, int resourceCost, int healthPoints) {
         this.name = name;
         this.position = position;
         this.resourceCost = resourceCost;
         this.healthPoints = healthPoints;
-        this.maxHealthPoints = maxHealthPoints;
+        this.maxHealthPoints = healthPoints;
     }
 
     public Point getPosition() {
