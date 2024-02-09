@@ -1,4 +1,4 @@
-package Units.AssaultClasses.GroundForces.Vehicles;
+package Units.AssaultClasses;
 
 
 import Interfaces.Army;

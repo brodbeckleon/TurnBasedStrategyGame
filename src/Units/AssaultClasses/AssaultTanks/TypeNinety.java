@@ -1,6 +1,6 @@
-package Units.AssaultClasses.GroundForces.Vehicles.AssaultTanks;
+package Units.AssaultClasses.AssaultTanks;
 
-import Units.AssaultClasses.GroundForces.Vehicles.AssaultTank;
+import Units.AssaultClasses.AssaultTank;
 
 import java.awt.*;
 

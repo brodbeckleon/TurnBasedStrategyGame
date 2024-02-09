@@ -1,7 +1,7 @@
 package Game;
 
 import Units.AssaultClass;
-import Units.AssaultClasses.GroundForces.Vehicles.AssaultTank;
+import Units.AssaultClasses.AssaultTank;
 import Units.Unit;
 import Enums.*;
 
