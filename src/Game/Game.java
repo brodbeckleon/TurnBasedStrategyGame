@@ -1,12 +1,9 @@
 package Game;
 
-import Units.AssaultClass;
-import Units.AssaultClasses.AssaultTank;
-import Units.Unit;
+import Commands.*;
 import Enums.*;
 
 import java.awt.*;
-import java.util.ArrayList;
 
 public class Game {
     private final int maxResourcePoints = 10;
@@ -14,10 +11,9 @@ public class Game {
     private boolean isPlayerOneTurn = true;
     private boolean isPlayerTwoTurn = false;
     private final ConsoleIO consoleIO = new ConsoleIO();
-    private final UnitFactory unitFactory = new UnitFactory();
-    private Battlefield battlefield;
-    private Player playerOne;
-    private Player playerTwo;
+    private final Battlefield battlefield;
+    private final Player playerOne;
+    private final Player playerTwo;
 
     public Game() {
         battlefield = new Battlefield(new Point(16,16));
@@ -43,22 +39,28 @@ public class Game {
         player.getPlayerDeck().setUnitsAvailable();
         consoleIO.println("Game.Player " + player.getPlayerID() + ": \t" + player.getResourcePoints() + "/" + maxResourcePoints);
         consoleIO.println(player.getPlayerDeck().toString());
-        consoleIO.println("CommandEnum:");
+        consoleIO.println("Command:");
         String input = consoleIO.readString().toUpperCase();
+
+        ConsoleIO consoleIO = getConsoleIO();
+        Battlefield battlefield = getBattlefield();
+        Player playerOne = getPlayerOne();
+        Player playerTwo = getPlayerTwo();
+
         try {
             CommandEnum commandEnum = CommandEnum.valueOf(input);
             switch (commandEnum) {
                 case ADD:
-                    addUnitToTable(player);
+                    new AddCommand(consoleIO, battlefield, player, playerOne, playerTwo);
                     break;
                 case ATTACK:
-                    attack(player);
+                    new AttackCommand(consoleIO, battlefield, player, playerOne, playerTwo);
                     break;
                 case MOVE:
-                    move(player);
+                    new MoveCommand(consoleIO, battlefield, player, playerOne, playerTwo);
                     break;
                 case REPAIR:
-                    repair(player);
+                    new RepairCommand(consoleIO, battlefield, player, playerOne, playerTwo);
                     break;
                 case SKIP:
                     changeTurn();
@@ -84,106 +86,6 @@ public class Game {
         }
     }
 
-    private void addUnitToTable(Player player) {
-        consoleIO.print("What unit do you want to add?");
-        String unitName = consoleIO.readString();
-
-        Point position = readPoint();
-
-        if (checkIfPositionIsFree(position)){
-
-            Unit unit = unitFactory.createUnit(unitName, position);
-
-            if (unit != null) {
-
-                if (player.getResourcePoints() < unit.getResourceCost()) {
-                    consoleIO.printError("Not enough resource points!");
-                } else {
-                    player.getPlayerDeck().addUnit(unit);
-                    player.removeResourcePoints(unit.getResourceCost());
-                }
-            } else {
-                consoleIO.printError("Invalid unit type!");
-            }
-        } else {
-            consoleIO.printError("Position is not free!");
-        }
-    }
-
-    private void attack(Player attacker) {
-        Player defender = defineEnemyPlayer(attacker);
-        int attackingUnitID = readUnitID();
-        Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
-
-        if (attackingUnit instanceof AssaultClass) {
-            int damage = ((AssaultClass) attackingUnit).getDamage();
-
-            ArrayList<Integer> targetIDs = scout(attackingUnitID, attacker, defender);
-
-            if (!(targetIDs.isEmpty())) {
-                consoleIO.println("Which of these targets do you want to attack?");
-                for (int i : targetIDs) {
-                    consoleIO.println(i + ": \t" + defender.getPlayerDeck().getUnit(i).getUnitName());
-                }
-                int defendingUnitID = readUnitID();
-                Unit defendingUnit = defender.getPlayerDeck().getUnit(defendingUnitID);
-
-                if (defendingUnit instanceof AssaultTank) {
-                    int armor = ((AssaultTank) defendingUnit).getArmorValue();
-                    damage -= armor;
-                }
-
-                defendingUnit.setHealthPoints(-damage);
-
-                if (defendingUnit.getHealthPoints() <= 0){
-                    defender.getPlayerDeck().removeUnit(defendingUnitID);
-                    consoleIO.println("The defending Unit has been destroyed.");
-                } else if (damage <= 0) {
-                    defendingUnit.setHealthPoints(damage);
-                    consoleIO.println("The defending Tank has taken no damage!");
-                    defender.getPlayerDeck().singleUnitToString(defendingUnitID);
-                } else {
-                    consoleIO.println("The defending Unit has taken " + damage + " Damagepoints.");
-                    defender.getPlayerDeck().singleUnitToString(defendingUnitID);
-                }
-
-                attacker.getPlayerDeck().setUnitUnavailable(attackingUnitID);
-
-            } else {
-                consoleIO.println("There are no targets in range...");
-            }
-        } else {
-            consoleIO.println("You can't attack with this unit!");
-        }
-
-    }
-
-    private ArrayList<Integer> scout(int attackingUnitID, Player attacker, Player defender) {
-        Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
-        Point attackingUnitPoint = attackingUnit.getPosition();
-        int attackingRadius = ((AssaultClass)attackingUnit).getShootingRange();
-        ArrayList<Integer> targets = defender.getPlayerDeck().getUnitIDsInRange(attackingUnitPoint, attackingRadius);
-
-        return targets;
-    }
-
-    private void move(Player player) {
-        int unitID = readUnitID();
-
-        Point newPosition = readPoint();
-        if (checkIfPositionIsFree(newPosition)) {
-            player.getPlayerDeck().moveUnit(unitID, newPosition);
-            player.getPlayerDeck().setUnitUnavailable(unitID);
-        } else {
-            consoleIO.printError("Position is not free!");
-        }
-    }
-
-
-    private void repair(Player player) {
-
-    }
-
     private void changeTurn() {
         isPlayerOneTurn = !isPlayerOneTurn;
         isPlayerTwoTurn = !isPlayerTwoTurn;
@@ -200,31 +102,16 @@ public class Game {
         }
     }
 
-    private boolean checkIfPositionIsFree(Point position) {
-        return playerOne.getPlayerDeck().checkIfPoistionIsAvailable(position, battlefield.getSize()) &&
-               playerTwo.getPlayerDeck().checkIfPoistionIsAvailable(position, battlefield.getSize());
+    public ConsoleIO getConsoleIO() {
+        return consoleIO;
     }
-
-    private Player defineEnemyPlayer(Player player){
-        if (player.getPlayerID() == 1) {
-            return playerTwo;
-        } else {
-            return playerOne;
-        }
+    public Battlefield getBattlefield() {
+        return battlefield;
     }
-
-    private Point readPoint(){
-        consoleIO.println("Where should the unit be at?");
-        String positionString = consoleIO.readString();
-        String[] positionStringArray = positionString.split(",");
-        Point coordinate = new Point(Integer.parseInt(positionStringArray[0]), Integer.parseInt(positionStringArray[1]));
-        return coordinate;
+    public Player getPlayerOne() {
+        return playerOne;
     }
-
-    private int readUnitID() {
-        consoleIO.println("With which unit do you want to proceed?");
-        int unitID = consoleIO.readInt();
-        return unitID;
+    public Player getPlayerTwo() {
+        return playerTwo;
     }
-
 }
