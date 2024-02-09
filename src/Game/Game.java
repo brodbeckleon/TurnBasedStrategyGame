@@ -40,6 +40,7 @@ public class Game {
     public void run() {
         while (isRunning) {
 
+            consoleIO.println("################################");
             playerOne.getPlayerDeck().setUnitsAvailable();
             checkStatus(playerOne);
             while (isPlayerOneTurn) {
@@ -48,6 +49,7 @@ public class Game {
             }
             addResourcePoints(playerOne);
 
+            consoleIO.println("################################");
             playerTwo.getPlayerDeck().setUnitsAvailable();
             while (isPlayerTwoTurn) {
                 gameCycle(playerTwo);

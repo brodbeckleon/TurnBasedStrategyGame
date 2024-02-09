@@ -1,6 +1,6 @@
 package Game;
 
-import java.awt.*;
+import java.awt.Point;
 
 public class Base {
     private final int baseID;
