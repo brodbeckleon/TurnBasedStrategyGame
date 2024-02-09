@@ -106,11 +106,11 @@ public class Game {
 
     private void checkWinCondition(Player player) {
         if (player.getPlayerDeck().getBase().getHealthPoints() < 0) {
-            isRunning = false;
+            stop();
+            Player winner = command.defineEnemyPlayer(player);
+            int winnerID = winner.getPlayerID();
+            consoleIO.println("Player " + winnerID + " has won!");
         }
-        Player winner = command.defineEnemyPlayer(player);
-        int winnerID = winner.getPlayerID();
-        consoleIO.println("Player " + winnerID + "has won!");
     }
 
     private void checkStatus(Player player) {
