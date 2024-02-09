@@ -51,6 +51,7 @@ public class Game {
 
             consoleIO.println("################################");
             playerTwo.getPlayerDeck().setUnitsAvailable();
+            checkStatus(playerTwo);
             while (isPlayerTwoTurn) {
                 gameCycle(playerTwo);
                 checkWinCondition(playerTwo);
