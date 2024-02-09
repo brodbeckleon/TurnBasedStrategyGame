@@ -1,4 +1,4 @@
-package Commands;
+package Game.Commands;
 
 import Game.Battlefield;
 import Game.Command;

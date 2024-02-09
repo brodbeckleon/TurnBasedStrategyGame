@@ -1,6 +1,6 @@
 package Game;
 
-import Commands.*;
+import Game.Commands.*;
 import Enums.*;
 
 import java.awt.*;

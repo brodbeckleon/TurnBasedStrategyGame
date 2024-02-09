@@ -1,4 +1,4 @@
-package Commands;
+package Game.Commands;
 
 import Game.*;
 import Units.Unit;
