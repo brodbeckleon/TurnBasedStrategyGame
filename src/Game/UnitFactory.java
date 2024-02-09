@@ -1,7 +1,7 @@
 package Game;
 
-import Units.AssaultClasses.GroundForces.Vehicles.Tanks.TypeNinety;
-import Units.AssaultClasses.GroundForces.Vehicles.Tanks.TypeTen;
+import Units.AssaultClasses.GroundForces.Vehicles.AssaultTanks.TypeNinety;
+import Units.AssaultClasses.GroundForces.Vehicles.AssaultTanks.TypeTen;
 import Units.Unit;
 import java.awt.*;
 

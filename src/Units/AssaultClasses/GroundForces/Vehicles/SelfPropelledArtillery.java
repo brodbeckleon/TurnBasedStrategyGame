@@ -1,11 +1,12 @@
 package Units.AssaultClasses.GroundForces.Vehicles;
 
-import Units.AssaultClasses.GroundForces.Vehicle;
+import Interfaces.Army;
+import Units.AssaultClass;
 
 import java.awt.*;
 
-public abstract class SelfPropelledArtillery extends Vehicle {
-    public SelfPropelledArtillery(String name, Point position, int resourceCost, int healthPoints, int horsePower, int crewNumber, int armorValue, int shootingRange, int drivingRange, int damage) {
-        super(name, position,resourceCost, healthPoints, horsePower, crewNumber, shootingRange ,drivingRange, damage);
+public abstract class SelfPropelledArtillery extends AssaultClass implements Army {
+    public SelfPropelledArtillery(String name, Point position, int resourceCost, int healthPoints, int shootingRange, int drivingRange, int damage) {
+        super(name, position,resourceCost, healthPoints, shootingRange ,drivingRange, damage);
     }
 }

@@ -48,11 +48,7 @@ public abstract class Unit {
     public boolean getAvailability() {
         return availability;
     }
-    public void setAvailability() {
-        if (availability) {
-            availability = false;
-        } else {
-            availability = true;
-        }
+    public void setAvailability(boolean b) {
+        this.availability = b;
     }
 }
