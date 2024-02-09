@@ -5,8 +5,8 @@ import Game.Command;
 import Game.ConsoleIO;
 import Game.Player;
 
-public class RepairCommand extends Command {
-    public RepairCommand(ConsoleIO consoleIO, Battlefield battlefield, Player currentPlayer, Player playerOne, Player playerTwo) {
+public class HealCommand extends Command {
+    public HealCommand(ConsoleIO consoleIO, Battlefield battlefield, Player currentPlayer, Player playerOne, Player playerTwo) {
         super(consoleIO, battlefield, currentPlayer, playerOne, playerTwo);
     }
 }

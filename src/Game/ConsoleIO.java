@@ -1,13 +1,21 @@
 package Game;
 
+import Tools.NumberToWordConverter;
+
 import java.util.InputMismatchException;
 import java.util.Scanner;
 
 public class ConsoleIO {
     private final Scanner scanner = new Scanner(System.in);
+    private final NumberToWordConverter numberToWordConverter = new NumberToWordConverter();
 
     public String readString() {
         return scanner.nextLine();
+    }
+
+    public String readUnitName() {
+        String name = scanner.nextLine();
+        return numberToWordConverter.convert(name);
     }
 
     public int readInt() {
@@ -28,9 +36,7 @@ public class ConsoleIO {
     public void println(String message) {
         System.out.println(message);
     }
-
     public void printError(String message) {
         System.err.println(message);
     }
-
 }

@@ -23,11 +23,13 @@ public class Game {
 
     public void run() {
         while (isRunning) {
+            playerOne.getPlayerDeck().setUnitsAvailable();
             while (isPlayerOneTurn) {
                 gameCycle(playerOne);
             }
             addResourcePoints(playerOne);
 
+            playerTwo.getPlayerDeck().setUnitsAvailable();
             while (isPlayerTwoTurn) {
                 gameCycle(playerTwo);
             }
@@ -36,7 +38,6 @@ public class Game {
     }
 
     public void gameCycle(Player player) {
-        player.getPlayerDeck().setUnitsAvailable();
         consoleIO.println("Game.Player " + player.getPlayerID() + ": \t" + player.getResourcePoints() + "/" + maxResourcePoints);
         consoleIO.println(player.getPlayerDeck().toString());
         consoleIO.println("Command:");
@@ -59,8 +60,8 @@ public class Game {
                 case MOVE:
                     new MoveCommand(consoleIO, battlefield, player, playerOne, playerTwo);
                     break;
-                case REPAIR:
-                    new RepairCommand(consoleIO, battlefield, player, playerOne, playerTwo);
+                case HEAL:
+                    new HealCommand(consoleIO, battlefield, player, playerOne, playerTwo);
                     break;
                 case SKIP:
                     changeTurn();

@@ -13,7 +13,7 @@ public class AddCommand extends Command {
 
     private void addUnitToTable(Player player) {
         getConsoleIO().print("What unit do you want to add?");
-        String unitName = getConsoleIO().readString();
+        String unitName = getConsoleIO().readUnitName();
 
         Point position = readPoint();
 

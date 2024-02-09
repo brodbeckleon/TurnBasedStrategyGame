@@ -4,7 +4,7 @@ public enum CommandEnum {
     ADD,
     ATTACK,
     MOVE,
-    REPAIR,
+    HEAL,
     STOP,
     HELP,
     SKIP
