@@ -40,18 +40,25 @@ public class PlayerDeck {
     }
 
     public String toString() {
-        String unitsString = "";
-        unitsString += "Base: \t\t\t(" + getBase().getPosition().x + ", " + getBase().getPosition().y + ")" + "\n";
-        unitsString += "\t Health: \t" + getBase().getHealthPoints() + "/" + getBase().getMaxHealthPoints() +"\n";
-        unitsString += "Units:\n";
+        String string = "";
+        string += "Base: \t\t\t(" + getBase().getPosition().x + ", " + getBase().getPosition().y + ")" + "\n";
+        string += "\t Health: \t" + getBase().getHealthPoints() + "/" + getBase().getMaxHealthPoints() +"\n";
+        string += "Units:\n";
         for (int unitID : units.keySet()) {
-            Unit unit = getUnit(unitID);
-            Point position = unit.getPosition();
-
-            unitsString += unitID + "\t" + unit.getUnitName() + ": \t(" + position.x + ", " + position.y + ")" + "\n";
-            unitsString += "\t Health: \t" + unit.getHealthPoints() + "/" + unit.getMaxHealthPoints() + "\n";
+            string += singleUnitToString(unitID);
         }
-        return unitsString;
+        return string;
+    }
+
+    public String singleUnitToString(int unitID) {
+        Unit unit = getUnit(unitID);
+        Point position = unit.getPosition();
+
+        String string = "";
+        string += unitID + "\t" + unit.getUnitName() + ": \t(" + position.x + ", " + position.y + ")" + "\n";
+        string += "\t Health: \t" + unit.getHealthPoints() + "/" + unit.getMaxHealthPoints() + "\n";
+
+        return string;
     }
 
     public boolean checkIfPoistionIsAvailable(Point position, Point battlefieldSize) {
@@ -117,5 +124,15 @@ public class PlayerDeck {
             }
         }
         return coordinatesInRange;
+    }
+
+    public void setUnitsAvailable() {
+        for (Unit unit : units.values()) {
+            unit.setAvailability(true);
+        }
+    }
+
+    public void setUnitUnavailable(int unitID) {
+        getUnit(unitID).setAvailability(false);
     }
 }
