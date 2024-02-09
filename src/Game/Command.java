@@ -1,6 +1,7 @@
 package Game;
 
 import java.awt.*;
+import java.util.ArrayList;
 
 public class Command{
     private final ConsoleIO consoleIO;
@@ -18,8 +19,23 @@ public class Command{
     }
 
     public boolean checkIfPositionIsFree(Point position) {
-        return playerOne.getPlayerDeck().checkIfPoistionIsAvailable(position, battlefield.getSize()) &&
-                playerTwo.getPlayerDeck().checkIfPoistionIsAvailable(position, battlefield.getSize());
+        return playerOne.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize()) &&
+                playerTwo.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize());
+    }
+
+    public boolean checkIfPositionIsDeployable(Point position) {
+        Base base = getCurrentPlayer().getPlayerDeck().getBase();
+        int radius = base.getDeploymentRadius();
+        Point basePosition = base.getPosition();
+
+        ArrayList<Point> baseRadiusPoints = getCurrentPlayer().getPlayerDeck().getCoordinatesInRange(basePosition, radius);
+
+        for (Point i : baseRadiusPoints){
+            if (i.equals(position)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Player defineEnemyPlayer(Player currentPlayer){

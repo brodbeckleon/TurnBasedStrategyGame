@@ -5,11 +5,10 @@ import Units.Unit;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
 
 public class PlayerDeck {
-    private Base base;
-    private Map<Integer, Unit> units = new HashMap<Integer, Unit>();
+    private final Base base;
+    private final HashMap<Integer, Unit> units = new HashMap<>();
     private static int unitID = 0;
 
     public PlayerDeck(Point positionBase) {
@@ -31,7 +30,7 @@ public class PlayerDeck {
         return base;
     }
 
-    public Map getUnits() {
+    public HashMap<Integer, Unit> getUnits() {
         return units;
     }
 
@@ -61,7 +60,7 @@ public class PlayerDeck {
         return string;
     }
 
-    public boolean checkIfPoistionIsAvailable(Point position, Point battlefieldSize) {
+    public boolean checkIfPositionIsAvailable(Point position, Point battlefieldSize) {
         //if the postition is out of bounds
         if (position.x < 0 || position.x > battlefieldSize.x || position.y < 0 || position.y > battlefieldSize.y) {
             return false;
@@ -87,7 +86,7 @@ public class PlayerDeck {
 
     public ArrayList<Integer> getUnitIDsInRange(Point midpoint, int radius){
         ArrayList<Point> coordinatesInRange = getCoordinatesInRange(midpoint, radius);
-        ArrayList<Integer> targetIDs = new ArrayList<Integer>();
+        ArrayList<Integer> targetIDs = new ArrayList<>();
 
         for (Point coordinate : coordinatesInRange) {
             for (int unitID : units.keySet()) {
@@ -99,8 +98,8 @@ public class PlayerDeck {
         return targetIDs;
     }
 
-    private ArrayList<Point> getCoordinatesInRange(Point midpoint, int radius){
-        ArrayList<Point> coordinatesInRange = new ArrayList<Point>();
+    public ArrayList<Point> getCoordinatesInRange(Point midpoint, int radius){
+        ArrayList<Point> coordinatesInRange = new ArrayList<>();
         int midX = midpoint.x;
         int midY = midpoint.y;
 

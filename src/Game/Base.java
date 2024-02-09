@@ -7,6 +7,7 @@ public class Base {
     private int healthPoints;
     private int armorValue;
     private final Point position;
+    private final int deploymentRadius = 2;
 
     public Base (Point position) {
         this.maxHealthPoints = 10000;
@@ -35,6 +36,9 @@ public class Base {
     }
     public Point getPosition() {
         return position;
+    }
+    public int getDeploymentRadius() {
+        return deploymentRadius;
     }
 
 }
