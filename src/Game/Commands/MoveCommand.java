@@ -9,12 +9,11 @@ import Units.Unit;
 import java.awt.*;
 
 public class MoveCommand extends Command {
-    public MoveCommand(ConsoleIO consoleIO, Battlefield battlefield, Player currentPlayer, Player playerOne, Player playerTwo){
-        super(consoleIO, battlefield, currentPlayer, playerOne, playerTwo);
-        move(getCurrentPlayer());
+    public MoveCommand(ConsoleIO consoleIO, Battlefield battlefield, Player playerOne, Player playerTwo){
+        super(consoleIO, battlefield, playerOne, playerTwo);
     }
 
-    private void move(Player player) {
+    public void move(Player player) {
         int unitID = readUnitID();
         Unit unit = player.getPlayerDeck().getUnit(unitID);
         if (unit.getAvailability()) {

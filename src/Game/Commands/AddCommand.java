@@ -6,21 +6,19 @@ import Units.Unit;
 import java.awt.*;
 
 public class AddCommand extends Command {
-    public AddCommand(ConsoleIO consoleIO, Battlefield battlefield, Player currentPlayer, Player playerOne, Player playerTwo){
-        super(consoleIO, battlefield, currentPlayer, playerOne, playerTwo);
-        addUnitToTable(getCurrentPlayer());
+    private final UnitFactory unitFactory= new UnitFactory();
+    public AddCommand(ConsoleIO consoleIO, Battlefield battlefield, Player playerOne, Player playerTwo){
+        super(consoleIO, battlefield, playerOne, playerTwo);
     }
 
-    private void addUnitToTable(Player player) {
+    public void addUnit(Player player) {
         getConsoleIO().print("What unit do you want to add?");
         String unitName = getConsoleIO().readUnitName();
         Point position = readPoint();
 
-        int deploymentRadius = player.getPlayerDeck().getBase().getDeploymentRadius();
-
         if (checkIfPositionIsFree(position)){
-            if (checkIfPositionIsDeployable(position)) {
-                Unit unit = new UnitFactory().createUnit(unitName, position);
+            if (checkIfPositionIsDeployable(player ,position)) {
+                Unit unit = unitFactory.createUnit(unitName, position);
 
                 if (unit != null) {
 

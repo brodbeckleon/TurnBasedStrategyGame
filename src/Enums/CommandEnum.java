@@ -5,6 +5,7 @@ public enum CommandEnum {
     ATTACK,
     MOVE,
     HEAL,
+    STATUS,
     STOP,
     HELP,
     SKIP

@@ -11,6 +11,11 @@ public class Game {
     private boolean isPlayerOneTurn = true;
     private boolean isPlayerTwoTurn = false;
     private final ConsoleIO consoleIO = new ConsoleIO();
+    private final Command command;
+    private final AddCommand addCommand;
+    private final AttackCommand attackCommand;
+    private final MoveCommand moveCommand;
+    private final HealCommand healCommand;
     private final Battlefield battlefield;
     private final Player playerOne;
     private final Player playerTwo;
@@ -19,49 +24,61 @@ public class Game {
         battlefield = new Battlefield(16,16);
         playerOne = new Player(1, new Point(0,0));
         playerTwo = new Player(2, new Point(16,16));
-    }
-
-    public void run() {
-        while (isRunning) {
-            playerOne.getPlayerDeck().setUnitsAvailable();
-            while (isPlayerOneTurn) {
-                gameCycle(playerOne);
-            }
-            addResourcePoints(playerOne);
-
-            playerTwo.getPlayerDeck().setUnitsAvailable();
-            while (isPlayerTwoTurn) {
-                gameCycle(playerTwo);
-            }
-            addResourcePoints(playerTwo);
-        }
-    }
-
-    public void gameCycle(Player player) {
-        consoleIO.println("Game.Player " + player.getPlayerID() + ": \t" + player.getResourcePoints() + "/" + maxResourcePoints);
-        consoleIO.println(player.getPlayerDeck().toString());
-        consoleIO.println("Command:");
-        String input = consoleIO.readString().toUpperCase();
 
         ConsoleIO consoleIO = getConsoleIO();
         Battlefield battlefield = getBattlefield();
         Player playerOne = getPlayerOne();
         Player playerTwo = getPlayerTwo();
 
+        command = new Command(consoleIO, battlefield, playerOne, playerTwo);
+        addCommand = new AddCommand(consoleIO, battlefield, playerOne, playerTwo);
+        attackCommand = new AttackCommand(consoleIO, battlefield, playerOne, playerTwo);
+        moveCommand = new MoveCommand(consoleIO, battlefield, playerOne, playerTwo);
+        healCommand = new HealCommand(consoleIO, battlefield, playerOne, playerTwo);
+    }
+
+    public void run() {
+        while (isRunning) {
+
+            playerOne.getPlayerDeck().setUnitsAvailable();
+            checkStatus(playerOne);
+            while (isPlayerOneTurn) {
+                gameCycle(playerOne);
+                checkWinCondition(playerOne);
+            }
+            addResourcePoints(playerOne);
+
+            playerTwo.getPlayerDeck().setUnitsAvailable();
+            while (isPlayerTwoTurn) {
+                gameCycle(playerTwo);
+                checkWinCondition(playerTwo);
+            }
+            addResourcePoints(playerTwo);
+        }
+        endGame();
+    }
+
+    public void gameCycle(Player player) {
+        consoleIO.println("Command:");
+        String input = consoleIO.readString().toUpperCase();
+
         try {
             CommandEnum commandEnum = CommandEnum.valueOf(input);
             switch (commandEnum) {
                 case ADD:
-                    new AddCommand(consoleIO, battlefield, player, playerOne, playerTwo);
+                    addCommand.addUnit(player);
                     break;
                 case ATTACK:
-                    new AttackCommand(consoleIO, battlefield, player, playerOne, playerTwo);
+                    attackCommand.attack(player);
                     break;
                 case MOVE:
-                    new MoveCommand(consoleIO, battlefield, player, playerOne, playerTwo);
+                    moveCommand.move(player);
                     break;
                 case HEAL:
-                    new HealCommand(consoleIO, battlefield, player, playerOne, playerTwo);
+                    //TODO:
+                    break;
+                case STATUS:
+                    checkStatus(player);
                     break;
                 case SKIP:
                     changeTurn();
@@ -87,6 +104,20 @@ public class Game {
         }
     }
 
+    private void checkWinCondition(Player player) {
+        if (player.getPlayerDeck().getBase().getHealthPoints() < 0) {
+            isRunning = false;
+        }
+        Player winner = command.defineEnemyPlayer(player);
+        int winnerID = winner.getPlayerID();
+        consoleIO.println("Player " + winnerID + "has won!");
+    }
+
+    private void checkStatus(Player player) {
+        consoleIO.println("Player " + player.getPlayerID() + ": \t" + player.getResourcePoints() + "/" + maxResourcePoints);
+        consoleIO.println(player.getPlayerDeck().toString());
+    }
+
     private void changeTurn() {
         isPlayerOneTurn = !isPlayerOneTurn;
         isPlayerTwoTurn = !isPlayerTwoTurn;
@@ -101,6 +132,25 @@ public class Game {
         for (CommandEnum c : CommandEnum.values()) {
             consoleIO.println(c.toString());
         }
+    }
+
+    private void endGame(){
+
+        checkStatus(playerOne);
+        checkStatus(playerTwo);
+        consoleIO.println("Game Finished.");
+        consoleIO.print("Shutting down");
+        try {
+            wait(450);
+            for (int i = 0 ; i < 2 ; i++) {
+                consoleIO.print(".");
+                wait(450);
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        consoleIO.println(".");
+        consoleIO.println("Bye.");
     }
 
     public ConsoleIO getConsoleIO() {

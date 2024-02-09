@@ -13,11 +13,10 @@ import java.util.ArrayList;
 
 public class AttackCommand extends Command {
 
-    public AttackCommand(ConsoleIO consoleIO, Battlefield battlefield, Player currentPlayer, Player playerOne, Player playerTwo){
-        super(consoleIO, battlefield, currentPlayer, playerOne, playerTwo);
-        attack(currentPlayer);
+    public AttackCommand(ConsoleIO consoleIO, Battlefield battlefield, Player playerOne, Player playerTwo){
+        super(consoleIO, battlefield, playerOne, playerTwo);
     }
-    private void attack(Player attacker) {
+    public void attack(Player attacker) {
         Player defender = defineEnemyPlayer(attacker);
         int attackingUnitID = readUnitID();
         Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);

@@ -6,14 +6,12 @@ import java.util.ArrayList;
 public class Command{
     private final ConsoleIO consoleIO;
     private final Battlefield battlefield;
-    private final Player currentPlayer;
     private final Player playerOne;
     private final Player playerTwo;
 
-    public Command(ConsoleIO consoleIO, Battlefield battlefield, Player currentPlayer, Player playerOne, Player playerTwo){
+    public Command(ConsoleIO consoleIO, Battlefield battlefield, Player playerOne, Player playerTwo){
         this.consoleIO = consoleIO;
         this.battlefield = battlefield;
-        this.currentPlayer = currentPlayer;
         this.playerOne = playerOne;
         this.playerTwo = playerTwo;
     }
@@ -23,12 +21,12 @@ public class Command{
                 playerTwo.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize());
     }
 
-    public boolean checkIfPositionIsDeployable(Point position) {
-        Base base = getCurrentPlayer().getPlayerDeck().getBase();
+    public boolean checkIfPositionIsDeployable(Player player, Point position) {
+        Base base = player.getPlayerDeck().getBase();
         int radius = base.getDeploymentRadius();
         Point basePosition = base.getPosition();
 
-        ArrayList<Point> baseRadiusPoints = getCurrentPlayer().getPlayerDeck().getCoordinatesInRange(basePosition, radius);
+        ArrayList<Point> baseRadiusPoints = player.getPlayerDeck().getCoordinatesInRange(basePosition, radius);
 
         for (Point i : baseRadiusPoints){
             if (i.equals(position)) {
@@ -66,10 +64,6 @@ public class Command{
 
     public Battlefield getBattlefield(){
         return battlefield;
-    }
-
-    public Player getCurrentPlayer(){
-        return currentPlayer;
     }
 
     public Player getPlayerOne(){
