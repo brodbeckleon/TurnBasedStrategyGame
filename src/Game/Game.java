@@ -1,5 +1,7 @@
 package Game;
 
+import Units.AssaultClass;
+import Units.AssaultClasses.GroundForces.Vehicles.AssaultTank;
 import Units.Unit;
 import Enums.*;
 
@@ -38,6 +40,7 @@ public class Game {
     }
 
     public void gameCycle(Player player) {
+        player.getPlayerDeck().setUnitsAvailable();
         consoleIO.println("Game.Player " + player.getPlayerID() + ": \t" + player.getResourcePoints() + "/" + maxResourcePoints);
         consoleIO.println(player.getPlayerDeck().toString());
         consoleIO.println("Command:");
@@ -49,7 +52,6 @@ public class Game {
                     addUnitToTable(player);
                     break;
                 case ATTACK:
-                    //scout
                     attack(player);
                     break;
                 case MOVE:
@@ -110,12 +112,59 @@ public class Game {
 
     private void attack(Player attacker) {
         Player defender = defineEnemyPlayer(attacker);
+        int attackingUnitID = readUnitID();
+        Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
 
+        if (attackingUnit instanceof AssaultClass) {
+            int damage = ((AssaultClass) attackingUnit).getDamage();
+
+            ArrayList<Integer> targetIDs = scout(attackingUnitID, attacker, defender);
+
+            if (!(targetIDs.isEmpty())) {
+                consoleIO.println("Which of these targets do you want to attack?");
+                for (int i : targetIDs) {
+                    consoleIO.println(i + ": \t" + defender.getPlayerDeck().getUnit(i).getUnitName());
+                }
+                int defendingUnitID = readUnitID();
+                Unit defendingUnit = defender.getPlayerDeck().getUnit(defendingUnitID);
+
+                if (defendingUnit instanceof AssaultTank) {
+                    int armor = ((AssaultTank) defendingUnit).getArmorValue();
+                    damage -= armor;
+                }
+
+                defendingUnit.setHealthPoints(-damage);
+
+                if (defendingUnit.getHealthPoints() <= 0){
+                    defender.getPlayerDeck().removeUnit(defendingUnitID);
+                    consoleIO.println("The defending Unit has been destroyed.");
+                } else if (damage <= 0) {
+                    defendingUnit.setHealthPoints(damage);
+                    consoleIO.println("The defending Tank has taken no damage!");
+                    defender.getPlayerDeck().singleUnitToString(defendingUnitID);
+                } else {
+                    consoleIO.println("The defending Unit has taken " + damage + " Damagepoints.");
+                    defender.getPlayerDeck().singleUnitToString(defendingUnitID);
+                }
+
+                attacker.getPlayerDeck().setUnitUnavailable(attackingUnitID);
+
+            } else {
+                consoleIO.println("There are no targets in range...");
+            }
+        } else {
+            consoleIO.println("You can't attack with this unit!");
+        }
 
     }
 
-    private void scout(Unit unit) {
+    private ArrayList<Integer> scout(int attackingUnitID, Player attacker, Player defender) {
+        Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
+        Point attackingUnitPoint = attackingUnit.getPosition();
+        int attackingRadius = ((AssaultClass)attackingUnit).getShootingRange();
+        ArrayList<Integer> targets = defender.getPlayerDeck().getUnitIDsInRange(attackingUnitPoint, attackingRadius);
 
+        return targets;
     }
 
     private void move(Player player) {
@@ -124,7 +173,7 @@ public class Game {
         Point newPosition = readPoint();
         if (checkIfPositionIsFree(newPosition)) {
             player.getPlayerDeck().moveUnit(unitID, newPosition);
-
+            player.getPlayerDeck().setUnitUnavailable(unitID);
         } else {
             consoleIO.printError("Position is not free!");
         }
@@ -178,28 +227,4 @@ public class Game {
         return unitID;
     }
 
-    private ArrayList<Point> getCoordinatesInRange(Point midpoint, int radius){
-        ArrayList<Point> coordinatesInRange = new ArrayList<Point>();
-        int midX = midpoint.x;
-        int midY = midpoint.y;
-
-        for (int y = 0; y <= radius * 2; y++) {
-            for (int x = 0; x <= radius * 2; x++) {
-                int deltaX = midX - x;
-                int deltaY = midY - y;
-                double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-                // Point lies outside of the circle
-                if (distance - radius > 1)
-                    continue;
-
-                // Edge threshold
-                if ((double) radius / distance < 0.9)
-                    continue;
-
-                coordinatesInRange.add(new Point(x, y));
-            }
-        }
-        return coordinatesInRange;
-    }
 }
