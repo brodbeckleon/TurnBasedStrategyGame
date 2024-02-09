@@ -2,17 +2,17 @@ package Game;
 
 import Units.Unit;
 
-import java.awt.*;
+import java.awt.Point;
 import java.util.ArrayList;
 import java.util.HashMap;
 
 public class PlayerDeck {
     private final Base base;
     private final HashMap<Integer, Unit> units = new HashMap<>();
-    private static int unitID = 0;
+    private static int unitID = 3;
 
-    public PlayerDeck(Point positionBase) {
-        base = new Base(positionBase);
+    public PlayerDeck(int baseID, Point positionBase) {
+        base = new Base(baseID, positionBase);
     }
 
     public void addUnit(Unit unit) {
@@ -39,9 +39,8 @@ public class PlayerDeck {
     }
 
     public String toString() {
-        String string = "";
-        string += "Base: \t\t\t(" + getBase().getPosition().x + ", " + getBase().getPosition().y + ")" + "\n";
-        string += "\t Health: \t" + getBase().getHealthPoints() + "/" + getBase().getMaxHealthPoints() +"\n";
+        String string = getBase().toString();
+
         string += "Units:\n";
         for (int unitID : units.keySet()) {
             string += singleUnitToString(unitID);
@@ -77,10 +76,13 @@ public class PlayerDeck {
         }
         return true;
     }
-    private void unitIDCounter(){
+    private void unitIDCounter() {
         unitID++;
     }
-    private int getUnitID(){
+    public void setUnitID(int unitID) {
+        PlayerDeck.unitID = unitID;
+    }
+    private int getUnitID() {
         return unitID;
     }
 
@@ -88,7 +90,13 @@ public class PlayerDeck {
         ArrayList<Point> coordinatesInRange = getCoordinatesInRange(midpoint, radius);
         ArrayList<Integer> targetIDs = new ArrayList<>();
 
+
         for (Point coordinate : coordinatesInRange) {
+            //checks if Base is in Range
+            if (getBase().getPosition().equals(coordinate)) {
+                targetIDs.add(getBase().getBaseID());
+            }
+            //checks if a Unit is in Range
             for (int unitID : units.keySet()) {
                 if (getUnit(unitID).getPosition().equals(coordinate)) {
                     targetIDs.add(unitID);

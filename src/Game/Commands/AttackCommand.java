@@ -1,11 +1,9 @@
 package Game.Commands;
 
-import Game.Battlefield;
-import Game.Command;
-import Game.ConsoleIO;
-import Game.Player;
+import Game.*;
 import Units.AssaultClass;
 import Units.AssaultClasses.AssaultTank;
+import Units.AssaultClasses.SelfPropelledArtillery;
 import Units.Unit;
 
 import java.awt.*;
@@ -18,6 +16,7 @@ public class AttackCommand extends Command {
     }
     public void attack(Player attacker) {
         Player defender = defineEnemyPlayer(attacker);
+        //choose attacking unit
         int attackingUnitID = readUnitID();
         Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
 
@@ -25,33 +24,45 @@ public class AttackCommand extends Command {
             if (attackingUnit instanceof AssaultClass) {
                 int damage = ((AssaultClass) attackingUnit).getDamage();
 
+                //choose target
                 ArrayList<Integer> targetIDs = scout(attackingUnitID, attacker, defender);
 
                 if (!(targetIDs.isEmpty())) {
                     getConsoleIO().println("Which of these targets do you want to attack?");
+                    if (targetIDs.contains(1) || targetIDs.contains(2)) {
+                        getConsoleIO().println(defender.getPlayerDeck().getBase().toString());
+                    }
+                    targetIDs.remove(Integer.valueOf(1));
+                    targetIDs.remove(Integer.valueOf(2));
                     for (int i : targetIDs) {
-                        getConsoleIO().println(i + ": \t" + defender.getPlayerDeck().getUnit(i).getUnitName());
+                        getConsoleIO().println(defender.getPlayerDeck().singleUnitToString(i));
                     }
                     int defendingUnitID = readUnitID();
-                    Unit defendingUnit = defender.getPlayerDeck().getUnit(defendingUnitID);
 
-                    if (defendingUnit instanceof AssaultTank) {
-                        int armor = ((AssaultTank) defendingUnit).getArmorValue();
-                        damage -= armor;
-                    }
-
-                    defendingUnit.setHealthPoints(-damage);
-
-                    if (defendingUnit.getHealthPoints() <= 0) {
-                        defender.getPlayerDeck().removeUnit(defendingUnitID);
-                        getConsoleIO().println("The defending Unit has been destroyed.");
-                    } else if (damage <= 0) {
-                        defendingUnit.setHealthPoints(damage);
-                        getConsoleIO().println("The defending Tank has taken no damage!");
-                        defender.getPlayerDeck().singleUnitToString(defendingUnitID);
+                    //attacking
+                    if (defendingUnitID == 1 || defendingUnitID == 2) {
+                        attackBase(attackingUnit, defender);
                     } else {
-                        getConsoleIO().println("The defending Unit has taken " + damage + " Damagepoints.");
-                        defender.getPlayerDeck().singleUnitToString(defendingUnitID);
+                        Unit defendingUnit = defender.getPlayerDeck().getUnit(defendingUnitID);
+
+                        if (defendingUnit instanceof AssaultTank) {
+                            int armor = ((AssaultTank) defendingUnit).getArmorValue();
+                            damage -= armor;
+                        }
+
+                        defendingUnit.setHealthPoints(-damage);
+
+                        if (defendingUnit.getHealthPoints() <= 0) {
+                            defender.getPlayerDeck().removeUnit(defendingUnitID);
+                            getConsoleIO().println("The defending Unit has been destroyed.");
+                        } else if (damage <= 0) {
+                            defendingUnit.setHealthPoints(damage);
+                            getConsoleIO().println("The defending Tank has taken no damage!");
+                            defender.getPlayerDeck().singleUnitToString(defendingUnitID);
+                        } else {
+                            getConsoleIO().println("The defending Unit has taken " + damage + " Damagepoints.");
+                            defender.getPlayerDeck().singleUnitToString(defendingUnitID);
+                        }
                     }
 
                     attacker.getPlayerDeck().setUnitUnavailable(attackingUnitID);
@@ -73,5 +84,34 @@ public class AttackCommand extends Command {
         int attackingRadius = ((AssaultClass)attackingUnit).getShootingRange();
 
         return defender.getPlayerDeck().getUnitIDsInRange(attackingUnitPoint, attackingRadius);
+    }
+
+    private void attackBase(Unit attackingUnit, Player defender) {
+        int damage = ((AssaultClass)attackingUnit).getDamage();
+        Base defendingBase = defender.getPlayerDeck().getBase();
+
+        //extra damage for SPAs
+        if (attackingUnit instanceof SelfPropelledArtillery) {
+            damage *= 4;
+        } else if (attackingUnit instanceof AssaultTank) {
+            damage *= 2;
+        } else {
+            damage /= 2;
+        }
+
+        damage -= defendingBase.getArmorValue();
+
+        defendingBase.setHealthPoints(-damage);
+
+        if (defendingBase.getHealthPoints() <= 0) {
+            getConsoleIO().println("The enemy Base has been destroyed.");
+        } else if (damage <= 0) {
+            defendingBase.setHealthPoints(damage);
+            getConsoleIO().println("The defending Base has taken no damage!");
+            getConsoleIO().println(defender.getPlayerDeck().getBase().toString());
+        } else {
+            getConsoleIO().println("The defending Base has taken " + damage + " Damagepoints.");
+            getConsoleIO().println(defender.getPlayerDeck().getBase().toString());
+        }
     }
 }

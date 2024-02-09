@@ -9,10 +9,10 @@ public class Player {
 
     public Player(int playerID, Point positionBase) {
         this.playerID = playerID;
-        playerDeck = new PlayerDeck(positionBase);
+        playerDeck = new PlayerDeck(playerID, positionBase);
     }
     public void addResourcePoints() {
-        resourcePoints+=2;
+        resourcePoints += 2;
     }
     public void removeResourcePoints(int resourceCost) {
         resourcePoints-=resourceCost;
