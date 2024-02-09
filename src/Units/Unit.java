@@ -3,6 +3,7 @@ package Units;
 import java.awt.*;
 
 public abstract class Unit {
+    private boolean availability = false;
     private final String name;
     private Point position;
     private final int resourceCost;
@@ -32,12 +33,26 @@ public abstract class Unit {
         return name;
     }
     public void setHealthPoints(int healthPoints) {
-        this.healthPoints = healthPoints;
+        this.healthPoints += healthPoints;
+
+        if (this.healthPoints > maxHealthPoints) {
+            this.healthPoints = maxHealthPoints;
+        }
     }
     public int getHealthPoints() {
         return healthPoints;
     }
     public int getMaxHealthPoints() {
         return maxHealthPoints;
+    }
+    public boolean getAvailability() {
+        return availability;
+    }
+    public void setAvailability() {
+        if (availability) {
+            availability = false;
+        } else {
+            availability = true;
+        }
     }
 }
