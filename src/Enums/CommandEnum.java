@@ -1,6 +1,6 @@
 package Enums;
 
-public enum Command {
+public enum CommandEnum {
     ADD,
     ATTACK,
     MOVE,

@@ -43,11 +43,11 @@ public class Game {
         player.getPlayerDeck().setUnitsAvailable();
         consoleIO.println("Game.Player " + player.getPlayerID() + ": \t" + player.getResourcePoints() + "/" + maxResourcePoints);
         consoleIO.println(player.getPlayerDeck().toString());
-        consoleIO.println("Command:");
+        consoleIO.println("CommandEnum:");
         String input = consoleIO.readString().toUpperCase();
         try {
-            Command command = Command.valueOf(input);
-            switch (command) {
+            CommandEnum commandEnum = CommandEnum.valueOf(input);
+            switch (commandEnum) {
                 case ADD:
                     addUnitToTable(player);
                     break;
@@ -195,7 +195,7 @@ public class Game {
 
     private void help() {
         consoleIO.println("Available commands:");
-        for (Command c : Command.values()) {
+        for (CommandEnum c : CommandEnum.values()) {
             consoleIO.println(c.toString());
         }
     }

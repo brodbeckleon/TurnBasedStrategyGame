@@ -1,11 +1,12 @@
 package Units.AssaultClasses;
 
-import Interfaces.Army;
+import Interfaces.MilitaryBranches.Army;
+import Interfaces.MobilityType.ByRoad;
 import Units.AssaultClass;
 
 import java.awt.*;
 
-public abstract class AssaultTank extends AssaultClass implements Army {
+public abstract class AssaultTank extends AssaultClass implements Army, ByRoad {
     private final int armorValue;
     public AssaultTank(String name, Point position, int resourceCost, int healthPoints, int armorValue, int shootingRange, int drivingRange, int damage) {
         super(name, position,resourceCost, healthPoints, shootingRange ,drivingRange, damage);
