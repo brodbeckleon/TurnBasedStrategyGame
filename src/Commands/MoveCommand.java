@@ -8,7 +8,7 @@ import Game.Player;
 import java.awt.*;
 
 public class MoveCommand extends Command {
-    public MoveCommand((ConsoleIO consoleIO, Battlefield battlefield, Player currentPlayer, Player playerOne, Player playerTwo){
+    public MoveCommand(ConsoleIO consoleIO, Battlefield battlefield, Player currentPlayer, Player playerOne, Player playerTwo){
         super(consoleIO, battlefield, currentPlayer, playerOne, playerTwo);
         move(getCurrentPlayer());
     }
