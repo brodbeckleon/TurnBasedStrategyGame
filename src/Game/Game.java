@@ -16,7 +16,7 @@ public class Game {
     private final Player playerTwo;
 
     public Game() {
-        battlefield = new Battlefield(new Point(16,16));
+        battlefield = new Battlefield(16,16);
         playerOne = new Player(1, new Point(0,0));
         playerTwo = new Player(2, new Point(16,16));
     }

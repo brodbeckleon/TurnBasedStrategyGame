@@ -72,8 +72,7 @@ public class AttackCommand extends Command {
         Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
         Point attackingUnitPoint = attackingUnit.getPosition();
         int attackingRadius = ((AssaultClass)attackingUnit).getShootingRange();
-        ArrayList<Integer> targets = defender.getPlayerDeck().getUnitIDsInRange(attackingUnitPoint, attackingRadius);
 
-        return targets;
+        return defender.getPlayerDeck().getUnitIDsInRange(attackingUnitPoint, attackingRadius);
     }
 }

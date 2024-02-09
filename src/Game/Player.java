@@ -4,7 +4,7 @@ import java.awt.*;
 
 public class Player {
     private final int playerID;
-    private PlayerDeck playerDeck ;
+    private final PlayerDeck playerDeck ;
     private int resourcePoints;
 
     public Player(int playerID, Point positionBase) {
