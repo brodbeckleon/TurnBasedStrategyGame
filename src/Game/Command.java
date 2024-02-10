@@ -36,7 +36,7 @@ public class Command{
         return false;
     }
 
-    public Player defineEnemyPlayer(Player currentPlayer){
+    public Player defineOtherPlayer(Player currentPlayer){
         if (currentPlayer.getPlayerID() == 1) {
             return playerTwo;
         } else {

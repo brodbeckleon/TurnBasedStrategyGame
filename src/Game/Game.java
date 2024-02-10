@@ -10,6 +10,7 @@ public class Game {
     private boolean isRunning = true;
     private boolean isPlayerOneTurn = true;
     private boolean isPlayerTwoTurn = false;
+    private boolean hasWon = false;
     private final ConsoleIO consoleIO = new ConsoleIO();
     private final Command command;
     private final AddCommand addCommand;
@@ -45,8 +46,11 @@ public class Game {
             checkStatus(playerOne);
             while (isPlayerOneTurn) {
                 gameCycle(playerOne);
-                checkWinCondition(playerOne);
+                checkWinCondition(playerTwo);
+                if(hasWon) break;
+                checkStatus(playerOne);
             }
+            if(hasWon) break;
             addResourcePoints(playerOne);
 
             consoleIO.println("################################");
@@ -54,8 +58,11 @@ public class Game {
             checkStatus(playerTwo);
             while (isPlayerTwoTurn) {
                 gameCycle(playerTwo);
-                checkWinCondition(playerTwo);
+                checkWinCondition(playerOne);
+                if(hasWon) break;
+                checkStatus(playerTwo);
             }
+            if(hasWon) break;
             addResourcePoints(playerTwo);
         }
         endGame();
@@ -107,12 +114,12 @@ public class Game {
         }
     }
 
-    private void checkWinCondition(Player player) {
-        if (player.getPlayerDeck().getBase().getHealthPoints() < 0) {
+    private void checkWinCondition(Player loser) {
+        if (loser.getPlayerDeck().getBase().getHealthPoints() < 0) {
+            this.hasWon = true;
             stop();
-            Player winner = command.defineEnemyPlayer(player);
-            int winnerID = winner.getPlayerID();
-            consoleIO.println("Player " + winnerID + " has won!");
+            Player winner = command.defineOtherPlayer(loser);
+            consoleIO.println("Player " + winner.getPlayerID() + " has won!");
         }
     }
 
@@ -143,16 +150,16 @@ public class Game {
         checkStatus(playerTwo);
         consoleIO.println("Game Finished.");
         consoleIO.print("Shutting down");
-        try {
-            wait(450);
-            for (int i = 0 ; i < 2 ; i++) {
+        for (int i = 0; i < 3; i++) {
+            try {
+                Thread.sleep(500);
                 consoleIO.print(".");
-                wait(450);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                consoleIO.printError("Interrupted!");
             }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
         }
-        consoleIO.println(".");
+        consoleIO.println("");
         consoleIO.println("Bye.");
     }
 

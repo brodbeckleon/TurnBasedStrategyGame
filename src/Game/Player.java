@@ -5,7 +5,7 @@ import java.awt.*;
 public class Player {
     private final int playerID;
     private final PlayerDeck playerDeck ;
-    private int resourcePoints;
+    private int resourcePoints = 6;
 
     public Player(int playerID, Point positionBase) {
         this.playerID = playerID;

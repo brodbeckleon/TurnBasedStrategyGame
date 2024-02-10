@@ -8,7 +8,7 @@ public class Base {
     private int healthPoints;
     private int armorValue;
     private final Point position;
-    private final int deploymentRadius = 2;
+    private final int deploymentRadius = 3;
 
     public Base (int baseID, Point position) {
         this.baseID = baseID;
@@ -30,7 +30,11 @@ public class Base {
     }
 
     public void setHealthPoints(int healthPoints) {
-        this.healthPoints = healthPoints;
+        this.healthPoints += healthPoints;
+
+        if (this.healthPoints > maxHealthPoints) {
+            this.healthPoints = maxHealthPoints;
+        }
     }
 
     public int getArmorValue() {
@@ -49,7 +53,7 @@ public class Base {
 
     public String toString() {
         String string = "";
-        string += "Base: \t\t\t(" + getPosition().x + ", " + getPosition().y + ")" + "\n";
+        string += getBaseID() + "\tBase: \t\t(" + getPosition().x + ", " + getPosition().y + ")" + "\n";
         string += "\t Health: \t" + getHealthPoints() + "/" + getMaxHealthPoints() +"\n";
         return string;
     }
