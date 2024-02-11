@@ -1,6 +1,7 @@
 package Game.Commands;
 
 import Game.*;
+import Game.Map.Battlefield;
 import Units.AssaultClass;
 import Units.AssaultClasses.AssaultTank;
 import Units.AssaultClasses.SelfPropelledArtillery;

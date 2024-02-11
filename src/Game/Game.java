@@ -2,6 +2,8 @@ package Game;
 
 import Game.Commands.*;
 import Enums.*;
+import Game.Map.Battlefield;
+import Tools.CircleGenerator;
 
 import java.awt.*;
 
@@ -12,6 +14,7 @@ public class Game {
     private boolean isPlayerTwoTurn = false;
     private boolean hasWon = false;
     private final ConsoleIO consoleIO = new ConsoleIO();
+    private final CircleGenerator circleGenerator = new CircleGenerator();
     private final Command command;
     private final AddCommand addCommand;
     private final AttackCommand attackCommand;
@@ -22,9 +25,9 @@ public class Game {
     private final Player playerTwo;
 
     public Game() {
-        battlefield = new Battlefield(16,16);
-        playerOne = new Player(1, new Point(0,0));
-        playerTwo = new Player(2, new Point(16,16));
+        battlefield = new Battlefield(circleGenerator, 16,16, true);
+        playerOne = new Player(circleGenerator, 1, new Point(0,0));
+        playerTwo = new Player(circleGenerator, 2, new Point(16,16));
 
         ConsoleIO consoleIO = getConsoleIO();
         Battlefield battlefield = getBattlefield();

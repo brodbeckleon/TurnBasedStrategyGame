@@ -1,5 +1,13 @@
 package Game;
 
+import Enums.TerrainEnum;
+import Game.Map.Battlefield;
+import Interfaces.MobilityType.ByAir;
+import Interfaces.MobilityType.ByFoot;
+import Interfaces.MobilityType.ByRoad;
+import Interfaces.MobilityType.ByWater;
+import Units.Unit;
+
 import java.awt.*;
 import java.util.ArrayList;
 
@@ -26,7 +34,7 @@ public class Command{
         int radius = base.getDeploymentRadius();
         Point basePosition = base.getPosition();
 
-        ArrayList<Point> baseRadiusPoints = player.getPlayerDeck().getCoordinatesInRange(basePosition, radius);
+        ArrayList<Point> baseRadiusPoints = player.getPlayerDeck().getCircleGenerator().getCoordinatesInRange(basePosition, radius);
 
         for (Point i : baseRadiusPoints){
             if (i.equals(position)) {
@@ -57,6 +65,20 @@ public class Command{
         int unitID = consoleIO.readInt();
         return unitID;
     }
+
+    public boolean checkIfTerrainIsDeployable(Unit unit, Point point) {
+    TerrainEnum terrain = getBattlefield().getGeographyOfPoint(point);
+    if (unit instanceof ByRoad && terrain == TerrainEnum.PLAIN) {
+        return true;
+    } else if (unit instanceof ByAir) {
+        return true;
+    } else if (unit instanceof ByWater && terrain == TerrainEnum.WATER) {
+        return true;
+    } else if (unit instanceof ByFoot && terrain != TerrainEnum.WATER) {
+        return true;
+    }
+    return false;
+}
 
     public ConsoleIO getConsoleIO(){
         return consoleIO;

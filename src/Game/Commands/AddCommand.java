@@ -2,6 +2,7 @@ package Game.Commands;
 
 import Enums.UnitEnum;
 import Game.*;
+import Game.Map.Battlefield;
 import Units.Unit;
 
 import java.awt.*;
@@ -27,7 +28,12 @@ public class AddCommand extends Command {
         if (isMatch) {
             Point point = choosePosition(player);
             Unit unit = unitFactory.createUnit(unitName, point);
-            addUnitToTable(unit, player);
+            if (checkIfTerrainIsDeployable(unit, point)){
+                addUnitToTable(unit, player);
+            } else {
+                getConsoleIO().printError("Terrain is not suited for this Unit");
+                addUnit(player);
+            }
         } else {
             getConsoleIO().printError("Unknown unit name. Please try again");
             addUnit(player);

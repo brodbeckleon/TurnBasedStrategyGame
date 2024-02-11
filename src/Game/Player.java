@@ -1,5 +1,6 @@
 package Game;
 
+import Tools.CircleGenerator;
 import java.awt.*;
 
 public class Player {
@@ -7,9 +8,9 @@ public class Player {
     private final PlayerDeck playerDeck ;
     private int resourcePoints = 6;
 
-    public Player(int playerID, Point positionBase) {
+    public Player(CircleGenerator circleGenerator, int playerID, Point positionBase) {
         this.playerID = playerID;
-        playerDeck = new PlayerDeck(playerID, positionBase);
+        playerDeck = new PlayerDeck(circleGenerator, playerID, positionBase);
     }
     public void addResourcePoints() {
         resourcePoints += 2;

@@ -1,6 +1,6 @@
 package Game.Commands;
 
-import Game.Battlefield;
+import Game.Map.Battlefield;
 import Game.Command;
 import Game.ConsoleIO;
 import Game.Player;
@@ -19,11 +19,15 @@ public class MoveCommand extends Command {
         if (unit.getAvailability()) {
 
             Point newPosition = readPoint();
-            if (checkIfPositionIsFree(newPosition)) {
-                player.getPlayerDeck().moveUnit(unitID, newPosition);
-                player.getPlayerDeck().setUnitUnavailable(unitID);
+            if (checkIfTerrainIsDeployable(unit, newPosition)) {
+                if (checkIfPositionIsFree(newPosition)) {
+                    player.getPlayerDeck().moveUnit(unitID, newPosition);
+                    player.getPlayerDeck().setUnitUnavailable(unitID);
+                } else {
+                    getConsoleIO().printError("Position is not free!");
+                }
             } else {
-                getConsoleIO().printError("Position is not free!");
+                getConsoleIO().printError("Terrain is not suited for this Unit");
             }
         } else {
             getConsoleIO().println("This unit is not available!");

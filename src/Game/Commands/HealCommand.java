@@ -1,6 +1,6 @@
 package Game.Commands;
 
-import Game.Battlefield;
+import Game.Map.Battlefield;
 import Game.Command;
 import Game.ConsoleIO;
 import Game.Player;

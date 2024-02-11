@@ -1,5 +1,6 @@
 package Game;
 
+import Tools.CircleGenerator;
 import Units.Unit;
 
 import java.awt.Point;
@@ -9,9 +10,11 @@ import java.util.HashMap;
 public class PlayerDeck {
     private final Base base;
     private final HashMap<Integer, Unit> units = new HashMap<>();
+    private final CircleGenerator circleGenerator;
     private static int unitID = 3;
 
-    public PlayerDeck(int baseID, Point positionBase) {
+    public PlayerDeck(CircleGenerator circleGenerator, int baseID, Point positionBase) {
+        this.circleGenerator = circleGenerator;
         base = new Base(baseID, positionBase);
     }
 
@@ -87,7 +90,7 @@ public class PlayerDeck {
     }
 
     public ArrayList<Integer> getUnitIDsInRange(Point midpoint, int radius){
-        ArrayList<Point> coordinatesInRange = getCoordinatesInRange(midpoint, radius);
+        ArrayList<Point> coordinatesInRange = circleGenerator.getCoordinatesInRange(midpoint, radius);
         ArrayList<Integer> targetIDs = new ArrayList<>();
 
 
@@ -106,33 +109,6 @@ public class PlayerDeck {
         return targetIDs;
     }
 
-    public ArrayList<Point> getCoordinatesInRange(Point midpoint, int radius){
-        ArrayList<Point> coordinatesInRange = new ArrayList<>();
-        int midX = midpoint.x;
-        int midY = midpoint.y;
-
-        for (int y = 0; y <= radius * 2; y++) {
-            for (int x = 0; x <= radius * 2; x++) {
-                int deltaX = radius - x;
-                int deltaY = radius - y;
-                double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-                // Point lies outside of the circle
-                if (distance - radius > 1) {
-                    continue;
-                }
-
-                // Edge threshold
-                if ((double) radius / distance < 0.9) {
-                    continue;
-                }
-
-                coordinatesInRange.add(new Point(midX - radius + x, midY - radius + y));
-            }
-        }
-        return coordinatesInRange;
-    }
-
     public void setUnitsAvailable() {
         for (Unit unit : units.values()) {
             unit.setAvailability(true);
@@ -141,5 +117,9 @@ public class PlayerDeck {
 
     public void setUnitUnavailable(int unitID) {
         getUnit(unitID).setAvailability(false);
+    }
+
+    public CircleGenerator getCircleGenerator() {
+        return circleGenerator;
     }
 }
