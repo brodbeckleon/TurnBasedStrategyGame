@@ -14,7 +14,7 @@ public class Base {
         this.baseID = baseID;
         this.maxHealthPoints = 10000;
         this.healthPoints = maxHealthPoints;
-        this.armorValue = 20;
+        this.armorValue = 200;
         this.position = position;
     }
 

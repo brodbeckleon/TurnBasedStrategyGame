@@ -34,7 +34,7 @@ public class MapGenerator {
 
     private void generatePlainAroundBase() {
 
-        ArrayList<Point> baseOnePlainCircle = circleGenerator.getCoordinatesInRange(new Point(0,0), 3);
+        ArrayList<Point> baseOnePlainCircle = circleGenerator.getCoordinatesInRange(new Point(0,0), 4);
         Iterator<Point> iterator = baseOnePlainCircle.iterator();
         while (iterator.hasNext()) {
             Point point = iterator.next();
@@ -42,7 +42,7 @@ public class MapGenerator {
                 iterator.remove();
             }
         }
-        ArrayList<Point> baseTwoPlainCircle = circleGenerator.getCoordinatesInRange(new Point(width,height), 3);
+        ArrayList<Point> baseTwoPlainCircle = circleGenerator.getCoordinatesInRange(new Point(width,height), 4);
         iterator = baseTwoPlainCircle.iterator();
         while (iterator.hasNext()) {
             Point point = iterator.next();
