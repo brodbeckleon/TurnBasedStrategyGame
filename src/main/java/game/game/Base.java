@@ -1,0 +1,61 @@
+package main.java.game.game;
+
+import java.awt.Point;
+
+public class Base {
+    private final int baseID;
+    private final int maxHealthPoints;
+    private int healthPoints;
+    private int armorValue;
+    private final Point position;
+    private final int deploymentRadius = 3;
+
+    public Base (int baseID, Point position) {
+        this.baseID = baseID;
+        this.maxHealthPoints = 10000;
+        this.healthPoints = maxHealthPoints;
+        this.armorValue = 200;
+        this.position = position;
+    }
+
+    public int getBaseID() {
+        return baseID;
+    }
+
+    public int getHealthPoints() {
+        return healthPoints;
+    }
+    public int getMaxHealthPoints() {
+        return maxHealthPoints;
+    }
+
+    public void setHealthPoints(int healthPoints) {
+        this.healthPoints += healthPoints;
+
+        if (this.healthPoints > maxHealthPoints) {
+            this.healthPoints = maxHealthPoints;
+        }
+    }
+
+    public int getArmorValue() {
+        return armorValue;
+    }
+
+    public void setArmorValue(int armorValue) {
+        this.armorValue = armorValue;
+    }
+    public Point getPosition() {
+        return position;
+    }
+    public int getDeploymentRadius() {
+        return deploymentRadius;
+    }
+
+    public String toString() {
+        String string = "";
+        string += getBaseID() + "\tBase: \t\t(" + getPosition().x + ", " + getPosition().y + ")" + "\n";
+        string += "\t Health: \t" + getHealthPoints() + "/" + getMaxHealthPoints() +"\n";
+        return string;
+    }
+
+}
