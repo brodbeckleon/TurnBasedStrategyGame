@@ -6,6 +6,7 @@ import game.interfaces.MovableUnit;
 import game.interfaces.mobilityType.*;
 import game.model.Game; // Using the Game model directly
 import game.tools.CircleGenerator;
+import game.units.Base;
 import game.units.Unit;
 
 import java.awt.Point;

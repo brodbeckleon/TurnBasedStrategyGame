@@ -1,6 +1,5 @@
-package game.game; // Or move to game.units
+package game.units; // Or move to game.units
 
-import game.units.Unit;
 import java.awt.Point;
 
 public class Base extends Unit {

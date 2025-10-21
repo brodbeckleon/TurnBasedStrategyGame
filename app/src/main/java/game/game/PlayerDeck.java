@@ -1,6 +1,7 @@
 package game.game;
 
 import game.tools.CircleGenerator;
+import game.units.Base;
 import game.units.Unit;
 
 import java.awt.Point;
