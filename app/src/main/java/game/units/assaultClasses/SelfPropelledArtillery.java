@@ -7,7 +7,7 @@ import game.units.AssaultClass;
 import java.awt.*;
 
 public abstract class SelfPropelledArtillery extends AssaultClass implements Army, ByRoad {
-    public SelfPropelledArtillery(String name, Point position, int resourceCost, int healthPoints, int shootingRange, int drivingRange, int damage) {
-        super(name, position,resourceCost, healthPoints, shootingRange ,drivingRange, damage);
+    public SelfPropelledArtillery(int playerID, String name, Point position, int resourceCost, int healthPoints, int shootingRange, int drivingRange, int damage) {
+        super(playerID, name, position,resourceCost, healthPoints, shootingRange ,drivingRange, damage);
     }
 }

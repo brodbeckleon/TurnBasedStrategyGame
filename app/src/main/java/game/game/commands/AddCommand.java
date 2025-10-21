@@ -1,74 +1,55 @@
 package game.game.commands;
 
 import game.enums.UnitEnum;
-import game.game.*;
-import game.game.map.Battlefield;
+import game.game.Command;
+import game.game.Player;
+import game.game.UnitFactory;
+import game.model.Game;
 import game.units.Unit;
-
-import java.awt.*;
+import java.awt.Point;
 
 public class AddCommand extends Command {
-    private final UnitFactory unitFactory= new UnitFactory();
+    private final UnitFactory unitFactory = new UnitFactory();
 
-    public AddCommand(ConsoleIO consoleIO, Battlefield battlefield, Player playerOne, Player playerTwo){
-        super(consoleIO, battlefield, playerOne, playerTwo);
+    public AddCommand(Game gameModel) {
+        super(gameModel);
     }
 
-    public void addUnit(Player player) {
-        String unitName = getUnitName();
-        boolean isMatch = false;
-
-        for (UnitEnum unit : UnitEnum.values()) {
-            if (unitName.equals(unit.name())) {
-                isMatch = true;
-                break;
-            }
+    /**
+     * Executes the add unit command.
+     * @param player The player performing the action.
+     * @param unitName The name of the unit to create.
+     * @param position The position to place the unit.
+     * @return A CommandResult indicating success or failure.
+     */
+    public CommandResult execute(Player player, String unitName, Point position) {
+        // Check if position is free
+        if (!checkIfPositionIsFree(position)) {
+            return new CommandResult(false, "Position is not free!");
         }
 
-        if (isMatch) {
-            Point point = choosePosition(player);
-            Unit unit = unitFactory.createUnit(unitName, point);
-            if (checkIfTerrainIsDeployable(unit, point)){
-                addUnitToTable(unit, player);
-            } else {
-                getConsoleIO().printError("Terrain is not suited for this Unit");
-                addUnit(player);
-            }
-        } else {
-            getConsoleIO().printError("Unknown unit name. Please try again");
-            addUnit(player);
+        // Check if position is within deployment radius
+        if (!checkIfPositionIsDeployable(player, position)) {
+            return new CommandResult(false, "Position is not in deployment radius of the base!");
         }
-    }
 
-    private String getUnitName() {
-        getConsoleIO().print("Which unit do you want to add?");
-        return getConsoleIO().readUnitName();
-    }
+        // Create the unit
+        Unit unit = unitFactory.createUnit(player.getPlayerID(), unitName, position);
 
-    private Point choosePosition(Player player) {
-        Point position = readPoint();
-
-        if (checkIfPositionIsFree(position)) {
-            if (checkIfPositionIsDeployable(player, position)) {
-                return position;
-
-            } else {
-                getConsoleIO().printError("Position is not in deployment radius of the base!");
-                choosePosition(player);
-            }
-        } else {
-            getConsoleIO().printError("Position is not free!");
-            choosePosition(player);
+        // Check terrain suitability
+        if (!checkIfTerrainIsDeployable(unit, position)) {
+            return new CommandResult(false, "Terrain is not suited for this Unit.");
         }
-        return null;
-    }
 
-    private void addUnitToTable(Unit unit, Player player) {
-        if (player.getResourcePoints() >= unit.getResourceCost()) {
-            player.getPlayerDeck().addUnit(unit);
-            player.removeResourcePoints(unit.getResourceCost());
-        } else {
-            getConsoleIO().printError("Not enough resource points!");
+        // Check resource cost
+        if (player.getResourcePoints() < unit.getResourceCost()) {
+            return new CommandResult(false, "Not enough resource points!");
         }
+
+        // All checks passed, perform the action
+        player.getPlayerDeck().addUnit(unit);
+        player.removeResourcePoints(unit.getResourceCost());
+
+        return new CommandResult(true, unitName + " added successfully.");
     }
 }

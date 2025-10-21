@@ -6,7 +6,7 @@ import game.units.Infrastructure;
 import java.awt.*;
 
 public class AirForceBase extends Infrastructure implements AirForce {
-    public AirForceBase(String name, Point position, int resourceCost, int healthPoints) {
-        super(name, position, resourceCost, healthPoints);
+    public AirForceBase(int playerID, String name, Point position, int resourceCost, int healthPoints) {
+        super(playerID, name, position, resourceCost, healthPoints);
     }
 }

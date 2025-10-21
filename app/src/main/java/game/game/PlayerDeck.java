@@ -8,20 +8,27 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 public class PlayerDeck {
-    private final Base base;
+    private final int playerID; // Store player ID for convenience
+    private final int baseID;   // Store the base's ID for easy retrieval
     private final HashMap<Integer, Unit> units = new HashMap<>();
     private final CircleGenerator circleGenerator;
-    private static int unitID = 3;
+    private static int nextUnitID = 3; // Start unit IDs after bases
 
-    public PlayerDeck(CircleGenerator circleGenerator, int baseID, Point positionBase) {
+    public PlayerDeck(CircleGenerator circleGenerator, int playerID, int baseID, Point positionBase) {
         this.circleGenerator = circleGenerator;
-        base = new Base(baseID, positionBase);
+        this.playerID = playerID;
+        this.baseID = baseID;
+
+        // The Base is now just another Unit in the map, with a special ID
+        Base base = new Base(playerID, baseID, positionBase);
+        units.put(baseID, base);
     }
 
     public void addUnit(Unit unit) {
-        units.put(getUnitID(), unit);
-        unitIDCounter();
+        units.put(nextUnitID, unit);
+        nextUnitID++;
     }
+
     public void removeUnit(int unitID) {
         units.remove(unitID);
     }
@@ -29,64 +36,27 @@ public class PlayerDeck {
     public void moveUnit(int unitID, Point newPosition) {
         getUnit(unitID).setPosition(newPosition);
     }
-    public Base getBase() {
-        return base;
-    }
 
-    public HashMap<Integer, Unit> getUnits() {
-        return units;
+    // Now returns the Base object by retrieving it from the units map
+    public Base getBase() {
+        return (Base) units.get(this.baseID);
     }
 
     public Unit getUnit(int unitID) {
         return units.get(unitID);
     }
 
-    public String toString() {
-        String string = getBase().toString();
-
-        string += "main.java.ga.Units:\n";
-        for (int unitID : units.keySet()) {
-            string += singleUnitToString(unitID);
-        }
-        return string;
-    }
-
-    public String singleUnitToString(int unitID) {
-        Unit unit = getUnit(unitID);
-        Point position = unit.getPosition();
-
-        String string = "";
-        string += unitID + "\t" + unit.getUnitName() + ": \t(" + position.x + ", " + position.y + ")" + "\n";
-        string += "\t Health: \t" + unit.getHealthPoints() + "/" + unit.getMaxHealthPoints() + "\n";
-
-        return string;
-    }
-
+    // Simplified: No longer needs a special check for the base's position
     public boolean checkIfPositionIsAvailable(Point position, Point battlefieldSize) {
-        //if the postition is out of bounds
-        if (position.x < 0 || position.x > battlefieldSize.x || position.y < 0 || position.y > battlefieldSize.y) {
+        if (position.x < 0 || position.x >= battlefieldSize.x || position.y < 0 || position.y >= battlefieldSize.y) {
             return false;
         }
-        //if the position is the same as the base
-        if (base.getPosition().equals(position)) {
-            return false;
-        }
-        //if the position is the same as another unit
         for (Unit unit : units.values()) {
             if (unit.getPosition().equals(position)) {
                 return false;
             }
         }
         return true;
-    }
-    private void unitIDCounter() {
-        unitID++;
-    }
-    public void setUnitID(int unitID) {
-        PlayerDeck.unitID = unitID;
-    }
-    private int getUnitID() {
-        return unitID;
     }
 
     public ArrayList<Integer> getUnitIDsInRange(Point midpoint, int radius){
@@ -111,15 +81,37 @@ public class PlayerDeck {
 
     public void setUnitsAvailable() {
         for (Unit unit : units.values()) {
-            unit.setAvailability(true);
+            // The base's isAvailable() is overridden to always be false, so this is safe
+            unit.setIsAvailable(true);
         }
     }
 
     public void setUnitUnavailable(int unitID) {
-        getUnit(unitID).setAvailability(false);
+        Unit unit = getUnit(unitID);
+        if (unit != null) {
+            unit.setIsAvailable(false);
+        }
     }
 
-    public CircleGenerator getCircleGenerator() {
-        return circleGenerator;
+    // --- Other methods (getters, etc.) remain mostly the same ---
+    public HashMap<Integer, Unit> getUnits() { return units; }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getBase().toString()).append("\n");
+        sb.append("Units:\n");
+        for (Integer id : units.keySet()) {
+            if (id != baseID) { // Don't print the base twice
+                sb.append(singleUnitToString(id)).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    public String singleUnitToString(int unitID) {
+        Unit unit = getUnit(unitID);
+        return String.format("%d\t%s: \t(%d, %d)\n\t Health: \t%d/%d",
+                unitID, unit.getUnitName(), unit.getPosition().x, unit.getPosition().y, unit.getHealthPoints(), unit.getMaxHealthPoints());
     }
 }

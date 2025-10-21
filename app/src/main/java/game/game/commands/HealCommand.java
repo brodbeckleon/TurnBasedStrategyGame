@@ -4,9 +4,10 @@ import game.game.map.Battlefield;
 import game.game.Command;
 import game.game.ConsoleIO;
 import game.game.Player;
+import game.model.Game;
 
 public class HealCommand extends Command {
-    public HealCommand(ConsoleIO consoleIO, Battlefield battlefield, Player playerOne, Player playerTwo) {
-        super(consoleIO, battlefield, playerOne, playerTwo);
+    public HealCommand(Game gameModel) {
+        super(gameModel);
     }
 }

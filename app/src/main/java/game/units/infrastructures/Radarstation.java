@@ -8,7 +8,7 @@ import java.awt.*;
 
 public class Radarstation extends Infrastructure implements AirForce, Navy {
     public final int radarRange = 4;
-    public Radarstation(String name, Point position, int resourceCost, int healthPoints) {
-        super(name, position, resourceCost, healthPoints);
+    public Radarstation(int playerID, String name, Point position, int resourceCost, int healthPoints) {
+        super(playerID, name, position, resourceCost, healthPoints);
     }
 }

@@ -8,6 +8,8 @@
 plugins {
     // Apply the application plugin to add support for building a CLI application in Java.
     application
+    id("org.openjfx.javafxplugin") version "0.1.0"
+    id("java")
 }
 
 repositories {
@@ -15,7 +17,7 @@ repositories {
     mavenCentral()
 }
 
-val javafxVersion = "25"
+val javafxVersion = "23.0.1"
 val platform = when {
     org.gradle.internal.os.OperatingSystem.current().isMacOsX -> "mac"
     org.gradle.internal.os.OperatingSystem.current().isWindows -> "win"
@@ -37,6 +39,11 @@ dependencies {
     implementation("org.openjfx:javafx-graphics:$javafxVersion:$platform")
 }
 
+javafx {
+    version = "23.0.1"
+    modules = listOf("javafx.controls", "javafx.fxml", "javafx.web")
+}
+
 // Apply a specific Java toolchain to ease working on different environments.
 java {
     toolchain {
@@ -46,7 +53,7 @@ java {
 
 application {
     // Define the main class for the application.
-    mainClass = "game.Main"
+    mainClass.set("game.App")
 }
 
 tasks.named<Test>("test") {

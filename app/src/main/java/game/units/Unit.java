@@ -3,19 +3,35 @@ package game.units;
 import java.awt.*;
 
 public abstract class Unit {
-    private boolean availability = false;
+    private final int playerID; // Added playerID
+    private boolean isAvailable = true;
     private final String name;
     private Point position;
     private final int resourceCost;
     private int healthPoints;
     private final int maxHealthPoints;
 
-    public Unit (String name, Point position, int resourceCost, int healthPoints) {
+    public Unit (int playerID, String name, Point position, int resourceCost, int healthPoints) {
+        this.playerID = playerID;
         this.name = name;
         this.position = position;
         this.resourceCost = resourceCost;
         this.healthPoints = healthPoints;
         this.maxHealthPoints = healthPoints;
+    }
+
+    /**
+     * Reduces the unit's health by a given amount.
+     * @param damage The amount of damage to take.
+     */
+    public void takeDamage(int damage) {
+        this.healthPoints -= damage;
+    }
+
+    // --- Getters and Setters ---
+
+    public int getPlayerID() {
+        return playerID;
     }
 
     public Point getPosition() {
@@ -45,10 +61,10 @@ public abstract class Unit {
     public int getMaxHealthPoints() {
         return maxHealthPoints;
     }
-    public boolean getAvailability() {
-        return availability;
+    public boolean isAvailable() {
+        return isAvailable;
     }
-    public void setAvailability(boolean b) {
-        this.availability = b;
+    public void setIsAvailable(boolean available) {
+        this.isAvailable = available;
     }
 }

@@ -4,33 +4,33 @@ import game.game.map.Battlefield;
 import game.game.Command;
 import game.game.ConsoleIO;
 import game.game.Player;
+import game.model.Game;
 import game.units.Unit;
 
 import java.awt.*;
 
 public class MoveCommand extends Command {
-    public MoveCommand(ConsoleIO consoleIO, Battlefield battlefield, Player playerOne, Player playerTwo){
-        super(consoleIO, battlefield, playerOne, playerTwo);
+    public MoveCommand(Game gameModel) {
+        super(gameModel);
     }
 
-    public void move(Player player) {
-        int unitID = readUnitID();
-        Unit unit = player.getPlayerDeck().getUnit(unitID);
-        if (unit.getAvailability()) {
-
-            Point newPosition = readPoint();
-            if (checkIfTerrainIsDeployable(unit, newPosition)) {
-                if (checkIfPositionIsFree(newPosition)) {
-                    player.getPlayerDeck().moveUnit(unitID, newPosition);
-                    player.getPlayerDeck().setUnitUnavailable(unitID);
-                } else {
-                    getConsoleIO().printError("Position is not free!");
-                }
-            } else {
-                getConsoleIO().printError("Terrain is not suited for this Unit");
-            }
-        } else {
-            getConsoleIO().println("This unit is not available!");
+    public CommandResult execute(Player player, int unitID, Point position) {
+        if (!checkIfPositionIsFree(position)) {
+            return new CommandResult(false, "Position is not free!");
         }
+        Unit unit = player.getPlayerDeck().getUnit(unitID);
+
+        if (!checkIfPositionIsInRadius(unit, position)) {
+            return new CommandResult(false, "Position is not in move radius of the unit!");
+        }
+
+        if (!checkIfTerrainIsDeployable(unit, position)) {
+            return new CommandResult(false, "Terrain is not suited for this Unit.");
+        }
+
+        player.getPlayerDeck().moveUnit(unitID, position);
+        player.getPlayerDeck().setUnitUnavailable(unitID);
+
+        return new CommandResult(true, "unit with ID: " + unitID + " moved to position: " + position);
     }
 }

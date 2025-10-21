@@ -6,7 +6,7 @@ import game.units.Infrastructure;
 import java.awt.*;
 
 public class NavyBase extends Infrastructure implements Navy  {
-    public NavyBase(String name, Point position, int resourceCost, int healthPoints) {
-        super(name, position, resourceCost, healthPoints);
+    public NavyBase(int playerID, String name, Point position, int resourceCost, int healthPoints) {
+        super(playerID, name, position, resourceCost, healthPoints);
     }
 }

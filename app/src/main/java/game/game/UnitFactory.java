@@ -9,13 +9,13 @@ import java.awt.*;
 
 
 public class UnitFactory {
-    public Unit createUnit(String unitName, Point position) {
+    public Unit createUnit(int playerID, String unitName, Point position) {
 
         switch (UnitEnum.valueOf(unitName)) {
             case TYPENINETY:
-                return new TypeNinety(position);
+                return new TypeNinety(playerID, position);
             case TYPETEN:
-                return new TypeTen(position);
+                return new TypeTen(playerID, position);
             default:
                 return null;
         }
