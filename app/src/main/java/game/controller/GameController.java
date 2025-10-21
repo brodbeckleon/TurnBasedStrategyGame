@@ -149,7 +149,7 @@ public class GameController {
 
         // Update the view after any action
         view.update(model, selectedUnitId);
-
+        model.checkWinCondition();
         if (model.isGameOver()) {
             view.showWinner(model.getWinnerId());
         }

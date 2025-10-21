@@ -60,7 +60,7 @@ public class Game {
         }
     }
 
-    private void checkWinCondition() {
+    public void checkWinCondition() {
         if (playerOne.getPlayerDeck().getBase().getHealthPoints() <= 0) {
             this.gameOver = true;
             this.winnerId = 2;

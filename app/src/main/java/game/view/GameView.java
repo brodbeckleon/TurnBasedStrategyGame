@@ -10,13 +10,12 @@ import game.units.AssaultClass;
 import game.units.Unit;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
-import javafx.scene.shape.Rectangle;
+import javafx.scene.shape.Line;
 
 import java.awt.Point;
 import java.util.HashMap;
@@ -26,7 +25,6 @@ import java.util.Optional;
 
 public class GameView {
 
-    // --- (Fields are the same) ---
     private final BorderPane root;
     private final GridPane grid;
     private final Label turnLabel;
@@ -41,9 +39,8 @@ public class GameView {
     private final int gridHeight;
     private static final int CELL_SIZE = 40;
     private final Map<String, Image> imageCache = new HashMap<>();
+    private final Map<Point, StackPane> cellPanes = new HashMap<>();
 
-
-    // --- (Constructor is the same) ---
     public GameView(int width, int height) {
         this.gridWidth = width;
         this.gridHeight = height;
@@ -59,6 +56,8 @@ public class GameView {
             grid.getRowConstraints().add(new RowConstraints(CELL_SIZE));
         }
         root.setCenter(grid);
+
+        initializeCellPanes();
 
         VBox controlPanel = new VBox(10);
         controlPanel.setPadding(new Insets(10));
@@ -76,6 +75,17 @@ public class GameView {
         controlPanel.getChildren().addAll(turnLabel, player1Status, player2Status, skipTurnButton, new Label("Info:"), infoArea);
         controlPanel.getChildren().add(3, commandBox);
         root.setRight(controlPanel);
+    }
+
+    private void initializeCellPanes() {
+        for (int y = 0; y < gridHeight; y++) {
+            for (int x = 0; x < gridWidth; x++) {
+                StackPane cellPane = new StackPane();
+                cellPane.setPrefSize(CELL_SIZE, CELL_SIZE);
+                grid.add(cellPane, x, y);
+                cellPanes.put(new Point(x, y), cellPane);
+            }
+        }
     }
 
     private Image loadImage(String path) {
@@ -97,40 +107,63 @@ public class GameView {
         player1Status.setText(String.format("Player 1: %d/%d RP", model.getPlayerOne().getResourcePoints(), 10));
         player2Status.setText(String.format("Player 2: %d/%d RP", model.getPlayerTwo().getResourcePoints(), 10));
 
-        grid.getChildren().clear();
+        clearOverlaysAndUnits();
         drawTerrain(model.getBattlefield());
         drawPlayerUnits(model.getPlayerOne());
         drawPlayerUnits(model.getPlayerTwo());
 
-        // NEW: Draw range overlays for the selected unit
         if (selectedUnitId != -1) {
             drawRangeOverlays(model, selectedUnitId);
+        }
+    }
+
+    private void clearOverlaysAndUnits() {
+        for (int y = 0; y < gridHeight; y++) {
+            for (int x = 0; x < gridWidth; x++) {
+                Point pos = new Point(x, y);
+                StackPane cellPane = cellPanes.get(pos);
+                if (cellPane != null) {
+                    // Remove all children except the first one (terrain)
+                    if (cellPane.getChildren().size() > 1) {
+                        cellPane.getChildren().remove(1, cellPane.getChildren().size());
+                    }
+                }
+            }
         }
     }
 
     private void drawTerrain(Battlefield battlefield) {
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
-                TerrainEnum terrainType = battlefield.getGeographyOfPoint(new Point(x,y));
+                Point pos = new Point(x, y);
+                StackPane cellPane = cellPanes.get(pos);
+                if (cellPane == null) continue;
+
+                cellPane.getChildren().clear();
+
+                TerrainEnum terrainType = battlefield.getGeographyOfPoint(pos);
                 Image terrainImage = loadImage("/images/terrain/" + terrainType + ".png");
                 if (terrainImage != null) {
-                    grid.add(new ImageView(terrainImage), x, y);
+                    ImageView terrainView = new ImageView(terrainImage);
+                    terrainView.setFitWidth(CELL_SIZE);
+                    terrainView.setFitHeight(CELL_SIZE);
+                    cellPane.getChildren().add(terrainView);
                 }
             }
         }
     }
 
     private void drawPlayerUnits(Player player) {
-        // Draw regular units
         for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
             drawUnitWithHealthBar(entry.getValue(), player.getPlayerID(), entry.getKey());
         }
-        // Draw the base
         drawUnitWithHealthBar(player.getPlayerDeck().getBase(), player.getPlayerID(), player.getPlayerDeck().getBase().getBaseID());
     }
 
     private void drawUnitWithHealthBar(Unit unit, int playerID, int unitId) {
         Point pos = unit.getPosition();
+        StackPane cellPane = cellPanes.get(pos);
+        if (cellPane == null) return;
 
         String unitTypeName = unit.getUnitName();
         String imagePath = String.format("/images/units/player%d/%s.png", playerID, unitTypeName);
@@ -144,7 +177,7 @@ public class GameView {
         unitImageView.setPreserveRatio(true);
 
         if (playerID == 2) {
-            unitImageView.setScaleX(-1); // Flip sprite for player 2
+            unitImageView.setScaleX(-1);
         }
 
         double healthPercentage = (double) unit.getHealthPoints() / unit.getMaxHealthPoints();
@@ -159,20 +192,16 @@ public class GameView {
             hpBar.setStyle("-fx-accent: red;");
         }
 
-        StackPane stack = new StackPane();
-        stack.getChildren().addAll(unitImageView, hpBar);
+        StackPane unitStack = new StackPane();
+        unitStack.getChildren().addAll(unitImageView, hpBar);
         StackPane.setAlignment(hpBar, Pos.TOP_CENTER);
+        unitStack.setUserData(unitId);
 
-        stack.setUserData(unitId);
-        grid.add(stack, pos.x, pos.y);
+        cellPane.getChildren().add(unitStack);
     }
 
-    /**
-     * NEW: Draws overlays on the grid to show movement and attack ranges.
-     */
     private void drawRangeOverlays(Game model, int selectedUnitId) {
-
-        Unit selectedUnit = model.findUnitById(selectedUnitId); // Assumes this method exists in Game
+        Unit selectedUnit = model.findUnitById(selectedUnitId);
         if (selectedUnit == null) return;
 
         if (selectedUnit instanceof MovableUnit movableUnit) {
@@ -181,33 +210,89 @@ public class GameView {
             for (int y = 0; y < gridHeight; y++) {
                 for (int x = 0; x < gridWidth; x++) {
                     Point targetPos = new Point(x, y);
+                    StackPane cellPane = cellPanes.get(targetPos);
+                    if (cellPane == null) continue;
+
                     int distance = Math.abs(startPos.x - x) + Math.abs(startPos.y - y);
 
-                    // Check attack range first, as it can overlap with move range
-                    if (movableUnit instanceof AssaultClass assaultingUnit) {
-                        if (assaultingUnit.isAvailable() && distance > 0 && distance <= assaultingUnit.getShootingRange()) {
-                            Rectangle overlay = createOverlay(Color.RED);
-                            grid.add(overlay, x, y);
+                    boolean canMove = false;
+                    boolean canAttack = false;
+
+                    // Check move range
+                    if (((Unit)movableUnit).isAvailable() && distance > 0 && distance <= movableUnit.getMovingRange()) {
+                        if (model.getUnitAt(targetPos) == null) {
+                            canMove = true;
                         }
                     }
-                    // Check move range
-                    else if (((Unit)movableUnit).isAvailable() && distance > 0 && distance <= movableUnit.getMovingRange()) {
-                        if (model.getUnitAt(targetPos) == null) { // Can only move to empty tiles
-                            Rectangle overlay = createOverlay(Color.BLACK);
-                            grid.add(overlay, x, y);
+
+                    // Check attack range
+                    if (movableUnit instanceof AssaultClass assaultingUnit) {
+                        if (assaultingUnit.isAvailable() && distance > 0 && distance <= assaultingUnit.getShootingRange()) {
+                            canAttack = true;
                         }
+                    }
+
+                    // Create appropriate overlay
+                    if (canMove && canAttack) {
+                        Pane crossHatched = createCrossHatchedOverlay();
+                        cellPane.getChildren().add(crossHatched);
+                    } else if (canMove) {
+                        Pane overlay = createDiagonalHatchOverlay(Color.rgb(0, 100, 255, 0.6), false);
+                        cellPane.getChildren().add(overlay);
+                    } else if (canAttack) {
+                        Pane overlay = createDiagonalHatchOverlay(Color.rgb(255, 50, 50, 0.6), true);
+                        cellPane.getChildren().add(overlay);
                     }
                 }
             }
         }
     }
 
-    private Rectangle createOverlay(Color strokeColor) {
-        Rectangle rect = new Rectangle(CELL_SIZE, CELL_SIZE, Color.TRANSPARENT);
-        rect.setStroke(strokeColor);
-        rect.setStrokeWidth(3);
-        rect.setMouseTransparent(true); // Allows clicks to pass through to the node below
-        return rect;
+    private Pane createDiagonalHatchOverlay(Color color, boolean leftDown) {
+        Pane pane = new Pane();
+        pane.setPrefSize(CELL_SIZE, CELL_SIZE);
+        pane.setClip(new javafx.scene.shape.Rectangle(CELL_SIZE, CELL_SIZE)); // Ensures lines don't draw outside the bounds
+
+        double strokeWidth = 1.5; // You can adjust the line thickness
+        int spacing = 6;          // You can adjust the spacing between lines
+
+        if (leftDown) { // from top-left to bottom-right (like a backslash \)
+            for (int i = -CELL_SIZE; i < CELL_SIZE * 2; i += spacing) {
+                Line line = new Line(i - strokeWidth, -strokeWidth, i + CELL_SIZE + strokeWidth, CELL_SIZE + strokeWidth);
+                line.setStroke(color);
+                line.setStrokeWidth(strokeWidth);
+                pane.getChildren().add(line);
+            }
+        } else { // from top-right to bottom-left (like a forward slash /)
+            for (int i = -CELL_SIZE; i < CELL_SIZE * 2; i += spacing) {
+                Line line = new Line(CELL_SIZE - (i - strokeWidth), -strokeWidth, CELL_SIZE - (i + CELL_SIZE + strokeWidth), CELL_SIZE + strokeWidth);
+                line.setStroke(color);
+                line.setStrokeWidth(strokeWidth);
+                pane.getChildren().add(line);
+            }
+        }
+
+        pane.setMouseTransparent(true);
+        return pane;
+    }
+
+    private Pane createCrossHatchedOverlay() {
+        // This now simply combines the two diagonal overlays
+        Color blue = Color.rgb(0, 100, 255, 0.6);
+        Color red = Color.rgb(255, 50, 50, 0.6);
+
+        // Create the red diagonal overlay (top-left to bottom-right)
+        Pane redHatch = createDiagonalHatchOverlay(red, true);
+
+        // Create the blue diagonal overlay (top-right to bottom-left)
+        Pane blueHatch = createDiagonalHatchOverlay(blue, false);
+
+        // Stack them on top of each other
+        StackPane stack = new StackPane(redHatch, blueHatch);
+        stack.setPrefSize(CELL_SIZE, CELL_SIZE);
+        stack.setMouseTransparent(true);
+
+        return stack;
     }
 
     public Pane getRoot() { return root; }
