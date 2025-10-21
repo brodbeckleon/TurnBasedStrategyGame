@@ -4,30 +4,29 @@ import game.enums.TerrainEnum;
 import game.enums.UnitEnum;
 import game.game.Player;
 import game.game.map.Battlefield;
+import game.interfaces.MovableUnit;
 import game.model.Game;
+import game.units.AssaultClass;
 import game.units.Unit;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
-import javafx.scene.control.Button;
-import javafx.scene.control.ChoiceDialog;
-import javafx.scene.control.Label;
-import javafx.scene.control.TextArea;
+import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Rectangle;
 
 import java.awt.Point;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
-/**
- * View: Renders the game state and provides UI controls.
- * Contains no game logic.
- */
 public class GameView {
 
-    // --- Fields ---
+    // --- (Fields are the same) ---
     private final BorderPane root;
     private final GridPane grid;
     private final Label turnLabel;
@@ -38,14 +37,13 @@ public class GameView {
     private final Button addUnitButton;
     private final Button moveButton;
     private final Button attackButton;
-
     private final int gridWidth;
     private final int gridHeight;
     private static final int CELL_SIZE = 40;
-
-    // --- NEW: Image cache to improve performance ---
     private final Map<String, Image> imageCache = new HashMap<>();
 
+
+    // --- (Constructor is the same) ---
     public GameView(int width, int height) {
         this.gridWidth = width;
         this.gridHeight = height;
@@ -62,7 +60,6 @@ public class GameView {
         }
         root.setCenter(grid);
 
-        // --- Control Panel (No changes here) ---
         VBox controlPanel = new VBox(10);
         controlPanel.setPadding(new Insets(10));
         turnLabel = new Label();
@@ -81,127 +78,138 @@ public class GameView {
         root.setRight(controlPanel);
     }
 
-    /**
-     * NEW: Helper method to load images and cache them.
-     * This is more efficient than loading from disk every time.
-     * @param path The path to the image within the resources folder.
-     * @return The loaded Image object, or null if not found.
-     */
     private Image loadImage(String path) {
-        // Check if the image is already in our cache
-        if (imageCache.containsKey(path)) {
-            return imageCache.get(path);
-        }
-        // If not, try to load it
+        if (imageCache.containsKey(path)) return imageCache.get(path);
         try {
-            Image image = new Image(getClass().getResourceAsStream(path));
-            if (image.isError()) {
-                throw new Exception("Image failed to load: " + path);
-            }
-            imageCache.put(path, image); // Add the loaded image to the cache
+            Image image = new Image(Objects.requireNonNull(getClass().getResourceAsStream(path)));
+            imageCache.put(path, image);
             return image;
         } catch (Exception e) {
             System.err.println("Could not load image: " + path);
-            // Put a null or a placeholder in the cache to avoid trying again
             imageCache.put(path, null);
             return null;
         }
     }
 
-    /**
-     * UPDATED: The main update method now controls the drawing order.
-     * 1. Clear the grid.
-     * 2. Draw the terrain background.
-     * 3. Draw the units on top.
-     */
-    public void update(Game model) {
-        // Update turn label and player status (no changes)
+    public void update(Game model, int selectedUnitId) {
         Player currentPlayer = model.getCurrentPlayer();
         turnLabel.setText("Current Turn: Player " + currentPlayer.getPlayerID());
         player1Status.setText(String.format("Player 1: %d/%d RP", model.getPlayerOne().getResourcePoints(), 10));
         player2Status.setText(String.format("Player 2: %d/%d RP", model.getPlayerTwo().getResourcePoints(), 10));
 
-        // Redraw the entire grid
-        grid.getChildren().clear(); // Clear everything once
-        drawTerrain(model.getBattlefield()); // Draw the background terrain first
-        drawPlayerUnits(model.getPlayerOne()); // Draw Player 1's units on top
-        drawPlayerUnits(model.getPlayerTwo()); // Draw Player 2's units on top
+        grid.getChildren().clear();
+        drawTerrain(model.getBattlefield());
+        drawPlayerUnits(model.getPlayerOne());
+        drawPlayerUnits(model.getPlayerTwo());
+
+        // NEW: Draw range overlays for the selected unit
+        if (selectedUnitId != -1) {
+            drawRangeOverlays(model, selectedUnitId);
+        }
     }
 
-    /**
-     * NEW: Draws the terrain tiles for the entire map.
-     * This must be called BEFORE drawing units.
-     */
     private void drawTerrain(Battlefield battlefield) {
-        // Note: This assumes your Battlefield class can provide terrain info.
-        // You might need to implement a method like 'getTerrainType(x, y)'.
-        // For this example, we'll just draw a "grass" tile everywhere.
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
-                // String terrainType = battlefield.getTerrainType(x, y).toLowerCase(); // e.g., "grass"
                 TerrainEnum terrainType = battlefield.getGeographyOfPoint(new Point(x,y));
                 Image terrainImage = loadImage("/images/terrain/" + terrainType + ".png");
                 if (terrainImage != null) {
-                    ImageView terrainView = new ImageView(terrainImage);
-                    terrainView.setFitWidth(CELL_SIZE);
-                    terrainView.setFitHeight(CELL_SIZE);
-                    grid.add(terrainView, x, y);
+                    grid.add(new ImageView(terrainImage), x, y);
                 }
             }
         }
+    }
+
+    private void drawPlayerUnits(Player player) {
+        // Draw regular units
+        for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
+            drawUnitWithHealthBar(entry.getValue(), player.getPlayerID(), entry.getKey());
+        }
+        // Draw the base
+        drawUnitWithHealthBar(player.getPlayerDeck().getBase(), player.getPlayerID(), player.getPlayerDeck().getBase().getBaseID());
+    }
+
+    private void drawUnitWithHealthBar(Unit unit, int playerID, int unitId) {
+        Point pos = unit.getPosition();
+
+        String unitTypeName = unit.getUnitName();
+        String imagePath = String.format("/images/units/player%d/%s.png", playerID, unitTypeName);
+        Image unitImage = loadImage(imagePath);
+
+        if (unitImage == null) return;
+
+        ImageView unitImageView = new ImageView(unitImage);
+        unitImageView.setFitWidth(CELL_SIZE);
+        unitImageView.setFitHeight(CELL_SIZE);
+        unitImageView.setPreserveRatio(true);
+
+        if (playerID == 2) {
+            unitImageView.setScaleX(-1); // Flip sprite for player 2
+        }
+
+        double healthPercentage = (double) unit.getHealthPoints() / unit.getMaxHealthPoints();
+        ProgressBar hpBar = new ProgressBar(healthPercentage);
+        hpBar.setPrefWidth(CELL_SIZE - 4);
+        hpBar.setPrefHeight(5);
+        if (healthPercentage > 0.6) {
+            hpBar.setStyle("-fx-accent: green;");
+        } else if (healthPercentage > 0.3) {
+            hpBar.setStyle("-fx-accent: orange;");
+        } else {
+            hpBar.setStyle("-fx-accent: red;");
+        }
+
+        StackPane stack = new StackPane();
+        stack.getChildren().addAll(unitImageView, hpBar);
+        StackPane.setAlignment(hpBar, Pos.TOP_CENTER);
+
+        stack.setUserData(unitId);
+        grid.add(stack, pos.x, pos.y);
     }
 
     /**
-     * UPDATED: Draws units using PNGs instead of rectangles.
-     * Also flips the image for player 2.
+     * NEW: Draws overlays on the grid to show movement and attack ranges.
      */
-    private void drawPlayerUnits(Player player) {
-        int playerID = player.getPlayerID();
+    private void drawRangeOverlays(Game model, int selectedUnitId) {
 
-        // Draw all units in the player's deck
-        for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
-            Integer unitId = entry.getKey();
-            Unit unit = entry.getValue();
-            Point pos = unit.getPosition();
+        Unit selectedUnit = model.findUnitById(selectedUnitId); // Assumes this method exists in Game
+        if (selectedUnit == null) return;
 
-            // Construct the path to the unit's image
-            // This assumes unit.getUnitType().name() returns something like "TYPENINETY"
-            String unitTypeName = unit.getUnitName();
-            String imagePath = String.format("/images/units/player%d/%s.png", playerID, unitTypeName);
-            Image unitImage = loadImage(imagePath);
+        if (selectedUnit instanceof MovableUnit movableUnit) {
+            Point startPos = ((Unit)movableUnit).getPosition();
 
-            if (unitImage != null) {
-                ImageView unitImageView = new ImageView(unitImage);
-                unitImageView.setFitWidth(CELL_SIZE);
-                unitImageView.setFitHeight(CELL_SIZE);
-                unitImageView.setPreserveRatio(true); // Keep aspect ratio
+            for (int y = 0; y < gridHeight; y++) {
+                for (int x = 0; x < gridWidth; x++) {
+                    Point targetPos = new Point(x, y);
+                    int distance = Math.abs(startPos.x - x) + Math.abs(startPos.y - y);
 
-                // Store the unit's ID for the controller to identify it on click
-                unitImageView.setUserData(unitId);
-
-                // --- NEW: Flip the image for Player 2 ---
-                if (playerID == 2) {
-                    unitImageView.setScaleX(-1);
+                    // Check attack range first, as it can overlap with move range
+                    if (movableUnit instanceof AssaultClass assaultingUnit) {
+                        if (assaultingUnit.isAvailable() && distance > 0 && distance <= assaultingUnit.getShootingRange()) {
+                            Rectangle overlay = createOverlay(Color.RED);
+                            grid.add(overlay, x, y);
+                        }
+                    }
+                    // Check move range
+                    else if (((Unit)movableUnit).isAvailable() && distance > 0 && distance <= movableUnit.getMovingRange()) {
+                        if (model.getUnitAt(targetPos) == null) { // Can only move to empty tiles
+                            Rectangle overlay = createOverlay(Color.BLACK);
+                            grid.add(overlay, x, y);
+                        }
+                    }
                 }
-
-                grid.add(unitImageView, pos.x, pos.y);
             }
-        }
-
-        // Draw the player's base using a PNG
-        Point basePos = player.getPlayerDeck().getBase().getPosition();
-        String baseImagePath = String.format("/images/units/player%d/Base.png", playerID);
-        Image baseImage = loadImage(baseImagePath);
-        if (baseImage != null) {
-            ImageView baseImageView = new ImageView(baseImage);
-            baseImageView.setFitWidth(CELL_SIZE);
-            baseImageView.setFitHeight(CELL_SIZE);
-            baseImageView.setUserData(player.getPlayerDeck().getBase().getBaseID());
-            grid.add(baseImageView, basePos.x, basePos.y);
         }
     }
 
-    // --- Other methods (no changes) ---
+    private Rectangle createOverlay(Color strokeColor) {
+        Rectangle rect = new Rectangle(CELL_SIZE, CELL_SIZE, Color.TRANSPARENT);
+        rect.setStroke(strokeColor);
+        rect.setStrokeWidth(3);
+        rect.setMouseTransparent(true); // Allows clicks to pass through to the node below
+        return rect;
+    }
+
     public Pane getRoot() { return root; }
 
     public Optional<UnitEnum> showAddUnitDialog() {

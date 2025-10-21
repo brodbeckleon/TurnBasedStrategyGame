@@ -24,6 +24,7 @@ public class App extends Application {
 
         // 3. Set up the main stage (window)
         Scene scene = new Scene(view.getRoot(), 950, 700);
+        scene.getStylesheets().add(getClass().getResource("/styling/progress.css").toExternalForm());
         primaryStage.setTitle("Battlefield Game");
         primaryStage.setScene(scene);
         primaryStage.show();

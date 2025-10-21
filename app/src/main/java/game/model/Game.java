@@ -6,6 +6,8 @@ import game.tools.CircleGenerator;
 import game.units.AssaultClass;
 import game.units.Unit;
 import java.awt.Point;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Model: Represents the core game logic and state.
@@ -80,4 +82,53 @@ public class Game {
     public boolean isPlayerOneTurn() { return isPlayerOneTurn; }
     public boolean isGameOver() { return gameOver; }
     public int getWinnerId() { return winnerId; }
+
+    public Unit getUnitAt(Point clickedPoint) {
+        for (Unit unit :  playerOne.getPlayerDeck().getUnits().values()) {
+            if (unit.getPosition().equals(clickedPoint)) {
+                return unit;
+            }
+        }
+        for (Unit unit :  playerTwo.getPlayerDeck().getUnits().values()) {
+            if (unit.getPosition().equals(clickedPoint)) {
+                return unit;
+            }
+        }
+        return null;
+    }
+
+    public Unit findUnitById(int selectedUnitId) {
+        Unit selectedUnit = null;
+        if (playerOne.getPlayerDeck().getUnits().containsKey(selectedUnitId)) {
+            selectedUnit = playerOne.getPlayerDeck().getUnits().get(selectedUnitId);
+        }
+        if (playerTwo.getPlayerDeck().getUnits().containsKey(selectedUnitId)) {
+            selectedUnit = playerTwo.getPlayerDeck().getUnit(selectedUnitId);
+        }
+        return selectedUnit;
+    }
+
+    public int getUnitID(Unit clickedUnit) {
+        int selectedUnitId = -1;
+
+        for (Map.Entry<Integer, Unit> entry : playerOne.getPlayerDeck().getUnits().entrySet()) {
+            if (entry.getValue().equals(clickedUnit)) {
+                selectedUnitId = entry.getKey();
+                break;
+            }
+        }
+
+        for (Map.Entry<Integer, Unit> entry : playerTwo.getPlayerDeck().getUnits().entrySet()) {
+            if (entry.getValue().equals(clickedUnit)) {
+                selectedUnitId = entry.getKey();
+                break;
+            }
+        }
+
+        return selectedUnitId;
+    }
+
+    public boolean isUnitOwnedByCurrentPlayer(int unitID) {
+        return getCurrentPlayer().getPlayerDeck().getUnits().containsKey(unitID);
+    }
 }

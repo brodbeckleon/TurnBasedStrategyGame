@@ -4,29 +4,26 @@ import game.game.Player;
 import game.game.commands.*;
 import game.model.Game;
 import game.enums.UnitEnum;
+import game.units.Unit;
 import game.view.GameView;
 import javafx.scene.Node;
-import javafx.scene.control.Alert;
 import javafx.scene.input.MouseEvent;
 import java.awt.Point;
 import java.util.Optional;
 
 public class GameController {
 
-    private static final int CELL_SIZE = 40; // Use the same constant here
+    private static final int CELL_SIZE = 40;
 
     private enum ControllerState {
         NORMAL,
-        AWAITING_PLACEMENT,
-        AWAITING_UNIT_SELECTION_FOR_MOVE,
-        AWAITING_ATTACKER_SELECTION,
-        AWAITING_ATTACK_TARGET, AWAITING_MOVE_TARGET
+        UNIT_SELECTED,
+        AWAITING_PLACEMENT
     }
 
     private final Game model;
     private final GameView view;
 
-    // --- Instantiate your command classes ---
     private final AddCommand addCommand;
     private final MoveCommand moveCommand;
     private final AttackCommand attackCommand;
@@ -34,124 +31,127 @@ public class GameController {
 
     private ControllerState currentState = ControllerState.NORMAL;
     private UnitEnum unitTypeToAdd = null;
-    private int selectedUnitId = -1;
-    private int selectedAttackerID = -1;
-
+    private int selectedUnitId = -1; // -1 means no unit is selected
 
     public GameController(Game model, GameView view) {
         this.model = model;
         this.view = view;
 
-        // Initialize commands with the game model
         this.addCommand = new AddCommand(model);
         this.moveCommand = new MoveCommand(model);
         this.attackCommand = new AttackCommand(model);
         this.healCommand = new HealCommand(model);
 
-        // Attach event handlers
         attachHandlers();
-
-        this.view.update(model);
+        // Initial view update
+        view.update(model, selectedUnitId);
     }
 
     private void attachHandlers() {
         view.getSkipTurnButton().setOnAction(e -> endTurn());
         view.getGrid().setOnMouseClicked(this::handleGridClick);
         view.getAddUnitButton().setOnAction(e -> prepareAddUnit());
-        view.getMoveButton().setOnAction(e -> prepareMoveUnit());
-        view.getAttackButton().setOnAction(e -> prepareAttack());
+        // The move and attack buttons are no longer needed for the primary flow
+        view.getMoveButton().setDisable(true);
+        view.getAttackButton().setDisable(true);
     }
 
     private void endTurn() {
-        currentState = ControllerState.NORMAL; // Reset state on turn end
+        resetSelection(); // Deselect unit when turn ends
         model.switchTurn();
         view.logInfo("Player " + model.getCurrentPlayer().getPlayerID() + "'s turn begins.");
-        view.update(model);
+        view.update(model, selectedUnitId);
     }
 
+    // This method is largely the same
     private void prepareAddUnit() {
-        // Use the view to get the unit type from the user
-        Optional<UnitEnum> result = view.showAddUnitDialog(); // Assumes this method exists in your view
-
+        Optional<UnitEnum> result = view.showAddUnitDialog();
         if (result.isPresent()) {
             unitTypeToAdd = result.get();
+            resetSelection();
             currentState = ControllerState.AWAITING_PLACEMENT;
             view.logInfo("Select a tile to place your " + unitTypeToAdd.name());
         } else {
             view.logInfo("Add unit cancelled.");
-            currentState = ControllerState.NORMAL;
         }
+        view.update(model, selectedUnitId);
     }
 
-    private void prepareMoveUnit() {
-        // Ask the user to click a unit on the grid
-        currentState = ControllerState.AWAITING_UNIT_SELECTION_FOR_MOVE;
-        view.logInfo("Select a unit to move.");
+    // NEW: Helper to deselect units and reset state
+    private void resetSelection() {
+        selectedUnitId = -1;
+        currentState = ControllerState.NORMAL;
     }
 
-    private void prepareAttack() {
-        currentState = ControllerState.AWAITING_ATTACKER_SELECTION;
-        view.logInfo("Select a unit to attack with.");
-    }
-
+    /**
+     * REWRITTEN: This method now contains the core logic for selecting, moving, and attacking.
+     */
     private void handleGridClick(MouseEvent event) {
         if (model.isGameOver()) return;
-        // Use the CELL_SIZE for accurate coordinate calculation
+
         int col = (int) (event.getX() / CELL_SIZE);
         int row = (int) (event.getY() / CELL_SIZE);
         Point clickedPoint = new Point(col, row);
 
+        // This part is for adding new units
+        if (currentState == ControllerState.AWAITING_PLACEMENT) {
+            CommandResult result = addCommand.execute(model.getCurrentPlayer(), unitTypeToAdd.name(), clickedPoint);
+            view.logInfo(result.getMessage());
+            currentState = ControllerState.NORMAL;
+            view.update(model, selectedUnitId);
+            return;
+        }
+
+        Optional<Unit> candidate = Optional.ofNullable(model.getUnitAt(clickedPoint));
+        Unit clickedUnit = null;
+        clickedUnit = candidate.orElse(null);
         Player currentPlayer = model.getCurrentPlayer();
 
-        switch (currentState) {
-            case AWAITING_PLACEMENT -> {
-                CommandResult result = addCommand.execute(currentPlayer, unitTypeToAdd.name(), clickedPoint);
+        if (currentState == ControllerState.NORMAL) {
+            // --- SELECT A UNIT ---
+            if (clickedUnit != null && model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
+                selectedUnitId = model.getUnitID(clickedUnit);
+                currentState = ControllerState.UNIT_SELECTED;
+                view.logInfo("Unit " + selectedUnitId + " selected. Click a target to move or attack.");
+            }
+        } else if (currentState == ControllerState.UNIT_SELECTED) {
+            Unit selectedUnit = model.findUnitById(selectedUnitId);
+            if (selectedUnit == null) { // Should not happen
+                view.logInfo("Selected unit " + selectedUnitId + " not found.");
+                resetSelection();
+                return;
+            }
+
+            // --- DESELECT OR RESELECT ---
+            if (clickedUnit != null && model.getUnitID(clickedUnit) == selectedUnitId) {
+                resetSelection();
+                view.logInfo("Unit deselected.");
+            }
+            // --- ATTACK AN ENEMY ---
+            else if (clickedUnit != null && !model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
+                CommandResult result = attackCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
                 view.logInfo(result.getMessage());
-                currentState = ControllerState.NORMAL;
+                // After an action, always deselect
+                resetSelection();
             }
-            case AWAITING_UNIT_SELECTION_FOR_MOVE -> {
-                // Identify the unit ID clicked
-                Node clickedNode = event.getPickResult().getIntersectedNode();
-                if (clickedNode != null && clickedNode.getUserData() instanceof Integer) {
-                    selectedUnitId = (Integer) clickedNode.getUserData();
-                    view.logInfo("Selected unit " + selectedUnitId + ". Click target tile to move.");
-                    currentState = ControllerState.AWAITING_MOVE_TARGET;
-                }
-            }
-            case AWAITING_MOVE_TARGET -> {
+            // --- MOVE TO AN EMPTY TILE ---
+            else if (clickedUnit == null) {
                 CommandResult result = moveCommand.execute(currentPlayer, selectedUnitId, clickedPoint);
                 view.logInfo(result.getMessage());
-                currentState = ControllerState.NORMAL;
-                selectedUnitId = -1;
-            }
-            case AWAITING_ATTACKER_SELECTION -> {
-                Node clickedNode = event.getPickResult().getIntersectedNode();
-                if (clickedNode != null && clickedNode.getUserData() instanceof Integer) {
-                    selectedAttackerID = (Integer) clickedNode.getUserData();
-                    view.logInfo("Selected attacker " + selectedAttackerID + ". Now select target.");
-                    currentState = ControllerState.AWAITING_ATTACK_TARGET;
-                }
-            }
-            case AWAITING_ATTACK_TARGET -> {
-                Node clickedNode = event.getPickResult().getIntersectedNode();
-                if (clickedNode != null && clickedNode.getUserData() instanceof Integer) {
-                    int targetID = (Integer) clickedNode.getUserData();
-                    CommandResult result = attackCommand.execute(model.getCurrentPlayer(), selectedAttackerID, targetID);
-                    view.logInfo(result.getMessage());
-                    selectedAttackerID = -1;
-                    currentState = ControllerState.NORMAL;
-                }
-            }
-            default -> {
-                // Normal click behavior
+                // After an action, always deselect
+                resetSelection();
+            } else {
+                // If another friendly unit is clicked, switch selection to it
+                selectedUnitId = model.getUnitID(clickedUnit);
+                view.logInfo("Switched selection to unit " + selectedUnitId + ".");
             }
         }
 
-        view.update(model);
+        // Update the view after any action
+        view.update(model, selectedUnitId);
 
         if (model.isGameOver()) {
             view.showWinner(model.getWinnerId());
         }
     }
-
 }
