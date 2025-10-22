@@ -1,0 +1,25 @@
+/* Minimal, eckig, flach */
+.progress-bar {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;    /* keine Rundungen */
+    -fx-border-radius: 0;
+    -fx-padding: 0;
+    -fx-effect: null;
+}
+
+/* die Bahn (Hintergrund) */
+.progress-bar .track {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-padding: 0;
+}
+
+/* der Fortschrittsbalken selbst */
+.progress-bar .bar {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
