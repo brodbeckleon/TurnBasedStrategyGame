@@ -6,6 +6,7 @@ import game.game.Player;
 import game.game.map.Battlefield;
 import game.interfaces.MovableUnit;
 import game.model.Game;
+import game.tools.CircleGenerator;
 import game.units.AssaultClass;
 import game.units.Unit;
 import javafx.geometry.Insets;
@@ -18,10 +19,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
 
 import java.awt.Point;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 
 public class GameView {
 
@@ -40,6 +38,7 @@ public class GameView {
     private static final int CELL_SIZE = 40;
     private final Map<String, Image> imageCache = new HashMap<>();
     private final Map<Point, StackPane> cellPanes = new HashMap<>();
+    private final CircleGenerator circleGenerator = new CircleGenerator();
 
     public GameView(int width, int height) {
         this.gridWidth = width;
@@ -207,42 +206,41 @@ public class GameView {
         if (selectedUnit instanceof MovableUnit movableUnit) {
             Point startPos = ((Unit)movableUnit).getPosition();
 
-            for (int y = 0; y < gridHeight; y++) {
-                for (int x = 0; x < gridWidth; x++) {
-                    Point targetPos = new Point(x, y);
-                    StackPane cellPane = cellPanes.get(targetPos);
-                    if (cellPane == null) continue;
+            // Generate ranges
+            java.util.List<Point> moveRange = ((Unit)movableUnit).isAvailable() ?
+                    circleGenerator.getCoordinatesInRange(startPos, movableUnit.getMovingRange()) :
+                    new ArrayList<>();
 
-                    int distance = Math.abs(startPos.x - x) + Math.abs(startPos.y - y);
+            java.util.List<Point> attackRange = (movableUnit instanceof AssaultClass assaultingUnit && assaultingUnit.isAvailable()) ?
+                    circleGenerator.getCoordinatesInRange(startPos, assaultingUnit.getShootingRange()) :
+                    new ArrayList<>();
 
-                    boolean canMove = false;
-                    boolean canAttack = false;
+            Set<Point> allPoints = new HashSet<>();
+            allPoints.addAll(moveRange);
+            allPoints.addAll(attackRange);
 
-                    // Check move range
-                    if (((Unit)movableUnit).isAvailable() && distance > 0 && distance <= movableUnit.getMovingRange()) {
-                        if (model.getUnitAt(targetPos) == null) {
-                            canMove = true;
-                        }
-                    }
+            for (Point targetPos : allPoints) {
+                if (targetPos.x < 0 || targetPos.x >= gridWidth ||
+                        targetPos.y < 0 || targetPos.y >= gridHeight ||
+                        targetPos.equals(startPos)) {
+                    continue;
+                }
 
-                    // Check attack range
-                    if (movableUnit instanceof AssaultClass assaultingUnit) {
-                        if (assaultingUnit.isAvailable() && distance > 0 && distance <= assaultingUnit.getShootingRange()) {
-                            canAttack = true;
-                        }
-                    }
+                StackPane cellPane = cellPanes.get(targetPos);
+                if (cellPane == null) continue;
 
-                    // Create appropriate overlay
-                    if (canMove && canAttack) {
-                        Pane crossHatched = createCrossHatchedOverlay();
-                        cellPane.getChildren().add(crossHatched);
-                    } else if (canMove) {
-                        Pane overlay = createDiagonalHatchOverlay(Color.rgb(0, 100, 255, 0.6), false);
-                        cellPane.getChildren().add(overlay);
-                    } else if (canAttack) {
-                        Pane overlay = createDiagonalHatchOverlay(Color.rgb(255, 50, 50, 0.6), true);
-                        cellPane.getChildren().add(overlay);
-                    }
+                boolean canMove = moveRange.contains(targetPos) && model.getUnitAt(targetPos) == null;
+                boolean canAttack = attackRange.contains(targetPos);
+
+                if (canMove && canAttack) {
+                    Pane crossHatched = createCrossHatchedOverlay();
+                    cellPane.getChildren().add(crossHatched);
+                } else if (canMove) {
+                    Pane overlay = createDiagonalHatchOverlay(Color.rgb(0, 100, 255, 0.4), false);
+                    cellPane.getChildren().add(overlay);
+                } else if (canAttack) {
+                    Pane overlay = createDiagonalHatchOverlay(Color.rgb(255, 50, 50, 0.4), true);
+                    cellPane.getChildren().add(overlay);
                 }
             }
         }
@@ -253,10 +251,10 @@ public class GameView {
         pane.setPrefSize(CELL_SIZE, CELL_SIZE);
         pane.setClip(new javafx.scene.shape.Rectangle(CELL_SIZE, CELL_SIZE)); // Ensures lines don't draw outside the bounds
 
-        double strokeWidth = 1.5; // You can adjust the line thickness
-        int spacing = 6;          // You can adjust the spacing between lines
+        double strokeWidth = 2;
+        int spacing = 10;
 
-        if (leftDown) { // from top-left to bottom-right (like a backslash \)
+        if (leftDown) {
             for (int i = -CELL_SIZE; i < CELL_SIZE * 2; i += spacing) {
                 Line line = new Line(i - strokeWidth, -strokeWidth, i + CELL_SIZE + strokeWidth, CELL_SIZE + strokeWidth);
                 line.setStroke(color);
@@ -277,17 +275,13 @@ public class GameView {
     }
 
     private Pane createCrossHatchedOverlay() {
-        // This now simply combines the two diagonal overlays
-        Color blue = Color.rgb(0, 100, 255, 0.6);
-        Color red = Color.rgb(255, 50, 50, 0.6);
+        Color blue = Color.rgb(0, 100, 255, 0.4);
+        Color red = Color.rgb(255, 50, 50, 0.4);
 
-        // Create the red diagonal overlay (top-left to bottom-right)
         Pane redHatch = createDiagonalHatchOverlay(red, true);
 
-        // Create the blue diagonal overlay (top-right to bottom-left)
         Pane blueHatch = createDiagonalHatchOverlay(blue, false);
 
-        // Stack them on top of each other
         StackPane stack = new StackPane(redHatch, blueHatch);
         stack.setPrefSize(CELL_SIZE, CELL_SIZE);
         stack.setMouseTransparent(true);

@@ -3,11 +3,9 @@ package game.model;
 import game.game.Player;
 import game.game.map.Battlefield;
 import game.tools.CircleGenerator;
-import game.units.AssaultClass;
 import game.units.Unit;
 import java.awt.Point;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Model: Represents the core game logic and state.
@@ -23,9 +21,6 @@ public class Game {
     private final Battlefield battlefield;
     private final Player playerOne;
     private final Player playerTwo;
-
-    // Commands are no longer needed here as their logic will be handled
-    // by the controller and the game model itself.
 
     public Game() {
         CircleGenerator circleGenerator = new CircleGenerator();
@@ -46,11 +41,9 @@ public class Game {
      * Ends the current turn and switches to the other player.
      */
     public void switchTurn() {
-        // Add resources to the player who just finished their turn
         addResourcePoints(getCurrentPlayer());
 
         isPlayerOneTurn = !isPlayerOneTurn;
-        // Set units to be available for the new turn
         getCurrentPlayer().getPlayerDeck().setUnitsAvailable();
     }
 
@@ -75,7 +68,6 @@ public class Game {
                 playerTwo.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize());
     }
 
-    // --- Getters for state information ---
     public Battlefield getBattlefield() { return battlefield; }
     public Player getPlayerOne() { return playerOne; }
     public Player getPlayerTwo() { return playerTwo; }

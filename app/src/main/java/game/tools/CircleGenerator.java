@@ -4,30 +4,22 @@ import java.awt.*;
 import java.util.ArrayList;
 
 public class CircleGenerator {
-    public ArrayList<Point> getCoordinatesInRange(Point midpoint, int radius){
+    public ArrayList<Point> getCoordinatesInRange(Point midpoint, int radius) {
         ArrayList<Point> coordinatesInRange = new ArrayList<>();
         int midX = midpoint.x;
         int midY = midpoint.y;
 
-        for (int y = 0; y <= radius * 2; y++) {
-            for (int x = 0; x <= radius * 2; x++) {
-                int deltaX = radius - x;
-                int deltaY = radius - y;
-                double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        for (int y = -radius; y <= radius; y++) {
+            for (int x = -radius; x <= radius; x++) {
 
-                // Point lies outside of the circle
-                if (distance - radius > 1) {
-                    continue;
+                double distanceSquared = x * x + y * y;
+
+                if (distanceSquared <= (radius + 0.4) * (radius + 0.4)) {
+                    coordinatesInRange.add(new Point(midX + x, midY + y));
                 }
-
-                // Edge threshold
-                if ((double) radius / distance < 0.9) {
-                    continue;
-                }
-
-                coordinatesInRange.add(new Point(midX - radius + x, midY - radius + y));
             }
         }
+
         return coordinatesInRange;
     }
 }

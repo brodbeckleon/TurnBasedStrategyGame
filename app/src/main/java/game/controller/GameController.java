@@ -6,8 +6,10 @@ import game.model.Game;
 import game.enums.UnitEnum;
 import game.units.Unit;
 import game.view.GameView;
-import javafx.scene.Node;
+import javafx.animation.PauseTransition;
 import javafx.scene.input.MouseEvent;
+import javafx.util.Duration;
+
 import java.awt.Point;
 import java.util.Optional;
 
@@ -28,6 +30,8 @@ public class GameController {
     private final MoveCommand moveCommand;
     private final AttackCommand attackCommand;
     private final HealCommand healCommand;
+    private final BotService botService;
+
 
     private ControllerState currentState = ControllerState.NORMAL;
     private UnitEnum unitTypeToAdd = null;
@@ -41,9 +45,9 @@ public class GameController {
         this.moveCommand = new MoveCommand(model);
         this.attackCommand = new AttackCommand(model);
         this.healCommand = new HealCommand(model);
+        this.botService = new BotService(model, addCommand, moveCommand, attackCommand);
 
         attachHandlers();
-        // Initial view update
         view.update(model, selectedUnitId);
     }
 
@@ -61,9 +65,39 @@ public class GameController {
         model.switchTurn();
         view.logInfo("Player " + model.getCurrentPlayer().getPlayerID() + "'s turn begins.");
         view.update(model, selectedUnitId);
+
+        handleBotTurn();
     }
 
-    // This method is largely the same
+    /**
+     * Prüft, ob der Bot am Zug ist und führt dessen Aktionen aus.
+     * Diese Methode ist im Vergleich zum vorherigen Vorschlag unverändert.
+     */
+    private void handleBotTurn() {
+        if (!model.isPlayerOneTurn() && !model.isGameOver()) {
+            view.getGrid().setDisable(true); // UI sperren, während der Bot "denkt"
+
+            PauseTransition pause = new PauseTransition(Duration.seconds(1));
+            pause.setOnFinished(event -> {
+                botService.performTurn();
+
+                view.update(model, -1);
+                model.checkWinCondition();
+
+                if (model.isGameOver()) {
+                    view.showWinner(model.getWinnerId());
+                } else {
+                    endTurn();
+                }
+
+                if (model.isPlayerOneTurn()) {
+                    view.getGrid().setDisable(false);
+                }
+            });
+            pause.play();
+        }
+    }
+
     private void prepareAddUnit() {
         Optional<UnitEnum> result = view.showAddUnitDialog();
         if (result.isPresent()) {
@@ -77,23 +111,20 @@ public class GameController {
         view.update(model, selectedUnitId);
     }
 
-    // NEW: Helper to deselect units and reset state
     private void resetSelection() {
         selectedUnitId = -1;
         currentState = ControllerState.NORMAL;
     }
 
-    /**
-     * REWRITTEN: This method now contains the core logic for selecting, moving, and attacking.
-     */
     private void handleGridClick(MouseEvent event) {
-        if (model.isGameOver()) return;
-
+        if (!model.isPlayerOneTurn() || model.isGameOver()) {
+            return;
+        }
+        // ... Der Rest deiner handleGridClick Methode bleibt exakt gleich
         int col = (int) (event.getX() / CELL_SIZE);
         int row = (int) (event.getY() / CELL_SIZE);
         Point clickedPoint = new Point(col, row);
 
-        // This part is for adding new units
         if (currentState == ControllerState.AWAITING_PLACEMENT) {
             CommandResult result = addCommand.execute(model.getCurrentPlayer(), unitTypeToAdd.name(), clickedPoint);
             view.logInfo(result.getMessage());
@@ -103,12 +134,10 @@ public class GameController {
         }
 
         Optional<Unit> candidate = Optional.ofNullable(model.getUnitAt(clickedPoint));
-        Unit clickedUnit = null;
-        clickedUnit = candidate.orElse(null);
+        Unit clickedUnit = candidate.orElse(null);
         Player currentPlayer = model.getCurrentPlayer();
 
         if (currentState == ControllerState.NORMAL) {
-            // --- SELECT A UNIT ---
             if (clickedUnit != null && model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
                 selectedUnitId = model.getUnitID(clickedUnit);
                 currentState = ControllerState.UNIT_SELECTED;
@@ -116,38 +145,28 @@ public class GameController {
             }
         } else if (currentState == ControllerState.UNIT_SELECTED) {
             Unit selectedUnit = model.findUnitById(selectedUnitId);
-            if (selectedUnit == null) { // Should not happen
+            if (selectedUnit == null) {
                 view.logInfo("Selected unit " + selectedUnitId + " not found.");
                 resetSelection();
                 return;
             }
 
-            // --- DESELECT OR RESELECT ---
             if (clickedUnit != null && model.getUnitID(clickedUnit) == selectedUnitId) {
                 resetSelection();
                 view.logInfo("Unit deselected.");
-            }
-            // --- ATTACK AN ENEMY ---
-            else if (clickedUnit != null && !model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
+            } else if (clickedUnit != null && !model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
                 CommandResult result = attackCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
                 view.logInfo(result.getMessage());
-                // After an action, always deselect
                 resetSelection();
-            }
-            // --- MOVE TO AN EMPTY TILE ---
-            else if (clickedUnit == null) {
+            } else if (clickedUnit == null) {
                 CommandResult result = moveCommand.execute(currentPlayer, selectedUnitId, clickedPoint);
                 view.logInfo(result.getMessage());
-                // After an action, always deselect
                 resetSelection();
             } else {
-                // If another friendly unit is clicked, switch selection to it
                 selectedUnitId = model.getUnitID(clickedUnit);
                 view.logInfo("Switched selection to unit " + selectedUnitId + ".");
             }
         }
-
-        // Update the view after any action
         view.update(model, selectedUnitId);
         model.checkWinCondition();
         if (model.isGameOver()) {

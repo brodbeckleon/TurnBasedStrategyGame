@@ -1,8 +1,6 @@
 package game.game.commands;
 
-import game.game.map.Battlefield;
 import game.game.Command;
-import game.game.ConsoleIO;
 import game.game.Player;
 import game.model.Game;
 import game.units.Unit;
@@ -33,6 +31,6 @@ public class MoveCommand extends Command {
         player.getPlayerDeck().moveUnit(unitID, position);
         unit.setIsAvailable(false);
 
-        return new CommandResult(true, "unit with ID: " + unitID + " moved to position: " + position);
+        return new CommandResult(true, "unit with ID: " + unitID + " moved to position: " + position.x + ", " + position.y);
     }
 }

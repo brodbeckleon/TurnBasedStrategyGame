@@ -20,14 +20,11 @@ public class Battlefield {
         this.isRandom = b;
 
         if(isRandom) generateRandomMap();
-        else {
-            generateMap();
-        }
+        else generateMap();
 
     }
     private void generateRandomMap() {
         this.geography = generator.generate();
-        printMap();
     }
 
     private void generateMap() {
@@ -44,21 +41,5 @@ public class Battlefield {
 
     public TerrainEnum getGeographyOfPoint(Point point) {
         return geography.get(point);
-    }
-
-    private void printMap() {
-        for (int b = 0; b < height; b++) {
-            for (int a = 0; a < width; a++) {
-                TerrainEnum terrain = geography.get(new Point(a, b));
-                char symbol = ' ';
-                switch (terrain) {
-                    case PLAIN -> symbol = '.';
-                    case WATER -> symbol = '~';
-                    case MOUNTAIN -> symbol = '^';
-                }
-                System.out.print(symbol);
-            }
-            System.out.println();
-        }
     }
 }
