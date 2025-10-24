@@ -35,7 +35,7 @@ public class GameView {
     private final Button attackButton;
     private final int gridWidth;
     private final int gridHeight;
-    private static final int CELL_SIZE = 40;
+    private static final int CELL_SIZE = 32;
     private final Map<String, Image> imageCache = new HashMap<>();
     private final Map<Point, StackPane> cellPanes = new HashMap<>();
     private final CircleGenerator circleGenerator = new CircleGenerator();
@@ -140,8 +140,7 @@ public class GameView {
 
                 cellPane.getChildren().clear();
 
-                TerrainEnum terrainType = battlefield.getGeographyOfPoint(pos);
-                Image terrainImage = loadImage("/images/terrain/" + terrainType + ".png");
+                Image terrainImage = loadImage(getTerrainImagePath(battlefield, pos));
                 if (terrainImage != null) {
                     ImageView terrainView = new ImageView(terrainImage);
                     terrainView.setFitWidth(CELL_SIZE);
@@ -151,6 +150,82 @@ public class GameView {
             }
         }
     }
+
+    private String getTerrainImagePath(Battlefield battlefield, Point pos) {
+        StringBuilder path = new StringBuilder("/images/terrain/");
+
+        TerrainEnum centerTerrain = battlefield.getGeographyOfPoint(pos);
+        path.append(centerTerrain);
+
+        if (!isInsideBattlefield(battlefield, pos)) {
+            return path.append(".png").toString();
+        }
+
+        StringBuilder surrounding = new StringBuilder("_");
+
+        if (centerTerrain == TerrainEnum.MOUNTAIN) {
+            int seed = Objects.hash(pos.x, pos.y);
+            Random rand = new Random(seed);
+            int randomNum = rand.nextInt(5);
+            path.append(surrounding).append(randomNum);
+        }
+
+        if (centerTerrain == TerrainEnum.PLAIN) {
+            Point[] directions = {
+                    new Point(0, -1),
+                    new Point(1, 0),
+                    new Point(0, 1),
+                    new Point(-1, 0)
+            };
+
+            for (Point dir : directions) {
+                Point neighbor = new Point(pos.x + dir.x, pos.y + dir.y);
+                surrounding.append(getTerrainInitial(battlefield, neighbor));
+            }
+
+            String surrStr = surrounding.substring(1);
+            if (surrStr.chars().distinct().count() == 1) {
+                surrounding.append("_");
+                Point[] diagonals = {
+                        new Point(1, -1),
+                        new Point(1, 1),
+                        new Point(-1, 1),
+                        new Point(-1, -1)
+                };
+                for (Point diag : diagonals) {
+                    Point neighbor = new Point(pos.x + diag.x, pos.y + diag.y);
+                    surrounding.append(getTerrainInitial(battlefield, neighbor));
+                }
+            }
+            String s = surrounding.toString();
+
+            if (s.contains("X")) {
+                s = s.replace("X", getTerrainInitial(battlefield, pos));
+            }
+            if (s.contains("M")) {
+                s = s.replace("M", "P");
+            }
+
+            path.append(s);
+
+
+        }
+
+        path.append(".png");
+        return path.toString();
+    }
+
+    private boolean isInsideBattlefield(Battlefield battlefield, Point pos) {
+        return pos.x >= 0 && pos.x < battlefield.getSize().x &&
+                pos.y >= 0 && pos.y < battlefield.getSize().y;
+    }
+
+    private String getTerrainInitial(Battlefield battlefield, Point pos) {
+        if (!isInsideBattlefield(battlefield, pos)) return "X"; // oder "_"
+        TerrainEnum terrain = battlefield.getGeographyOfPoint(pos);
+        return terrain.toString().substring(0, 1).toUpperCase();
+    }
+
 
     private void drawPlayerUnits(Player player) {
         for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {

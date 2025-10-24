@@ -15,7 +15,7 @@ import java.util.Optional;
 
 public class GameController {
 
-    private static final int CELL_SIZE = 40;
+    private static final int CELL_SIZE = 32;
 
     private enum ControllerState {
         NORMAL,
