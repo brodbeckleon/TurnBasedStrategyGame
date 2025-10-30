@@ -9,7 +9,7 @@ import game.units.Unit;
 import java.awt.Point;
 
 public class AddCommand extends Command {
-    private final UnitFactory unitFactory = new UnitFactory();
+    private static final UnitFactory unitFactory = new UnitFactory();
 
     public AddCommand(Game gameModel) {
         super(gameModel);

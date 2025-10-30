@@ -21,7 +21,8 @@ public enum UnitEnum {
     FFIFTEEN,               //F-15
     FTWO,                   //F2
     FTHIRTYFIVE,            //F-35
-    ATEN                    //A10
+    ATEN,                    //A10
 //Navy
+    YAMATO                 //Yamato
 
 }
