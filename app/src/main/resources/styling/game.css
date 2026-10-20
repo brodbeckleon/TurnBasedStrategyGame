@@ -1,0 +1,226 @@
+/* Dark theme of the game window */
+.game-root {
+    -fx-base: #2a3245;
+    -fx-background: #141922;
+    -fx-control-inner-background: #10141c;
+    -fx-accent: #f5b942;
+    -fx-focus-color: #f5b942;
+    -fx-faint-focus-color: transparent;
+    -fx-font-size: 13px;
+}
+
+.board-area {
+    -fx-background-color: radial-gradient(center 50% 45%, radius 75%, #222a3a, #0e121a);
+}
+
+.board {
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.7), 24, 0.2, 0, 6);
+}
+
+.hint-bar {
+    -fx-background-color: #10141c;
+    -fx-border-color: #262e40 transparent transparent transparent;
+    -fx-text-fill: #c9d2e3;
+    -fx-padding: 10 16 10 16;
+}
+
+.side-panel {
+    -fx-background-color: #1a2030;
+    -fx-border-color: transparent transparent transparent #262e40;
+}
+
+.section-title {
+    -fx-text-fill: #7d889f;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 4 0 -4 0;
+}
+
+.round-label {
+    -fx-text-fill: #7d889f;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.turn-label {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+}
+
+.turn-p1 { -fx-text-fill: #79a8ff; }
+.turn-p2 { -fx-text-fill: #ff7b72; }
+
+.muted {
+    -fx-text-fill: #8d97ab;
+}
+
+/* Cards */
+.card {
+    -fx-background-color: #232b3d;
+    -fx-background-radius: 8;
+    -fx-border-color: #2e3850;
+    -fx-border-radius: 8;
+    -fx-padding: 10;
+}
+
+.player-card.active-p1 { -fx-border-color: #4c8dff; -fx-border-width: 2; -fx-padding: 9; }
+.player-card.active-p2 { -fx-border-color: #ff5a5a; -fx-border-width: 2; -fx-padding: 9; }
+
+.player-name {
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+
+.owner-p1 { -fx-text-fill: #79a8ff; }
+.owner-p2 { -fx-text-fill: #ff7b72; }
+
+.stat-text {
+    -fx-text-fill: #b7c0d2;
+    -fx-font-size: 11px;
+}
+
+.stat-key {
+    -fx-text-fill: #7d889f;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+}
+
+.stat-value {
+    -fx-text-fill: #e8edf7;
+    -fx-font-weight: bold;
+}
+
+/* Resource and health bars in the side panel (the flat look comes from progress.css) */
+.stat-bar {
+    -fx-pref-height: 8px;
+    -fx-min-height: 8px;
+}
+
+.stat-bar .track {
+    -fx-background-color: #10141c;
+    -fx-background-radius: 4;
+}
+
+.stat-bar .bar {
+    -fx-background-radius: 4;
+}
+
+.rp-bar .bar { -fx-background-color: #f5b942; }
+.hp-bar .bar { -fx-background-color: #4cc77a; }
+
+/* Buttons */
+.end-turn {
+    -fx-background-color: #f5b942;
+    -fx-background-radius: 6;
+    -fx-text-fill: #1a1405;
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+    -fx-padding: 9 16 9 16;
+    -fx-cursor: hand;
+}
+
+.end-turn:hover { -fx-background-color: #ffcb5c; }
+.end-turn:pressed { -fx-background-color: #d99d2b; }
+.end-turn:disabled { -fx-opacity: 0.35; }
+
+.end-turn.suggested {
+    -fx-effect: dropshadow(gaussian, #f5b942, 16, 0.45, 0, 0);
+}
+
+.deploy-card {
+    -fx-background-color: #232b3d;
+    -fx-background-radius: 8;
+    -fx-border-color: #2e3850;
+    -fx-border-radius: 8;
+    -fx-padding: 6 10 6 8;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+
+.deploy-card:hover { -fx-background-color: #2b3550; -fx-border-color: #4a587a; }
+.deploy-card:disabled { -fx-opacity: 0.4; }
+
+.deploy-card.armed-card {
+    -fx-background-color: #1f3a2a;
+    -fx-border-color: #5ed68a;
+    -fx-border-width: 2;
+    -fx-padding: 5 9 5 7;
+}
+
+.deploy-name {
+    -fx-font-weight: bold;
+    -fx-text-fill: #e8edf7;
+}
+
+.deploy-stats {
+    -fx-text-fill: #8d97ab;
+    -fx-font-size: 10px;
+}
+
+.deploy-cost {
+    -fx-background-color: #10141c;
+    -fx-background-radius: 10;
+    -fx-padding: 2 8 2 8;
+    -fx-text-fill: #f5b942;
+    -fx-font-weight: bold;
+    -fx-font-size: 11px;
+}
+
+/* Inspector */
+.inspect-name {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #e8edf7;
+}
+
+.inspect-action {
+    -fx-text-fill: #f5b942;
+    -fx-font-weight: bold;
+}
+
+.status-ready { -fx-text-fill: #5ed68a; -fx-font-size: 11px; }
+.status-spent { -fx-text-fill: #8d97ab; -fx-font-size: 11px; }
+
+/* Log */
+.log {
+    -fx-font-size: 11px;
+    -fx-background-color: #10141c;
+    -fx-background-radius: 8;
+    -fx-border-color: #2e3850;
+    -fx-border-radius: 8;
+}
+
+.log .content {
+    -fx-background-color: #10141c;
+    -fx-background-radius: 8;
+}
+
+.log .text {
+    -fx-fill: #aab4c7;
+}
+
+/* Game over screen */
+.game-over-backdrop {
+    -fx-background-color: rgba(8, 10, 16, 0.6);
+}
+
+.game-over {
+    -fx-background-color: #1a2030;
+    -fx-background-radius: 14;
+    -fx-border-color: #3a4560;
+    -fx-border-radius: 14;
+    -fx-padding: 28 48 28 48;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.6), 30, 0.2, 0, 8);
+}
+
+.game-over-title {
+    -fx-font-size: 40px;
+    -fx-font-weight: bold;
+}
+
+.game-over-title.victory { -fx-text-fill: #f5b942; }
+.game-over-title.defeat { -fx-text-fill: #ff7b72; }
+
+.game-over-subtitle {
+    -fx-text-fill: #b7c0d2;
+}

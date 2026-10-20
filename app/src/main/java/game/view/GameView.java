@@ -7,9 +7,10 @@ import game.game.Player;
 import game.game.map.Battlefield;
 import game.interfaces.MovableUnit;
 import game.model.Game;
-import game.tools.CircleGenerator;
 import game.units.AssaultClass;
+import game.units.Base;
 import game.units.Unit;
+import game.units.assaultClasses.AssaultTank;
 import game.view.anim.AnimationDirector;
 import game.view.anim.Cells;
 import game.view.anim.EffectSprites;
@@ -21,6 +22,8 @@ import javafx.animation.Transition;
 import javafx.event.EventHandler;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Cursor;
+import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -30,53 +33,82 @@ import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
+import javafx.scene.shape.LineTo;
+import javafx.scene.shape.MoveTo;
+import javafx.scene.shape.Path;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.StrokeType;
+import javafx.scene.transform.Scale;
 
 import java.awt.Point;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public class GameView {
 
     private static final double FAST_FORWARD_RATE = 8;
+    private static final int MAX_RESOURCE_POINTS = 10;
+    private static final double BOARD_MARGIN = 16;
+    private static final double SIDE_PANEL_WIDTH = 330;
+
+    private static final Color MOVE_FILL = Color.rgb(70, 140, 255, 0.38);
+    private static final Color MOVE_EDGE = Color.rgb(160, 200, 255, 0.9);
+    private static final Color RANGE_HATCH = Color.rgb(255, 70, 70, 0.32);
+    private static final Color TARGET_COLOR = Color.rgb(255, 70, 60);
+    private static final Color DEPLOY_FILL = Color.rgb(60, 230, 120, 0.42);
+    private static final Color DEPLOY_EDGE = Color.rgb(170, 255, 190, 0.9);
+    private static final Color SELECTION_COLOR = Color.rgb(255, 245, 170);
 
     private final BorderPane root;
     private final GridPane grid;
     private final StackPane board;
+    private final StackPane boardArea;
+    private final Pane boardHolder;
+    private final Scale boardScale = new Scale(1, 1, 0, 0);
+    private final Pane markerLayer;
+    private final Rectangle hoverFrame;
     private final Pane effectsLayer;
+    private final Label hintLabel;
+    private final Label roundLabel;
     private final Label turnLabel;
-    private final Label player1Status;
-    private final Label player2Status;
+    private final PlayerCard player1Card;
+    private final PlayerCard player2Card;
+    private final VBox deployBox;
+    private final VBox inspector;
     private final TextArea infoArea;
     private final Button skipTurnButton;
-    private final Button addUnitButton;
-    private final Button moveButton;
-    private final Button attackButton;
     private final CheckBox animationsBox;
     private final int gridWidth;
     private final int gridHeight;
     private static final int CELL_SIZE = Cells.SIZE;
     private final Map<String, Image> imageCache = new HashMap<>();
     private final Map<Point, StackPane> cellPanes = new HashMap<>();
-    private final CircleGenerator circleGenerator = new CircleGenerator();
 
     private final Map<Integer, UnitNode> unitNodes = new HashMap<>();
     private final Set<Integer> hiddenUnitIds = new HashSet<>();
     private final IdleMotion idleMotion = new IdleMotion();
     private final AnimationDirector director;
+    private final Map<UnitEnum, Button> deployButtons = new EnumMap<>(UnitEnum.class);
+    private final Map<UnitEnum, DeployOption> deployOptions = new EnumMap<>(UnitEnum.class);
     private Playback current;
     private boolean inputLocked;
     private boolean fastForward;
     private boolean gameOver;
+    private Game model;
+    private BoardHighlights highlights = BoardHighlights.NONE;
+    private Point hoveredCell;
+    private UnitEnum armedDeploy;
+    private Consumer<KeyEvent> keyHandler = event -> { };
+    private Runnable onRestart;
 
     public GameView(int width, int height) {
         this.gridWidth = width;
         this.gridHeight = height;
 
         root = new BorderPane();
+        root.getStyleClass().add("game-root");
         grid = new GridPane();
-        grid.setGridLinesVisible(true);
 
         for (int i = 0; i < gridWidth; i++) {
             grid.getColumnConstraints().add(new ColumnConstraints(CELL_SIZE));
@@ -85,41 +117,134 @@ public class GameView {
             grid.getRowConstraints().add(new RowConstraints(CELL_SIZE));
         }
 
+        // Grid lines and the hover frame sit above the tiles and never take part in layout or clicks.
+        markerLayer = new Pane();
+        markerLayer.setManaged(false);
+        markerLayer.setMouseTransparent(true);
+        hoverFrame = new Rectangle(CELL_SIZE, CELL_SIZE);
+        hoverFrame.setFill(Color.rgb(255, 255, 255, 0.14));
+        hoverFrame.setStroke(Color.rgb(255, 255, 255, 0.55));
+        hoverFrame.setStrokeWidth(1);
+        hoverFrame.setStrokeType(StrokeType.INSIDE);
+        hoverFrame.setVisible(false);
+        markerLayer.getChildren().addAll(createGridLines(), hoverFrame);
+
         // Animations are drawn on a transparent layer above the grid that never takes part in layout or clicks.
         effectsLayer = new Pane();
         effectsLayer.setManaged(false);
         effectsLayer.setMouseTransparent(true);
         effectsLayer.setClip(new Rectangle(gridWidth * CELL_SIZE, gridHeight * CELL_SIZE));
-        board = new StackPane(grid, effectsLayer);
+        board = new StackPane(grid, markerLayer, effectsLayer);
         board.setAlignment(Pos.TOP_LEFT);
-        root.setCenter(board);
+        board.getStyleClass().add("board");
+        board.getTransforms().add(boardScale);
+
+        // The board is scaled to fill the space it gets; the holder reserves the scaled size and never moves the
+        // board itself, so the shake of an exploding base is not undone by the layout.
+        boardHolder = new Pane(board);
+        boardHolder.setMinSize(0, 0);
+        boardHolder.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+        boardArea = new StackPane(boardHolder);
+        boardArea.getStyleClass().add("board-area");
+        boardArea.setMinSize(0, 0);
+        boardArea.setPrefSize(gridWidth * CELL_SIZE + 2 * BOARD_MARGIN, gridHeight * CELL_SIZE + 2 * BOARD_MARGIN);
+        boardArea.widthProperty().addListener((observable, oldValue, newValue) -> fitBoard());
+        boardArea.heightProperty().addListener((observable, oldValue, newValue) -> fitBoard());
+
+        hintLabel = new Label();
+        hintLabel.getStyleClass().add("hint-bar");
+        hintLabel.setMaxWidth(Double.MAX_VALUE);
+        hintLabel.setWrapText(true);
+        BorderPane centerPane = new BorderPane(boardArea);
+        centerPane.setBottom(hintLabel);
+        root.setCenter(centerPane);
 
         initializeCellPanes();
 
-        VBox controlPanel = new VBox(10);
-        controlPanel.setPadding(new Insets(10));
+        roundLabel = new Label();
+        roundLabel.getStyleClass().add("round-label");
         turnLabel = new Label();
-        player1Status = new Label();
-        player2Status = new Label();
-        skipTurnButton = new Button("End Turn");
-        infoArea = new TextArea("Welcome to the game!\n");
-        infoArea.setEditable(false);
-        infoArea.setPrefHeight(200);
-        addUnitButton = new Button("Add Unit");
-        moveButton = new Button("Move");
-        attackButton = new Button("Attack");
+        turnLabel.getStyleClass().add("turn-label");
+        VBox header = new VBox(2, roundLabel, turnLabel);
+
+        player1Card = new PlayerCard("PLAYER 1", "You", 1);
+        player2Card = new PlayerCard("PLAYER 2", "Bot", 2);
+        HBox playerCards = new HBox(8, player1Card, player2Card);
+        HBox.setHgrow(player1Card, Priority.ALWAYS);
+        HBox.setHgrow(player2Card, Priority.ALWAYS);
+
+        skipTurnButton = new Button("End Turn  [E]");
+        skipTurnButton.getStyleClass().add("end-turn");
+        skipTurnButton.setMaxWidth(Double.MAX_VALUE);
+        skipTurnButton.setFocusTraversable(false);
         animationsBox = new CheckBox("Animations");
         animationsBox.setSelected(true);
-        VBox commandBox = new VBox(5, new Label("Commands:"), addUnitButton, moveButton, attackButton);
-        controlPanel.getChildren().addAll(turnLabel, player1Status, player2Status, skipTurnButton, animationsBox, new Label("Info:"), infoArea);
-        controlPanel.getChildren().add(3, commandBox);
+        animationsBox.setFocusTraversable(false);
+
+        deployBox = new VBox(6);
+        inspector = new VBox(6);
+        inspector.getStyleClass().add("card");
+
+        infoArea = new TextArea("Welcome, commander! Destroy the enemy base to win.\n");
+        infoArea.setEditable(false);
+        infoArea.setWrapText(true);
+        infoArea.setFocusTraversable(false);
+        infoArea.getStyleClass().add("log");
+        infoArea.setPrefHeight(120);
+        infoArea.setMinHeight(70);
+        VBox.setVgrow(infoArea, Priority.ALWAYS);
+
+        VBox controlPanel = new VBox(10,
+                header,
+                playerCards,
+                skipTurnButton,
+                sectionTitle("DEPLOY"), deployBox,
+                sectionTitle("INSPECT"), inspector,
+                sectionTitle("LOG"), infoArea,
+                animationsBox);
+        controlPanel.getStyleClass().add("side-panel");
+        controlPanel.setPadding(new Insets(14));
+        controlPanel.setPrefWidth(SIDE_PANEL_WIDTH);
+        controlPanel.setMinWidth(SIDE_PANEL_WIDTH);
         root.setRight(controlPanel);
 
         director = new AnimationDirector(effectsLayer, board, gridWidth * CELL_SIZE, gridHeight * CELL_SIZE,
                 this::liftUnit, new EffectSprites());
         idleMotion.runWhileShowing(root);
         animationsBox.selectedProperty().addListener((observable, wasSelected, selected) -> idleMotion.setEnabled(selected));
-        installFastForward();
+        installHover();
+        installKeys();
+    }
+
+    private static Label sectionTitle(String text) {
+        Label label = new Label(text);
+        label.getStyleClass().add("section-title");
+        return label;
+    }
+
+    private Path createGridLines() {
+        Path lines = new Path();
+        for (int x = 1; x < gridWidth; x++) {
+            lines.getElements().addAll(new MoveTo(x * CELL_SIZE, 0), new LineTo(x * CELL_SIZE, gridHeight * CELL_SIZE));
+        }
+        for (int y = 1; y < gridHeight; y++) {
+            lines.getElements().addAll(new MoveTo(0, y * CELL_SIZE), new LineTo(gridWidth * CELL_SIZE, y * CELL_SIZE));
+        }
+        lines.setStroke(Color.rgb(0, 0, 0, 0.16));
+        lines.setStrokeWidth(1);
+        return lines;
+    }
+
+    /** Scales the board to the largest size that fits, in whole screen pixels per cell so the pixel art stays crisp. */
+    private void fitBoard() {
+        double boardWidth = gridWidth * CELL_SIZE;
+        double boardHeight = gridHeight * CELL_SIZE;
+        double fit = Math.min((boardArea.getWidth() - 2 * BOARD_MARGIN) / boardWidth,
+                (boardArea.getHeight() - 2 * BOARD_MARGIN) / boardHeight);
+        double scale = Math.max(0.5, Math.floor(fit * CELL_SIZE) / CELL_SIZE);
+        boardScale.setX(scale);
+        boardScale.setY(scale);
+        boardHolder.setPrefSize(boardWidth * scale, boardHeight * scale);
     }
 
     private void initializeCellPanes() {
@@ -146,37 +271,52 @@ public class GameView {
         }
     }
 
-    public void update(Game model, int selectedUnitId) {
+    private Image unitImage(int playerID, String unitName) {
+        return loadImage(String.format("/images/units/player%d/%s.png", playerID, unitName));
+    }
+
+    public void update(Game model, BoardHighlights highlights) {
+        this.model = model;
+        this.highlights = highlights;
         Player currentPlayer = model.getCurrentPlayer();
-        turnLabel.setText("Current Turn: Player " + currentPlayer.getPlayerID());
-        player1Status.setText(String.format("Player 1: %d/%d RP", model.getPlayerOne().getResourcePoints(), 10));
-        player2Status.setText(String.format("Player 2: %d/%d RP", model.getPlayerTwo().getResourcePoints(), 10));
+        if (!gameOver) {
+            boolean yourTurn = currentPlayer.getPlayerID() == 1;
+            turnLabel.setText(yourTurn ? "Your turn" : "Enemy turn");
+            turnLabel.getStyleClass().removeAll("turn-p1", "turn-p2");
+            turnLabel.getStyleClass().add(yourTurn ? "turn-p1" : "turn-p2");
+        }
+        player1Card.update(model.getPlayerOne(), currentPlayer == model.getPlayerOne());
+        player2Card.update(model.getPlayerTwo(), currentPlayer == model.getPlayerTwo());
+        refreshDeployButtons();
 
         idleMotion.clear();
         unitNodes.clear();
-        clearOverlaysAndUnits();
         drawTerrain(model.getBattlefield());
-        drawPlayerUnits(model.getPlayerOne());
-        drawPlayerUnits(model.getPlayerTwo());
+        drawRangeOverlays();
+        drawPlayerUnits(model, model.getPlayerOne());
+        drawPlayerUnits(model, model.getPlayerTwo());
+        drawTargetMarkers();
 
-        if (selectedUnitId != -1) {
-            drawRangeOverlays(model, selectedUnitId);
-            drawSelectionFrame(selectedUnitId);
+        if (highlights.selectedUnitId() != -1) {
+            drawSelectionFrame(highlights.selectedUnitId());
         }
+        refreshHover();
     }
 
-    private void clearOverlaysAndUnits() {
-        for (int y = 0; y < gridHeight; y++) {
-            for (int x = 0; x < gridWidth; x++) {
-                Point pos = new Point(x, y);
-                StackPane cellPane = cellPanes.get(pos);
-                if (cellPane != null) {
-                    // Remove all children except the first one (terrain)
-                    if (cellPane.getChildren().size() > 1) {
-                        cellPane.getChildren().remove(1, cellPane.getChildren().size());
-                    }
-                }
-            }
+    public void setRound(int round) {
+        roundLabel.setText("ROUND " + round);
+    }
+
+    /** The one-line instruction under the board that tells the player what they can do right now. */
+    public void setHint(String hint) {
+        hintLabel.setText(hint);
+    }
+
+    /** Makes the end turn button glow when there is nothing useful left to do this turn. */
+    public void setEndTurnSuggested(boolean suggested) {
+        skipTurnButton.getStyleClass().remove("suggested");
+        if (suggested) {
+            skipTurnButton.getStyleClass().add("suggested");
         }
     }
 
@@ -277,14 +417,17 @@ public class GameView {
     }
 
 
-    private void drawPlayerUnits(Player player) {
+    private void drawPlayerUnits(Game model, Player player) {
+        boolean playersTurn = model.getCurrentPlayer() == player;
         // the base is one of the deck's units and is drawn with them
         for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
-            drawUnitWithHealthBar(entry.getValue(), player.getPlayerID(), entry.getKey());
+            Unit unit = entry.getValue();
+            boolean spent = playersTurn && !(unit instanceof Base) && !unit.isAvailable();
+            drawUnitWithHealthBar(unit, player.getPlayerID(), entry.getKey(), spent);
         }
     }
 
-    private void drawUnitWithHealthBar(Unit unit, int playerID, int unitId) {
+    private void drawUnitWithHealthBar(Unit unit, int playerID, int unitId, boolean spent) {
         if (hiddenUnitIds.contains(unitId)) return;
 
         Point pos = unit.getPosition();
@@ -297,6 +440,8 @@ public class GameView {
 
         if (unit.getHealthPoints() <= 0) {
             unitStack.showWreck();
+        } else if (spent) {
+            unitStack.showSpent();
         }
         unitStack.setUserData(unitId);
 
@@ -307,8 +452,7 @@ public class GameView {
 
     /** The one place that builds a unit sprite with its health bar, for the board and for animation ghosts. */
     private UnitNode createUnitNode(int playerID, String unitName, double healthRatio, UnitKind kind) {
-        Image unitImage = loadImage(String.format("/images/units/player%d/%s.png", playerID, unitName));
-        return new UnitNode(unitImage, playerID == 2, healthRatio, kind);
+        return new UnitNode(unitImage(playerID, unitName), playerID == 2, healthRatio, kind);
     }
 
     private void addIdleMotion(UnitNode unitNode, int unitId) {
@@ -326,120 +470,351 @@ public class GameView {
 
         Rectangle frame = new Rectangle(CELL_SIZE - 2, CELL_SIZE - 2);
         frame.setFill(Color.TRANSPARENT);
-        frame.setStroke(Color.rgb(255, 245, 170));
-        frame.setStrokeWidth(2);
+        frame.setStroke(SELECTION_COLOR);
+        frame.setStrokeWidth(2.5);
         frame.setStrokeType(StrokeType.INSIDE);
         frame.setMouseTransparent(true);
         ((StackPane) selected.getParent()).getChildren().add(frame);
         idleMotion.pulse(frame);
     }
 
-    private void drawRangeOverlays(Game model, int selectedUnitId) {
-        Unit selectedUnit = model.findUnitById(selectedUnitId);
-        if (selectedUnit == null) return;
-
-        if (selectedUnit instanceof MovableUnit movableUnit) {
-            Point startPos = ((Unit)movableUnit).getPosition();
-
-            // Generate ranges
-            java.util.List<Point> moveRange = ((Unit)movableUnit).isAvailable() ?
-                    circleGenerator.getCoordinatesInRange(startPos, movableUnit.getMovingRange()) :
-                    new ArrayList<>();
-
-            java.util.List<Point> attackRange = (movableUnit instanceof AssaultClass assaultingUnit && assaultingUnit.isAvailable()) ?
-                    circleGenerator.getCoordinatesInRange(startPos, assaultingUnit.getShootingRange()) :
-                    new ArrayList<>();
-
-            Set<Point> allPoints = new HashSet<>();
-            allPoints.addAll(moveRange);
-            allPoints.addAll(attackRange);
-
-            for (Point targetPos : allPoints) {
-                if (targetPos.x < 0 || targetPos.x >= gridWidth ||
-                        targetPos.y < 0 || targetPos.y >= gridHeight ||
-                        targetPos.equals(startPos)) {
-                    continue;
-                }
-
-                StackPane cellPane = cellPanes.get(targetPos);
-                if (cellPane == null) continue;
-
-                boolean canMove = moveRange.contains(targetPos) && model.getUnitAt(targetPos) == null;
-                boolean canAttack = attackRange.contains(targetPos);
-
-                if (canMove && canAttack) {
-                    Pane crossHatched = createCrossHatchedOverlay();
-                    cellPane.getChildren().add(crossHatched);
-                } else if (canMove) {
-                    Pane overlay = createDiagonalHatchOverlay(Color.rgb(0, 100, 255, 0.4), false);
-                    cellPane.getChildren().add(overlay);
-                } else if (canAttack) {
-                    Pane overlay = createDiagonalHatchOverlay(Color.rgb(255, 50, 50, 0.4), true);
-                    cellPane.getChildren().add(overlay);
-                }
-            }
+    /** Move and deploy tiles are filled, the shooting range is hatched underneath the units. */
+    private void drawRangeOverlays() {
+        for (Point cell : highlights.attackRange()) {
+            addOverlay(cell, createDiagonalHatchOverlay(RANGE_HATCH));
+        }
+        for (Point cell : highlights.moveTiles()) {
+            addOverlay(cell, createTileOverlay(MOVE_FILL, MOVE_EDGE));
+        }
+        for (Point cell : highlights.deployTiles()) {
+            addOverlay(cell, createTileOverlay(DEPLOY_FILL, DEPLOY_EDGE));
         }
     }
 
-    private Pane createDiagonalHatchOverlay(Color color, boolean leftDown) {
+    private void drawTargetMarkers() {
+        for (Point cell : highlights.targets()) {
+            Rectangle glow = new Rectangle(CELL_SIZE - 2, CELL_SIZE - 2, Color.rgb(255, 60, 60, 0.3));
+            glow.setMouseTransparent(true);
+            addOverlay(cell, glow);
+            idleMotion.pulse(glow);
+            addOverlay(cell, createTargetMarker());
+        }
+    }
+
+    private void addOverlay(Point cell, Node overlay) {
+        StackPane cellPane = cellPanes.get(cell);
+        if (cellPane != null) {
+            cellPane.getChildren().add(overlay);
+        }
+    }
+
+    private Node createTileOverlay(Color fill, Color edge) {
+        Rectangle tile = new Rectangle(CELL_SIZE - 2, CELL_SIZE - 2);
+        tile.setFill(fill);
+        tile.setStroke(edge);
+        tile.setStrokeWidth(1);
+        tile.setStrokeType(StrokeType.INSIDE);
+        tile.setArcWidth(6);
+        tile.setArcHeight(6);
+        tile.setMouseTransparent(true);
+        return tile;
+    }
+
+    private Pane createDiagonalHatchOverlay(Color color) {
         Pane pane = new Pane();
         pane.setPrefSize(CELL_SIZE, CELL_SIZE);
-        pane.setClip(new javafx.scene.shape.Rectangle(CELL_SIZE, CELL_SIZE)); // Ensures lines don't draw outside the bounds
+        pane.setClip(new Rectangle(CELL_SIZE, CELL_SIZE)); // Ensures lines don't draw outside the bounds
 
         double strokeWidth = 2;
-        int spacing = 10;
+        int spacing = 8;
 
-        if (leftDown) {
-            for (int i = -CELL_SIZE; i < CELL_SIZE * 2; i += spacing) {
-                Line line = new Line(i - strokeWidth, -strokeWidth, i + CELL_SIZE + strokeWidth, CELL_SIZE + strokeWidth);
-                line.setStroke(color);
-                line.setStrokeWidth(strokeWidth);
-                pane.getChildren().add(line);
-            }
-        } else { // from top-right to bottom-left (like a forward slash /)
-            for (int i = -CELL_SIZE; i < CELL_SIZE * 2; i += spacing) {
-                Line line = new Line(CELL_SIZE - (i - strokeWidth), -strokeWidth, CELL_SIZE - (i + CELL_SIZE + strokeWidth), CELL_SIZE + strokeWidth);
-                line.setStroke(color);
-                line.setStrokeWidth(strokeWidth);
-                pane.getChildren().add(line);
-            }
+        for (int i = -CELL_SIZE; i < CELL_SIZE * 2; i += spacing) {
+            Line line = new Line(i - strokeWidth, -strokeWidth, i + CELL_SIZE + strokeWidth, CELL_SIZE + strokeWidth);
+            line.setStroke(color);
+            line.setStrokeWidth(strokeWidth);
+            pane.getChildren().add(line);
         }
 
         pane.setMouseTransparent(true);
         return pane;
     }
 
-    private Pane createCrossHatchedOverlay() {
-        Color blue = Color.rgb(0, 100, 255, 0.4);
-        Color red = Color.rgb(255, 50, 50, 0.4);
+    /** Four corner brackets around an enemy that the selected unit can attack. */
+    private Node createTargetMarker() {
+        double inset = 2.5;
+        double arm = 9;
+        double far = CELL_SIZE - inset;
+        Path brackets = new Path(
+                new MoveTo(inset, inset + arm), new LineTo(inset, inset), new LineTo(inset + arm, inset),
+                new MoveTo(far - arm, inset), new LineTo(far, inset), new LineTo(far, inset + arm),
+                new MoveTo(far, far - arm), new LineTo(far, far), new LineTo(far - arm, far),
+                new MoveTo(inset + arm, far), new LineTo(inset, far), new LineTo(inset, far - arm));
+        brackets.setStroke(TARGET_COLOR);
+        brackets.setStrokeWidth(3);
+        brackets.setMouseTransparent(true);
+        return brackets;
+    }
 
-        Pane redHatch = createDiagonalHatchOverlay(red, true);
+    // --- Side panel ---
 
-        Pane blueHatch = createDiagonalHatchOverlay(blue, false);
+    /** Builds one card per unit type that can be deployed; a click (or its number key) picks it. */
+    public void setDeployOptions(List<DeployOption> options, Consumer<UnitEnum> onPick) {
+        deployBox.getChildren().clear();
+        deployButtons.clear();
+        deployOptions.clear();
+        int hotkey = 1;
+        for (DeployOption option : options) {
+            ImageView icon = new ImageView(unitImage(1, option.name()));
+            icon.setFitWidth(32);
+            icon.setFitHeight(32);
+            icon.setPreserveRatio(true);
+            icon.setSmooth(false);
 
-        StackPane stack = new StackPane(redHatch, blueHatch);
-        stack.setPrefSize(CELL_SIZE, CELL_SIZE);
-        stack.setMouseTransparent(true);
+            Label name = new Label(hotkey + "  " + option.name());
+            name.getStyleClass().add("deploy-name");
+            Label stats = new Label(String.format("HP %d  DMG %d  MOV %d  RNG %d",
+                    option.health(), option.damage(), option.moveRange(), option.shootingRange()));
+            stats.getStyleClass().add("deploy-stats");
+            VBox text = new VBox(1, name, stats);
+            Label cost = new Label(option.cost() + " RP");
+            cost.getStyleClass().add("deploy-cost");
+            cost.setMinWidth(Region.USE_PREF_SIZE);
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+            HBox content = new HBox(8, icon, text, spacer, cost);
+            content.setAlignment(Pos.CENTER_LEFT);
 
-        return stack;
+            Button button = new Button();
+            button.setGraphic(content);
+            button.getStyleClass().add("deploy-card");
+            button.setMaxWidth(Double.MAX_VALUE);
+            button.setFocusTraversable(false);
+            button.setOnAction(event -> onPick.accept(option.type()));
+            deployBox.getChildren().add(button);
+            deployButtons.put(option.type(), button);
+            deployOptions.put(option.type(), option);
+            hotkey++;
+        }
+        refreshDeployButtons();
+    }
+
+    /** Marks the card of the unit type that is waiting to be placed, or none. */
+    public void setArmedDeploy(UnitEnum type) {
+        armedDeploy = type;
+        refreshDeployButtons();
+    }
+
+    private void refreshDeployButtons() {
+        boolean canAct = model != null && model.isPlayerOneTurn() && !inputLocked && !gameOver;
+        for (Map.Entry<UnitEnum, Button> entry : deployButtons.entrySet()) {
+            Button button = entry.getValue();
+            DeployOption option = deployOptions.get(entry.getKey());
+            boolean affordable = model != null && model.getPlayerOne().getResourcePoints() >= option.cost();
+            button.setDisable(!canAct || !affordable);
+            button.getStyleClass().remove("armed-card");
+            if (entry.getKey() == armedDeploy) {
+                button.getStyleClass().add("armed-card");
+            }
+            String reason = affordable ? "" : "Needs " + option.cost() + " RP";
+            button.setTooltip(reason.isEmpty() ? null : new Tooltip(reason));
+        }
+    }
+
+    private void installHover() {
+        grid.addEventHandler(MouseEvent.MOUSE_MOVED, event -> setHoveredCell(cellAt(event.getX(), event.getY())));
+        grid.addEventHandler(MouseEvent.MOUSE_DRAGGED, event -> setHoveredCell(cellAt(event.getX(), event.getY())));
+        grid.addEventHandler(MouseEvent.MOUSE_EXITED, event -> setHoveredCell(null));
+    }
+
+    /** The cell under a point in the grid's own coordinates, or null outside the board. */
+    public Point cellAt(double x, double y) {
+        int col = (int) Math.floor(x / CELL_SIZE);
+        int row = (int) Math.floor(y / CELL_SIZE);
+        if (col < 0 || col >= gridWidth || row < 0 || row >= gridHeight) {
+            return null;
+        }
+        return new Point(col, row);
+    }
+
+    private void setHoveredCell(Point cell) {
+        if (Objects.equals(cell, hoveredCell)) return;
+        hoveredCell = cell;
+        refreshHover();
+    }
+
+    private void refreshHover() {
+        hoverFrame.setVisible(hoveredCell != null);
+        if (hoveredCell != null) {
+            hoverFrame.setX(hoveredCell.x * CELL_SIZE);
+            hoverFrame.setY(hoveredCell.y * CELL_SIZE);
+        }
+        boolean actionable = hoveredCell != null && !inputLocked && !gameOver && highlights.isActionTile(hoveredCell);
+        grid.setCursor(actionable ? Cursor.HAND : Cursor.DEFAULT);
+        refreshInspector();
+    }
+
+    /** Shows the hovered tile, or else the selected unit. */
+    private void refreshInspector() {
+        inspector.getChildren().clear();
+        if (model == null) return;
+
+        Unit unit = null;
+        Point cell = hoveredCell;
+        if (cell != null) {
+            unit = model.getUnitAt(cell);
+        } else if (highlights.selectedUnitId() != -1) {
+            unit = model.findUnitById(highlights.selectedUnitId());
+            cell = unit == null ? null : unit.getPosition();
+        }
+
+        if (unit != null) {
+            inspectUnit(unit);
+        } else if (cell != null) {
+            inspectTerrain(model.getBattlefield().getGeographyOfPoint(cell));
+        } else {
+            Label placeholder = new Label("Hover over a tile or unit to see its details.");
+            placeholder.getStyleClass().add("muted");
+            placeholder.setWrapText(true);
+            inspector.getChildren().add(placeholder);
+        }
+
+        if (cell != null && !inputLocked) {
+            String action = null;
+            if (highlights.targets().contains(cell)) {
+                action = "Click to attack";
+            } else if (highlights.moveTiles().contains(cell)) {
+                action = "Click to move here";
+            } else if (highlights.deployTiles().contains(cell)) {
+                action = "Click to deploy here";
+            }
+            if (action != null) {
+                Label actionLabel = new Label(action);
+                actionLabel.getStyleClass().add("inspect-action");
+                inspector.getChildren().add(actionLabel);
+            }
+        }
+    }
+
+    private void inspectUnit(Unit unit) {
+        ImageView icon = new ImageView(unitImage(unit.getPlayerID(), unit.getUnitName()));
+        icon.setFitWidth(40);
+        icon.setFitHeight(40);
+        icon.setPreserveRatio(true);
+        icon.setSmooth(false);
+        if (unit.getPlayerID() == 2) {
+            icon.setScaleX(-1);
+        }
+
+        Label name = new Label(unit.getUnitName());
+        name.getStyleClass().add("inspect-name");
+        boolean own = unit.getPlayerID() == 1;
+        Label owner = new Label(own ? "Your unit" : "Enemy unit");
+        owner.getStyleClass().add(own ? "owner-p1" : "owner-p2");
+        VBox title = new VBox(1, name, owner);
+        HBox top = new HBox(10, icon, title);
+        top.setAlignment(Pos.CENTER_LEFT);
+
+        int hp = Math.max(0, unit.getHealthPoints());
+        ProgressBar hpBar = new ProgressBar((double) hp / unit.getMaxHealthPoints());
+        hpBar.getStyleClass().addAll("stat-bar", "hp-bar");
+        hpBar.setMaxWidth(Double.MAX_VALUE);
+        Label hpText = new Label("HP " + hp + " / " + unit.getMaxHealthPoints());
+        hpText.getStyleClass().add("stat-text");
+
+        GridPane stats = new GridPane();
+        stats.setHgap(14);
+        stats.setVgap(2);
+        int column = 0;
+        if (unit instanceof AssaultClass assault) {
+            addStat(stats, column++, "DMG", assault.getDamage());
+            addStat(stats, column++, "RNG", assault.getShootingRange());
+        }
+        if (unit instanceof MovableUnit movable) {
+            addStat(stats, column++, "MOV", movable.getMovingRange());
+        }
+        if (unit instanceof AssaultTank tank) {
+            addStat(stats, column++, "ARM", tank.getArmorValue());
+        } else if (unit instanceof Base base) {
+            addStat(stats, column++, "ARM", base.getArmorValue());
+            addStat(stats, column, "DEPLOY", base.getDeploymentRadius());
+        }
+
+        inspector.getChildren().addAll(top, hpBar, hpText, stats);
+
+        if (!(unit instanceof Base) && model.getCurrentPlayer().getPlayerID() == unit.getPlayerID()) {
+            Label status = new Label(unit.isAvailable() ? "Ready to act" : "Already acted this turn");
+            status.getStyleClass().add(unit.isAvailable() ? "status-ready" : "status-spent");
+            inspector.getChildren().add(status);
+        }
+    }
+
+    private static void addStat(GridPane stats, int column, String key, int value) {
+        Label keyLabel = new Label(key);
+        keyLabel.getStyleClass().add("stat-key");
+        Label valueLabel = new Label(String.valueOf(value));
+        valueLabel.getStyleClass().add("stat-value");
+        stats.add(keyLabel, column, 0);
+        stats.add(valueLabel, column, 1);
+    }
+
+    private void inspectTerrain(TerrainEnum terrain) {
+        String name = switch (terrain) {
+            case PLAIN -> "Plains";
+            case WATER -> "Water";
+            case MOUNTAIN -> "Mountains";
+        };
+        String access = switch (terrain) {
+            case PLAIN -> "Open ground: vehicles and aircraft can enter.";
+            case WATER -> "Only ships and aircraft can enter.";
+            case MOUNTAIN -> "Impassable for vehicles; aircraft can fly over.";
+        };
+        Label title = new Label(name);
+        title.getStyleClass().add("inspect-name");
+        Label text = new Label(access);
+        text.getStyleClass().add("muted");
+        text.setWrapText(true);
+        inspector.getChildren().addAll(title, text);
     }
 
     public Pane getRoot() { return root; }
 
-    public Optional<UnitEnum> showAddUnitDialog() {
-        ChoiceDialog<UnitEnum> dialog = new ChoiceDialog<>(UnitEnum.TYPENINETY, UnitEnum.values());
-        dialog.setTitle("Add Unit");
-        dialog.setHeaderText("Choose a unit to deploy");
-        dialog.setContentText("Unit type:");
-        return dialog.showAndWait();
+    /** Called with every key the player presses, unless it fast-forwards an animation. */
+    public void setKeyHandler(Consumer<KeyEvent> keyHandler) {
+        this.keyHandler = keyHandler;
+    }
+
+    /** What the "Play again" button on the game over screen does. */
+    public void setOnRestart(Runnable onRestart) {
+        this.onRestart = onRestart;
     }
 
     public void showWinner(int winnerId) {
         gameOver = true;
-        turnLabel.setText("Player " + winnerId + " has won!");
+        boolean won = winnerId == 1;
+        turnLabel.setText(won ? "Victory" : "Defeat");
+        turnLabel.getStyleClass().removeAll("turn-p1", "turn-p2");
+        turnLabel.getStyleClass().add(won ? "turn-p1" : "turn-p2");
         skipTurnButton.setDisable(true);
-        addUnitButton.setDisable(true);
-        infoArea.appendText("\nGame Over!");
+        setEndTurnSuggested(false);
+        refreshDeployButtons();
+        refreshHover();
+        infoArea.appendText("\nGame Over! Player " + winnerId + " has won.\n");
+
+        Label title = new Label(won ? "VICTORY" : "DEFEAT");
+        title.getStyleClass().addAll("game-over-title", won ? "victory" : "defeat");
+        Label subtitle = new Label(won ? "The enemy base has been destroyed." : "Your base has fallen.");
+        subtitle.getStyleClass().add("game-over-subtitle");
+        Button again = new Button("Play again");
+        again.getStyleClass().add("end-turn");
+        again.setDisable(onRestart == null);
+        again.setOnAction(event -> onRestart.run());
+        VBox box = new VBox(12, title, subtitle, again);
+        box.setAlignment(Pos.CENTER);
+        box.getStyleClass().add("game-over");
+        box.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+        StackPane overlay = new StackPane(box);
+        overlay.getStyleClass().add("game-over-backdrop");
+        boardArea.getChildren().add(overlay);
     }
 
     public boolean isAnimationsEnabled() {
@@ -454,7 +829,8 @@ public class GameView {
         inputLocked = locked;
         fastForward = false;
         skipTurnButton.setDisable(locked || gameOver);
-        addUnitButton.setDisable(locked || gameOver);
+        refreshDeployButtons();
+        refreshHover();
     }
 
     /**
@@ -527,13 +903,14 @@ public class GameView {
         return ghost;
     }
 
-    private void installFastForward() {
+    private void installKeys() {
         EventHandler<KeyEvent> keyFilter = event -> {
             if (inputLocked && (event.getCode() == KeyCode.SPACE || event.getCode() == KeyCode.ENTER)) {
                 speedUp();
                 event.consume();
             }
         };
+        EventHandler<KeyEvent> keyForwarder = event -> keyHandler.accept(event);
         board.addEventFilter(MouseEvent.MOUSE_CLICKED, event -> {
             if (inputLocked && event.getClickCount() == 1) { // the second click of a double-click is not a skip
                 speedUp();
@@ -541,8 +918,14 @@ public class GameView {
             }
         });
         root.sceneProperty().addListener((observable, oldScene, newScene) -> {
-            if (oldScene != null) oldScene.removeEventFilter(KeyEvent.KEY_PRESSED, keyFilter);
-            if (newScene != null) newScene.addEventFilter(KeyEvent.KEY_PRESSED, keyFilter);
+            if (oldScene != null) {
+                oldScene.removeEventFilter(KeyEvent.KEY_PRESSED, keyFilter);
+                oldScene.removeEventHandler(KeyEvent.KEY_PRESSED, keyForwarder);
+            }
+            if (newScene != null) {
+                newScene.addEventFilter(KeyEvent.KEY_PRESSED, keyFilter);
+                newScene.addEventHandler(KeyEvent.KEY_PRESSED, keyForwarder);
+            }
         });
     }
 
@@ -576,10 +959,57 @@ public class GameView {
         }
     }
 
+    /** A player's resources, base health and army size; the card of the player whose turn it is is highlighted. */
+    private static final class PlayerCard extends VBox {
+        private final Label units = new Label();
+        private final ProgressBar resources = new ProgressBar();
+        private final Label resourcesText = new Label();
+        private final ProgressBar baseHealth = new ProgressBar();
+        private final Label baseHealthText = new Label();
+        private final String activeStyle;
+
+        private PlayerCard(String name, String role, int playerId) {
+            super(4);
+            getStyleClass().addAll("card", "player-card");
+            activeStyle = "active-p" + playerId;
+
+            Label title = new Label(name);
+            title.getStyleClass().addAll("player-name", "owner-p" + playerId);
+            Label roleLabel = new Label(role);
+            roleLabel.getStyleClass().add("muted");
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+            HBox head = new HBox(4, title, spacer, roleLabel);
+
+            resources.getStyleClass().addAll("stat-bar", "rp-bar");
+            resources.setMaxWidth(Double.MAX_VALUE);
+            resourcesText.getStyleClass().add("stat-text");
+            baseHealth.getStyleClass().addAll("stat-bar", "hp-bar");
+            baseHealth.setMaxWidth(Double.MAX_VALUE);
+            baseHealthText.getStyleClass().add("stat-text");
+            units.getStyleClass().add("stat-text");
+
+            getChildren().addAll(head, resourcesText, resources, baseHealthText, baseHealth, units);
+        }
+
+        private void update(Player player, boolean active) {
+            int rp = player.getResourcePoints();
+            resources.setProgress(Math.min(1, (double) rp / MAX_RESOURCE_POINTS));
+            resourcesText.setText("Resources  " + rp + " / " + MAX_RESOURCE_POINTS);
+            Base base = player.getPlayerDeck().getBase();
+            int hp = Math.max(0, base.getHealthPoints());
+            baseHealth.setProgress((double) hp / base.getMaxHealthPoints());
+            baseHealthText.setText("Base  " + hp + " HP");
+            int count = player.getPlayerDeck().getUnits().size() - 1; // without the base
+            units.setText(count == 1 ? "1 unit" : count + " units");
+            getStyleClass().remove(activeStyle);
+            if (active) {
+                getStyleClass().add(activeStyle);
+            }
+        }
+    }
+
     public void logInfo(String message) { infoArea.appendText(message + "\n"); }
     public GridPane getGrid() { return grid; }
     public Button getSkipTurnButton() { return skipTurnButton; }
-    public Button getAddUnitButton() { return addUnitButton; }
-    public Button getMoveButton() { return moveButton; }
-    public Button getAttackButton() { return attackButton; }
 }
