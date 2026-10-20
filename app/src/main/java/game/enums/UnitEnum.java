@@ -15,6 +15,9 @@ public enum UnitEnum {
     TYPEEIGHTYSEVEN,        //Type 87
     TYPEEIGHTYONEC,         //Type 81 (C)
     TYPENINETYTHREE,        //Type 93
+    //Infantry
+    INFANTRY,               //Infantry
+    ANTITANKTEAM,           //Anti-Tank Team (Type 01 LMAT)
     //Support
     ARMOREDAMBULANCE,       //Armored Ambulance
     ARMOREDRECOVERYVEHICLE, //Armored Recovery Vehicle
@@ -26,8 +29,12 @@ public enum UnitEnum {
     FTWO,                   //F2
     FTHIRTYFIVE,            //F-35
     ATEN,                   //A10
+    //Helicopters
+    AHSIXTYFOURD,           //AH-64D Apache
 //Navy
     YAMATO,                 //Yamato
+    KONGO,                  //Kongo-class destroyer
+    SORYU,                  //Soryu-class submarine
 //Infrastructure
     ARMYBASE,               //Army Base
     AIRFORCEBASE,           //Air Base

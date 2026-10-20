@@ -5,6 +5,10 @@ import game.events.Weapon;
 import game.game.Command;
 import game.game.Player;
 import game.enums.TerrainEnum;
+import game.interfaces.AntiAir;
+import game.interfaces.TankHunter;
+import game.units.assaultClasses.Helicopter;
+import game.units.assaultClasses.Submarine;
 import game.model.Game;
 import game.units.assaultClasses.Ship;
 import game.tools.CircleGenerator;
@@ -96,7 +100,7 @@ public class AttackCommand extends Command {
         return defender instanceof AssaultClass fighter && defender.getHealthPoints() > 0 && attacker.getHealthPoints() > 0
                 && circleGenerator.getCoordinatesInRange(defender.getPosition(), getGameModel().getShootingRange(fighter))
                         .contains(attacker.getPosition())
-                && counterDamage(fighter, attacker) > 0;
+                && canTarget(defender, attacker) && counterDamage(fighter, attacker) > 0;
     }
 
     /**
@@ -112,7 +116,7 @@ public class AttackCommand extends Command {
     public List<Integer> findInterceptors(Player defenderPlayer, Unit aircraft, int targetID) {
         List<Integer> interceptors = new ArrayList<>();
         for (var entry : defenderPlayer.getPlayerDeck().getUnits().entrySet()) {
-            if (entry.getKey() != targetID && entry.getValue() instanceof SelfPropelledAntiAir
+            if (entry.getKey() != targetID && entry.getValue() instanceof AntiAir
                     && canStrikeBack(entry.getValue(), aircraft)) {
                 interceptors.add(entry.getKey());
             }
@@ -136,7 +140,18 @@ public class AttackCommand extends Command {
         Point attackingPos = attackingUnit.getPosition();
         int range = getGameModel().getShootingRange((AssaultClass) attackingUnit);
 
-        return defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range);
+        return defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range).stream()
+                .distinct()
+                .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
+                .toList();
+    }
+
+    /** The ids of the enemies the player's unit could attack right now. */
+    public List<Integer> findTargets(Player attacker, int attackingUnitID) {
+        Unit unit = attacker.getPlayerDeck().getUnit(attackingUnitID);
+        if (!(unit instanceof AssaultClass)) return List.of();
+        Player defender = attacker.getPlayerID() == 1 ? getGameModel().getPlayerTwo() : getGameModel().getPlayerOne();
+        return scout(attackingUnitID, attacker, defender);
     }
 
     private List<GameEvent> attackBase(int attackingUnitID, Unit attackingUnit, Player defender) {
@@ -197,6 +212,8 @@ public class AttackCommand extends Command {
     private static final double ANTI_AIR_VS_AIRCRAFT = 2;
     private static final double GROUND_VS_AIRCRAFT = 0.75;
     private static final double ANTI_AIR_VS_GROUND = 0.5;
+    private static final double GROUND_VS_HELICOPTER = 1;
+    private static final double TORPEDO_VS_SHIP = 2;
 
     /** Artillery, tanks and aircraft are made to break buildings, everything else barely scratches them. */
     private static int structureDamage(AssaultClass attacker, Infrastructure building) {
@@ -214,14 +231,30 @@ public class AttackCommand extends Command {
      */
     private static int unitDamage(AssaultClass attacker, Unit target) {
         double damage = attacker.getDamage();
-        boolean antiAir = attacker instanceof SelfPropelledAntiAir;
         if (target instanceof Aircraft) {
-            if (antiAir) damage *= ANTI_AIR_VS_AIRCRAFT;
+            if (attacker instanceof AntiAir) damage *= ANTI_AIR_VS_AIRCRAFT;
+            else if (target instanceof Helicopter) damage *= GROUND_VS_HELICOPTER;
             else if (!(attacker instanceof Aircraft)) damage *= GROUND_VS_AIRCRAFT;
-        } else if (antiAir) {
+        } else if (attacker instanceof SelfPropelledAntiAir) {
             damage *= ANTI_AIR_VS_GROUND;
         }
+        if (attacker instanceof TankHunter hunter && target instanceof AssaultTank) {
+            damage *= hunter.antiTankMultiplier();
+        }
+        if (attacker instanceof Submarine && target instanceof Ship) {
+            damage *= TORPEDO_VS_SHIP;
+        }
         return afterArmor(damage, target instanceof AssaultTank tank ? tank.getArmorValue() : 0);
+    }
+
+    /**
+     * Whether the attacker's weapons can reach the target at all: a submarine only attacks ships, and only ships
+     * and aircraft can find a submarine.
+     */
+    public static boolean canTarget(Unit attacker, Unit target) {
+        if (attacker instanceof Submarine) return target instanceof Ship;
+        if (target instanceof Submarine) return attacker instanceof Ship || attacker instanceof Aircraft;
+        return true;
     }
 
     /** Armour is a percentage: 40 armour stops 40 % of the damage. */

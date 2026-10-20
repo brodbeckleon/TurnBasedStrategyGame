@@ -17,6 +17,8 @@ import game.units.SupportClass;
 import game.units.Unit;
 import game.interfaces.ActsAfterMoving;
 import game.units.assaultClasses.Aircraft;
+import game.units.assaultClasses.Helicopter;
+import game.units.assaultClasses.Infantry;
 import game.units.assaultClasses.AssaultTank;
 import game.units.assaultClasses.Ship;
 import game.units.infrastructures.NavyBase;
@@ -104,6 +106,7 @@ public class GameController {
     private static DeployOption.Category categoryOf(Unit unit) {
         if (unit instanceof Infrastructure) return DeployOption.Category.BUILDINGS;
         if (unit instanceof SupportClass) return DeployOption.Category.SUPPORT;
+        if (unit instanceof Infantry) return DeployOption.Category.INFANTRY;
         if (unit instanceof Aircraft) return DeployOption.Category.AIR;
         if (unit instanceof Ship) return DeployOption.Category.NAVY;
         return DeployOption.Category.ARMY;
@@ -145,6 +148,11 @@ public class GameController {
             case "Armored Recovery Vehicle" -> "Builds new bases on base ruins it stands next to, and repairs an adjacent friendly building (your base too) by 600 HP.";
             case "Armored Reconnaissance Vehicle" -> "Unarmed scout: friendly units within 3 tiles shoot 1 tile further.";
             case "Yamato" -> "Battleship with a huge punch and a thick hull.";
+            case "Kongo" -> "Aegis destroyer: double damage to aircraft, covers the fleet from air attacks, and hunts submarines.";
+            case "Soryu" -> "Submarine: torpedoes deal double damage to ships. Attacks only ships; only ships and aircraft can attack it.";
+            case "Infantry" -> "Cheap riflemen. Cross forests freely and the only ground unit that can climb mountains (good cover).";
+            case "Anti-Tank Team" -> "Type 01 LMAT team: fragile, but deals double damage to tanks. Moves like infantry.";
+            case "AH-64D" -> "Apache attack helicopter: 1.5x damage to tanks. Flies anywhere, but flies low: ground fire hits it at full strength.";
             case "Army Base" -> "Forward base: +2 RP per round, deploys army units around it, and a Radar Station can be built near it. Built on base ruins by a Recovery Vehicle.";
             case "Air Base" -> "Airfield: +2 RP per round, required to deploy aircraft. Built on base ruins by a Recovery Vehicle.";
             case "Naval Base" -> "Harbour: +2 RP per round, required to deploy ships. Built on base ruins next to water by a Recovery Vehicle.";
@@ -157,7 +165,8 @@ public class GameController {
         String orders = unit instanceof AssaultClass
                 ? unit instanceof ActsAfterMoving ? " Can move and attack in the same turn." : " Moves or attacks each turn, not both."
                 : "";
-        String where = unit instanceof Aircraft ? " Deploys at an air base."
+        String where = unit instanceof Helicopter ? " Deploys at your base, an army base or an air base."
+                : unit instanceof Aircraft ? " Deploys at an air base."
                 : unit instanceof Ship ? " Deploys on the water around a naval base."
                 : " Deploys at your base or an army base.";
         return text + orders + where;
@@ -536,7 +545,7 @@ public class GameController {
                     range.add(point);
                 }
             }
-            for (int targetId : model.getOpponent().getPlayerDeck().getUnitIDsInRange(origin, shootingRange)) {
+            for (int targetId : attackCommand.findTargets(model.getCurrentPlayer(), selectedUnitId)) {
                 targets.add(model.findUnitById(targetId).getPosition());
             }
         }
@@ -608,8 +617,7 @@ public class GameController {
     /** True if the unit has something to do from where it stands: a target to shoot, heal or build on. */
     private boolean canStillAct(int unitId, Unit unit) {
         Player player = model.getCurrentPlayer();
-        if (unit instanceof AssaultClass assault && !model.getOpponent().getPlayerDeck()
-                .getUnitIDsInRange(unit.getPosition(), model.getShootingRange(assault)).isEmpty()) {
+        if (!attackCommand.findTargets(player, unitId).isEmpty()) {
             return true;
         }
         if (!healCommand.findTargets(player, unitId).isEmpty()) {

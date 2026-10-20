@@ -62,6 +62,7 @@ class BuildingsAndSupportTest {
         for (int y = 0; y < 16; y++) Fixtures.setTerrain(game, new Point(6, y), TerrainEnum.WATER);
         Fixtures.place(game, 1, new AirForceBase(1, new Point(3, 3)));
         Fixtures.place(game, 1, new NavyBase(1, new Point(5, 8)));
+        Fixtures.place(game, 1, new ArmyBase(1, new Point(2, 13))); // room for the whole army roster
         // ruins (one by the water) for the bases, each with a recovery vehicle next to it
         for (Point site : List.of(new Point(9, 3), new Point(9, 9), new Point(5, 11))) {
             Fixtures.addBaseSite(game, site);

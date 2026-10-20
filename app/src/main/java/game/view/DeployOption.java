@@ -14,6 +14,7 @@ public record DeployOption(UnitEnum type, Category category, String name, int co
     /** The tabs of the deploy panel. */
     public enum Category {
         ARMY("Army"),
+        INFANTRY("Infantry"),
         SUPPORT("Support"),
         AIR("Air"),
         NAVY("Navy"),
