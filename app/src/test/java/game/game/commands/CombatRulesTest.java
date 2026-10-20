@@ -198,9 +198,10 @@ class CombatRulesTest {
     // --- Fairness ---
 
     @Test
-    void theSecondPlayerStartsWithABonusForMovingSecond() {
+    void bothPlayersStartEqual() {
+        // with fog of war, moving first is hardly an advantage any more (balanceLab, 1000 games: 52/48)
         Game fresh = new Game();
-        assertEquals(fresh.getPlayerOne().getResourcePoints() + 1, fresh.getPlayerTwo().getResourcePoints());
+        assertEquals(fresh.getPlayerOne().getResourcePoints(), fresh.getPlayerTwo().getResourcePoints());
     }
 
     @Test

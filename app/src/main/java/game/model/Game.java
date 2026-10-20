@@ -21,7 +21,6 @@ import java.util.Set;
 public class Game {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
     private final int maxResourcePoints = 20;
-    private static final int SECOND_PLAYER_BONUS = 1;
     private boolean isPlayerOneTurn = true;
     private boolean gameOver = false;
     private boolean fogOfWar = true;
@@ -36,9 +35,6 @@ public class Game {
         battlefield = new Battlefield(circleGenerator, 16, 16, true);
         playerOne = new Player(circleGenerator, 1, new Point(0, 0));
         playerTwo = new Player(circleGenerator, 2, new Point(15, 15)); // Adjusted for 0-based index
-        // moving first is a small advantage: 1 RP more for the second player evens it out
-        // (balanceLab, 1000 games: 53/47 without the bonus, 48/52 with it)
-        playerTwo.addResourcePoints(SECOND_PLAYER_BONUS);
     }
 
     public Player getCurrentPlayer() {

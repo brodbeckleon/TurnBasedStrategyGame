@@ -3,8 +3,8 @@ package game.controller;
 /**
  * How well the bot plays. It never cheats: every level plays by the same rules and the same fog of war. Lower
  * levels buy more randomly, sometimes take a worse shot or none at all, are careless under fire and slow to
- * upgrade; Hard makes no random choices and no blunders (in bot-vs-bot games it beats Normal about 57 % of the time,
- * Easy wins about a third against Normal).
+ * upgrade; Hard makes no random choices and no blunders. Measured in 400 bot-vs-bot games each (balanceLab):
+ * Hard beats Normal 62 % of the decided games, Easy wins 42 % against Normal.
  *
  * @param purchaseNoise how much chance goes into what the bot buys
  * @param blunderChance how often a unit takes a random worthwhile shot (or skips it) instead of the best one
@@ -13,7 +13,7 @@ package game.controller;
  */
 public enum Difficulty {
     EASY("Easy", 2.5, 0.35, 0.4, 8),
-    NORMAL("Normal", 0.8, 0.05, 1, 4),
+    NORMAL("Normal", 1.2, 0.15, 1, 4),
     HARD("Hard", 0.2, 0, 1, 4);
 
     private final String label;
