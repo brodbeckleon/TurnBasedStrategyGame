@@ -11,6 +11,7 @@ import game.interfaces.Spotter;
 import game.units.AssaultClass;
 import game.units.Base;
 import game.units.Infrastructure;
+import game.units.MilitaryBase;
 import game.units.SupportClass;
 import game.units.Unit;
 import game.units.assaultClasses.AssaultTank;
@@ -52,7 +53,6 @@ import java.util.function.Supplier;
 public class GameView {
 
     private static final double FAST_FORWARD_RATE = 8;
-    private static final int MAX_RESOURCE_POINTS = 10;
     private static final double BOARD_MARGIN = 16;
     private static final double SIDE_PANEL_WIDTH = 330;
 
@@ -112,6 +112,7 @@ public class GameView {
     private UnitEnum armedDeploy;
     private Consumer<KeyEvent> keyHandler = event -> { };
     private Runnable onRestart;
+    private Runnable onUpgrade = () -> { };
 
     public GameView(int width, int height) {
         this.gridWidth = width;
@@ -305,8 +306,8 @@ public class GameView {
             turnLabel.getStyleClass().removeAll("turn-p1", "turn-p2");
             turnLabel.getStyleClass().add(yourTurn ? "turn-p1" : "turn-p2");
         }
-        player1Card.update(model.getPlayerOne(), currentPlayer == model.getPlayerOne());
-        player2Card.update(model.getPlayerTwo(), currentPlayer == model.getPlayerTwo());
+        player1Card.update(model, model.getPlayerOne(), currentPlayer == model.getPlayerOne());
+        player2Card.update(model, model.getPlayerTwo(), currentPlayer == model.getPlayerTwo());
         refreshDeployButtons();
 
         idleMotion.clear();
@@ -357,8 +358,29 @@ public class GameView {
                     terrainView.setSmooth(false);
                     cellPane.getChildren().add(terrainView);
                 }
+                if (battlefield.isBaseSite(pos) && model.getUnitAt(pos) == null) {
+                    cellPane.getChildren().add(createRuins());
+                }
             }
         }
+    }
+
+    /** Base ruins, a neutral sprite; the burnt-out headquarters sprite stands in if it is missing. */
+    private Node createRuins() {
+        Image ruins = loadImage("/images/terrain/BASE_RUINS.png");
+        if (ruins == null) {
+            UnitNode wreck = createUnitNode(1, "Base", 0, UnitKind.GROUND);
+            wreck.showWreck();
+            wreck.tint().setSaturation(-1);
+            wreck.setMouseTransparent(true);
+            return wreck;
+        }
+        ImageView view = new ImageView(ruins);
+        view.setFitWidth(CELL_SIZE);
+        view.setFitHeight(CELL_SIZE);
+        view.setSmooth(false);
+        view.setMouseTransparent(true);
+        return view;
     }
 
     private String getTerrainImagePath(Battlefield battlefield, Point pos) {
@@ -466,6 +488,13 @@ public class GameView {
         unitStack.setUserData(unitId);
 
         cellPane.getChildren().add(unitStack);
+        if (unit instanceof MilitaryBase base && base.getLevel() > 1 && unit.getHealthPoints() > 0) {
+            Label badge = new Label(base.getLevel() == 2 ? "II" : "III");
+            badge.getStyleClass().add("level-badge");
+            badge.setMouseTransparent(true);
+            StackPane.setAlignment(badge, Pos.BOTTOM_RIGHT);
+            cellPane.getChildren().add(badge);
+        }
         unitNodes.put(unitId, unitStack);
         addIdleMotion(unitStack, unitId);
     }
@@ -768,7 +797,11 @@ public class GameView {
         if (unit != null) {
             inspectUnit(unit);
         } else if (cell != null) {
-            inspectTerrain(model.getBattlefield().getGeographyOfPoint(cell));
+            if (model.getBattlefield().isBaseSite(cell)) {
+                inspectRuins();
+            } else {
+                inspectTerrain(model.getBattlefield().getGeographyOfPoint(cell));
+            }
         } else {
             Label placeholder = new Label("Hover over a tile or unit to see its details.");
             placeholder.getStyleClass().add("muted");
@@ -842,6 +875,10 @@ public class GameView {
         if (unit instanceof AssaultTank tank) {
             addStat(stats, column++, "ARM", tank.getArmorValue());
         } else if (unit instanceof Infrastructure building) {
+            if (building instanceof MilitaryBase base) {
+                addStat(stats, column++, "LV", base.getLevel());
+                addStat(stats, column++, "RP/RND", base.getIncome());
+            }
             addStat(stats, column++, "ARM", building.getArmorValue());
             if (building.getDeploymentRadius() > 0) {
                 addStat(stats, column++, "DEPLOY", building.getDeploymentRadius());
@@ -852,6 +889,21 @@ public class GameView {
         }
 
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
+
+        boolean selected = model.findUnitById(highlights.selectedUnitId()) == unit;
+        if (unit instanceof MilitaryBase base && unit.getPlayerID() == 1 && selected && unit.getHealthPoints() > 0) {
+            Button upgrade = new Button(base.canUpgrade()
+                    ? "Upgrade to level " + (base.getLevel() + 1) + "  ·  " + base.getUpgradeCost() + " RP  [U]"
+                    : "Fully upgraded");
+            upgrade.getStyleClass().add("upgrade-button");
+            upgrade.setMaxWidth(Double.MAX_VALUE);
+            upgrade.setFocusTraversable(false);
+            boolean canAct = model.isPlayerOneTurn() && !inputLocked && !gameOver;
+            upgrade.setDisable(!canAct || !base.canUpgrade()
+                    || model.getPlayerOne().getResourcePoints() < base.getUpgradeCost());
+            upgrade.setOnAction(event -> onUpgrade.run());
+            inspector.getChildren().add(upgrade);
+        }
 
         if (!(unit instanceof Infrastructure) && model.getCurrentPlayer().getPlayerID() == unit.getPlayerID()) {
             Label status = new Label(unit.isAvailable() ? "Ready to act" : "Already acted this turn");
@@ -867,6 +919,16 @@ public class GameView {
         valueLabel.getStyleClass().add("stat-value");
         stats.add(keyLabel, column, 0);
         stats.add(valueLabel, column, 1);
+    }
+
+    private void inspectRuins() {
+        Label title = new Label("Base Ruins");
+        title.getStyleClass().add("inspect-name");
+        Label text = new Label("Move an Armored Recovery Vehicle next to the ruins, then pick an Army, Air or Naval Base "
+                + "in the Build tab to rebuild it. Every base adds resource points each round.");
+        text.getStyleClass().add("muted");
+        text.setWrapText(true);
+        inspector.getChildren().addAll(title, text);
     }
 
     private void inspectTerrain(TerrainEnum terrain) {
@@ -893,6 +955,11 @@ public class GameView {
     /** Called with every key the player presses, unless it fast-forwards an animation. */
     public void setKeyHandler(Consumer<KeyEvent> keyHandler) {
         this.keyHandler = keyHandler;
+    }
+
+    /** What the upgrade button of a selected base does. */
+    public void setOnUpgrade(Runnable onUpgrade) {
+        this.onUpgrade = onUpgrade;
     }
 
     /** What the "Play again" button on the game over screen does. */
@@ -1107,10 +1174,10 @@ public class GameView {
             getChildren().addAll(head, resourcesText, resources, baseHealthText, baseHealth, units);
         }
 
-        private void update(Player player, boolean active) {
+        private void update(Game model, Player player, boolean active) {
             int rp = player.getResourcePoints();
-            resources.setProgress(Math.min(1, (double) rp / MAX_RESOURCE_POINTS));
-            resourcesText.setText("Resources  " + rp + " / " + MAX_RESOURCE_POINTS);
+            resources.setProgress(Math.min(1, (double) rp / model.getMaxResourcePoints()));
+            resourcesText.setText("RP " + rp + " / " + model.getMaxResourcePoints() + "  (+" + model.getIncome(player) + "/round)");
             Base base = player.getPlayerDeck().getBase();
             int hp = Math.max(0, base.getHealthPoints());
             baseHealth.setProgress((double) hp / base.getMaxHealthPoints());

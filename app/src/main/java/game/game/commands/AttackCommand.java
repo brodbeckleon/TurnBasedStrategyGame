@@ -109,8 +109,13 @@ public class AttackCommand extends Command {
         return describeAttack(attackingUnitID, attackingUnit, defendingUnitID, defendingUnit, damage, hpBefore);
     }
 
+    /** The damage the attacker would deal to the target, without changing anything. */
+    public static int predictDamage(AssaultClass attacker, Unit target) {
+        return target instanceof Infrastructure building ? structureDamage(attacker, building) : unitDamage(attacker, target);
+    }
+
     /** Artillery and tanks are made to break buildings, everything else barely scratches them. */
-    private static int structureDamage(AssaultClass attacker, Infrastructure building) {
+    public static int structureDamage(AssaultClass attacker, Infrastructure building) {
         int damage = attacker.getDamage();
         if (attacker instanceof SelfPropelledArtillery) damage *= 4;
         else if (attacker instanceof AssaultTank) damage *= 2;
@@ -121,7 +126,7 @@ public class AttackCommand extends Command {
     }
 
     /** Anti-air hits aircraft twice as hard; other ground and sea units only half as hard. Armour absorbs the rest. */
-    private static int unitDamage(AssaultClass attacker, Unit target) {
+    public static int unitDamage(AssaultClass attacker, Unit target) {
         int damage = attacker.getDamage();
         if (target instanceof Aircraft) {
             if (attacker instanceof SelfPropelledAntiAir) damage *= 2;

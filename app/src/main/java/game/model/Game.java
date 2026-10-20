@@ -5,6 +5,8 @@ import game.game.map.Battlefield;
 import game.interfaces.Spotter;
 import game.tools.CircleGenerator;
 import game.units.AssaultClass;
+import game.units.Infrastructure;
+import game.units.MilitaryBase;
 import game.units.Unit;
 import java.awt.Point;
 import java.util.Map;
@@ -15,7 +17,7 @@ import java.util.Map;
  */
 public class Game {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
-    private final int maxResourcePoints = 10;
+    private final int maxResourcePoints = 20;
     private boolean isPlayerOneTurn = true;
     private boolean gameOver = false;
     private int winnerId = 0;
@@ -50,9 +52,25 @@ public class Game {
     }
 
     private void addResourcePoints(Player player) {
-        if (player.getResourcePoints() < maxResourcePoints) {
-            player.addResourcePoints();
+        int room = maxResourcePoints - player.getResourcePoints();
+        if (room > 0) {
+            player.addResourcePoints(Math.min(getIncome(player), room));
         }
+    }
+
+    /** What the player's standing bases (headquarters included) produce at the end of each of its turns. */
+    public int getIncome(Player player) {
+        int income = 0;
+        for (Infrastructure building : player.getPlayerDeck().getBuildings()) {
+            if (building instanceof MilitaryBase base) {
+                income += base.getIncome();
+            }
+        }
+        return income;
+    }
+
+    public int getMaxResourcePoints() {
+        return maxResourcePoints;
     }
 
     public void checkWinCondition() {
@@ -77,8 +95,9 @@ public class Game {
         return unit.getShootingRange();
     }
 
+    /** True if nothing stands there and it is not base ruins (rubble no unit can stop on). */
     public boolean isPositionFree(Point position) {
-        return playerOne.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize()) &&
+        return !battlefield.isBaseSite(position) && playerOne.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize()) &&
                 playerTwo.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize());
     }
 

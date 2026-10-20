@@ -2,14 +2,15 @@ package game.units.infrastructures;
 
 import game.interfaces.militaryBranches.Army;
 import game.units.Infrastructure;
+import game.units.MilitaryBase;
 import game.units.Unit;
 
 import java.awt.*;
 
 /** A forward base: army units deploy around it, and further buildings can be built from it. */
-public class ArmyBase extends Infrastructure implements Army {
+public class ArmyBase extends MilitaryBase implements Army {
     public ArmyBase(int playerID, Point position) {
-        super(playerID, "Army Base", position, 5, 2500, 150, 2);
+        super(playerID, "Army Base", position, 10, 2500, 150, 2, 2);
     }
 
     @Override

@@ -62,6 +62,11 @@ class BuildingsAndSupportTest {
         for (int y = 0; y < 16; y++) Fixtures.setTerrain(game, new Point(6, y), TerrainEnum.WATER);
         Fixtures.place(game, 1, new AirForceBase(1, new Point(3, 3)));
         Fixtures.place(game, 1, new NavyBase(1, new Point(5, 8)));
+        // ruins (one by the water) for the bases, each with a recovery vehicle next to it
+        for (Point site : List.of(new Point(9, 3), new Point(9, 9), new Point(5, 11))) {
+            Fixtures.addBaseSite(game, site);
+            Fixtures.place(game, 1, new ArmoredRecoveryVehicle(1, new Point(site.x - 1, site.y - 1)));
+        }
         giveResources(1000);
 
         for (UnitEnum type : UnitEnum.values()) {
@@ -112,28 +117,41 @@ class BuildingsAndSupportTest {
     void shipsDeployOnTheWaterAroundANavalBase() {
         Fixtures.setTerrain(game, new Point(5, 1), TerrainEnum.WATER);
         Fixtures.setTerrain(game, new Point(6, 1), TerrainEnum.WATER);
+        Fixtures.addBaseSite(game, new Point(5, 2));
+        Fixtures.place(game, 1, new ArmoredRecoveryVehicle(1, new Point(4, 3)));
         giveResources(20);
 
         assertTrue(deployable(UnitEnum.YAMATO).isEmpty(), "no naval base yet");
-        Set<Point> harbourSites = deployable(UnitEnum.NAVYBASE);
-        assertEquals(Set.of(new Point(4, 1), new Point(5, 0), new Point(5, 2)), harbourSites, "open ground next to water within 5 tiles of the base");
-        assertFalse(add.execute(player, UnitEnum.NAVYBASE.name(), new Point(3, 3)).wasSuccessful(), "inland");
+        assertEquals(Set.of(new Point(5, 2)), deployable(UnitEnum.NAVYBASE));
 
-        assertTrue(add.execute(player, UnitEnum.NAVYBASE.name(), new Point(4, 1)).wasSuccessful());
+        assertTrue(add.execute(player, UnitEnum.NAVYBASE.name(), new Point(5, 2)).wasSuccessful());
 
         assertEquals(Set.of(new Point(5, 1), new Point(6, 1)), deployable(UnitEnum.YAMATO));
     }
 
     @Test
-    void anArmyBaseExtendsWhereUnitsAndBuildingsCanGo() {
+    void navalBasesNeedRuinsByTheWater() {
+        Fixtures.addBaseSite(game, new Point(8, 8));
+        Fixtures.place(game, 1, new ArmoredRecoveryVehicle(1, new Point(7, 8)));
         giveResources(20);
-        assertFalse(add.execute(player, UnitEnum.TYPENINETY.name(), new Point(6, 0)).wasSuccessful(), "too far from the base");
 
-        assertTrue(add.execute(player, UnitEnum.ARMYBASE.name(), new Point(5, 0)).wasSuccessful());
+        assertTrue(deployable(UnitEnum.NAVYBASE).isEmpty());
+        assertFalse(add.execute(player, UnitEnum.NAVYBASE.name(), new Point(8, 8)).wasSuccessful());
+        assertEquals(Set.of(new Point(8, 8)), deployable(UnitEnum.ARMYBASE));
+    }
 
-        assertTrue(add.execute(player, UnitEnum.TYPENINETY.name(), new Point(6, 0)).wasSuccessful());
-        assertTrue(deployable(UnitEnum.RADARSTATION).contains(new Point(8, 0)), "within 3 tiles of the army base");
-        assertFalse(deployable(UnitEnum.RADARSTATION).contains(new Point(9, 0)));
+    @Test
+    void anArmyBaseExtendsWhereUnitsAndBuildingsCanGo() {
+        Fixtures.addBaseSite(game, new Point(7, 0));
+        Fixtures.place(game, 1, new ArmoredRecoveryVehicle(1, new Point(6, 1)));
+        giveResources(20);
+        assertFalse(add.execute(player, UnitEnum.TYPENINETY.name(), new Point(8, 0)).wasSuccessful(), "too far from the base");
+
+        assertTrue(add.execute(player, UnitEnum.ARMYBASE.name(), new Point(7, 0)).wasSuccessful());
+
+        assertTrue(add.execute(player, UnitEnum.TYPENINETY.name(), new Point(8, 0)).wasSuccessful());
+        assertTrue(deployable(UnitEnum.RADARSTATION).contains(new Point(10, 0)), "within 3 tiles of the army base");
+        assertFalse(deployable(UnitEnum.RADARSTATION).contains(new Point(11, 0)));
     }
 
     @Test

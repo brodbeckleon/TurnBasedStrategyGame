@@ -26,13 +26,20 @@ public class AddCommand extends Command {
      * @return A CommandResult indicating success or failure.
      */
     public CommandResult execute(Player player, String unitName, Point position) {
-        // Check if position is free
-        if (!checkIfPositionIsFree(position)) {
-            return new CommandResult(false, "Position is not free!");
-        }
-
         // Create the unit
         Unit unit = unitFactory.createUnit(player.getPlayerID(), unitName, position);
+
+        // Bases go on free base ruins, everything else on a free tile
+        if (isSiteBuilding(unit)) {
+            if (!isFreeSite(position)) {
+                return new CommandResult(false, "Bases can only be built on free base ruins.");
+            }
+            if (findBuilder(player, position).isEmpty()) {
+                return new CommandResult(false, "Move a ready Armored Recovery Vehicle next to the ruins first.");
+            }
+        } else if (!checkIfPositionIsFree(position)) {
+            return new CommandResult(false, "Position is not free!");
+        }
 
         // Check if position is within the deployment radius of a building that can deploy this unit
         if (!checkIfPositionIsDeployable(player, unit, position)) {
@@ -53,7 +60,10 @@ public class AddCommand extends Command {
             return new CommandResult(false, "Not enough resource points!");
         }
 
-        // All checks passed, perform the action
+        // All checks passed, perform the action; building a base takes the recovery vehicle's turn
+        if (isSiteBuilding(unit)) {
+            player.getPlayerDeck().setUnitUnavailable(findBuilder(player, position).orElseThrow());
+        }
         player.getPlayerDeck().addUnit(unit);
         player.removeResourcePoints(unit.getResourceCost());
 

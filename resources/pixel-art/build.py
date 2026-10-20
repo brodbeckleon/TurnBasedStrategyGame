@@ -6,6 +6,7 @@
 
 Sprites  resources/pixel-art/sprites/*.py  ->  app/src/main/resources/images/units/player1|2/<NAME>.png
          (one 32x32 sprite per unit, facing right; player 1 gets blue team accents, player 2 red; the game mirrors player 2)
+         KIND = "neutral" sprites (ownerless, no team colour) -> one app/src/main/resources/images/terrain/<NAME_UPPER_SNAKE>.png
 Tiles    PLAIN_* shoreline combinations that GameView can ask for but that were never hand-drawn are composed from the
          hand-drawn pieces (8x8 corner blocks) -> app/src/main/resources/images/terrain/
 
@@ -47,6 +48,9 @@ def build_sprites(check_only):
         for w in warn: print(f'warning {os.path.basename(path)}: {w}')
         errors += len(err)
         if check_only or err: continue
+        if kind == 'neutral':
+            write_png(os.path.join(TERRAIN, name.upper().replace(' ', '_') + '.png'), canvas.pixels(1))
+            print(f'sprite  {name} (neutral)'); continue
         for team in (1, 2):
             out_dir = os.path.join(UNITS, f'player{team}'); os.makedirs(out_dir, exist_ok=True)
             write_png(os.path.join(out_dir, name + '.png'), canvas.pixels(team))

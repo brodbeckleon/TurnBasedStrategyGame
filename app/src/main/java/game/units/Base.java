@@ -5,12 +5,12 @@ import game.interfaces.militaryBranches.Army;
 import java.awt.Point;
 
 /** The headquarters: losing it loses the game. Army units deploy around it and new buildings are built near it. */
-public class Base extends Infrastructure {
+public class Base extends MilitaryBase {
     private final int baseID;
 
     public Base(int playerID, int baseID, Point position) {
         // Call the Infrastructure constructor with fixed values for a Base
-        super(playerID, "Base", position, 0, 10000, 200, 3);
+        super(playerID, "Base", position, 0, 10000, 200, 3, 2);
 
         this.baseID = baseID;
     }
