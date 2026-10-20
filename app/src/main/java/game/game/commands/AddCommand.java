@@ -1,12 +1,14 @@
 package game.game.commands;
 
 import game.enums.UnitEnum;
+import game.events.GameEvent;
 import game.game.Command;
 import game.game.Player;
 import game.game.UnitFactory;
 import game.model.Game;
 import game.units.Unit;
 import java.awt.Point;
+import java.util.List;
 
 public class AddCommand extends Command {
     private static final UnitFactory unitFactory = new UnitFactory();
@@ -50,6 +52,7 @@ public class AddCommand extends Command {
         player.getPlayerDeck().addUnit(unit);
         player.removeResourcePoints(unit.getResourceCost());
 
-        return new CommandResult(true, unitName + " added successfully.");
+        GameEvent deployed = new GameEvent.UnitDeployed(player.getPlayerID(), getGameModel().getUnitID(unit), unit.getUnitName(), position);
+        return new CommandResult(true, unitName + " added successfully.", List.of(deployed));
     }
 }

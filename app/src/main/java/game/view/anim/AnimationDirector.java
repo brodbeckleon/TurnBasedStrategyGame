@@ -1,0 +1,308 @@
+package game.view.anim;
+
+import game.events.GameEvent;
+import game.events.GameEvent.UnitAttacked;
+import game.events.GameEvent.UnitDamaged;
+import game.events.GameEvent.UnitDeployed;
+import game.events.GameEvent.UnitDestroyed;
+import game.events.GameEvent.UnitMoved;
+import javafx.animation.Interpolator;
+import javafx.animation.Transition;
+import javafx.geometry.Point2D;
+import javafx.scene.Group;
+import javafx.scene.Node;
+import javafx.scene.control.Label;
+import javafx.scene.effect.ColorAdjust;
+import javafx.scene.effect.DropShadow;
+import javafx.scene.layout.Pane;
+import javafx.scene.layout.StackPane;
+import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
+import javafx.scene.text.Text;
+import javafx.scene.shape.StrokeType;
+
+import java.awt.Point;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Turns game events into one {@link Transition} that is played on the effects layer. Units that take part
+ * are replaced by animated ghosts; {@link #reset()} removes everything the director put on the layer.
+ */
+public final class AnimationDirector {
+
+    /** Hands out the animated stand-in for a unit and hides the unit's static drawing. */
+    @FunctionalInterface
+    public interface GhostSource {
+        UnitNode lift(int unitId, int playerId, String unitName);
+    }
+
+    private static final double MOVE_MS_PER_TILE = 130;
+    private static final double MOVE_MIN_MS = 220;
+    private static final double MOVE_MAX_MS = 600;
+    private static final double DUST_FRAME_MS = 70;
+
+    private static final double DEPLOY_MS = 250;
+    private static final double DEPLOY_DROP_PX = 12;
+
+    private static final double LUNGE_MS = 120;
+    private static final double LUNGE_PX = 3;
+
+    private static final double HIT_MS = 220;
+    private static final double HIT_SHAKE_PX = 2;
+    private static final double HEALTH_TWEEN_MS = 250;
+    private static final double DAMAGE_NUMBER_MS = 700;
+    private static final double DAMAGE_NUMBER_RISE_PX = 18;
+    /** Keeps the number and its outline inside the board. */
+    private static final double DAMAGE_NUMBER_MARGIN = 5;
+
+    private static final double EXPLOSION_FRAME_MS = 70;
+    private static final double EXPLOSION_MS = 6 * EXPLOSION_FRAME_MS;
+    private static final double SMOKE_FRAME_MS = 100;
+    private static final double SMOKE_DELAY_MS = 200;
+    private static final double DESTROYED_DARKEN = -0.7;
+    private static final double BASE_WRECK_MS = 300;
+    private static final double BASE_SHAKE_MS = 350;
+    private static final double BASE_SHAKE_PX = 5;
+    /** How far the blast of a base keeps from the board edge, so a base in a corner still explodes fully in view. */
+    private static final double BASE_BLAST_REACH = 34;
+    /** Offset from the base centre in pixels, delay and scale of the extra explosions around a dying base. */
+    private static final double[][] BASE_BLASTS = {{-14, -10, 110, 1}, {13, -6, 220, 1.25}, {-4, 13, 330, 1}};
+
+    private static final double BANNER_SLIDE_MS = 250;
+    private static final double BANNER_HOLD_MS = 350;
+    private static final double BANNER_FADE_MS = 200;
+    private static final double BANNER_HEIGHT = 64;
+    private static final double BANNER_MARGIN = 12;
+
+    private final Node board;
+    private final double boardWidth;
+    private final double boardHeight;
+    private final GhostSource ghostSource;
+    private final EffectSprites sprites;
+    private final Group ghostLayer = new Group();
+    private final Group effectLayer = new Group();
+    private final Group textLayer = new Group();
+    private final EffectPlayer effects = new EffectPlayer(effectLayer);
+    private final WeaponFire weaponFire;
+    private final Map<Integer, UnitNode> ghosts = new HashMap<>();
+
+    /**
+     * @param effectsLayer the pane the ghosts and effects are drawn on
+     * @param board        the node that is shaken when a base explodes
+     */
+    public AnimationDirector(Pane effectsLayer, Node board, double boardWidth, double boardHeight,
+                             GhostSource ghostSource, EffectSprites sprites) {
+        this.board = board;
+        this.boardWidth = boardWidth;
+        this.boardHeight = boardHeight;
+        this.ghostSource = ghostSource;
+        this.sprites = sprites;
+        this.weaponFire = new WeaponFire(sprites, effects);
+        effectsLayer.getChildren().addAll(ghostLayer, effectLayer, textLayer);
+    }
+
+    /** Builds the animation for the events, one after the other. Nothing plays until it is started. */
+    public Transition direct(List<GameEvent> events) {
+        Schedule schedule = new Schedule();
+        double cursor = 0;
+        for (GameEvent event : events) {
+            cursor = switch (event) {
+                case UnitDeployed e -> deploy(schedule, cursor, e);
+                case UnitMoved e -> move(schedule, cursor, e);
+                case UnitAttacked e -> attack(schedule, cursor, e);
+                case UnitDamaged e -> damage(schedule, cursor, e);
+                case UnitDestroyed e -> destroy(schedule, cursor, e);
+            };
+        }
+        return schedule;
+    }
+
+    /** A bar that slides across the board centre, holds for a moment and fades out. */
+    public Transition banner(String text) {
+        Label label = new Label(text);
+        label.setFont(Font.font("System", FontWeight.EXTRA_BOLD, 34));
+        label.setTextFill(Color.WHITE);
+        label.setEffect(new DropShadow(4, Color.BLACK));
+
+        double width = boardWidth - 2 * BANNER_MARGIN;
+        StackPane bar = new StackPane(label);
+        bar.setPrefSize(width, BANNER_HEIGHT);
+        bar.setMinSize(width, BANNER_HEIGHT);
+        bar.setMaxSize(width, BANNER_HEIGHT);
+        bar.setStyle("-fx-background-color: rgba(10, 14, 28, 0.8); -fx-background-radius: 14;"
+                + "-fx-border-color: rgba(255, 255, 255, 0.45); -fx-border-width: 2; -fx-border-radius: 14;");
+        bar.setLayoutX(BANNER_MARGIN);
+        bar.setLayoutY((boardHeight - BANNER_HEIGHT) / 2);
+        bar.setMouseTransparent(true);
+        bar.setTranslateX(-boardWidth);
+        textLayer.getChildren().add(bar);
+
+        Schedule schedule = new Schedule();
+        schedule.add(0, BANNER_SLIDE_MS, Interpolator.EASE_OUT, f -> bar.setTranslateX(-boardWidth * (1 - f)));
+        schedule.add(BANNER_SLIDE_MS + BANNER_HOLD_MS, BANNER_FADE_MS, Interpolator.LINEAR,
+                f -> bar.setOpacity(1 - f));
+        return schedule;
+    }
+
+    /** Removes all ghosts and effects and puts the board back in place. */
+    public void reset() {
+        ghosts.clear();
+        ghostLayer.getChildren().clear();
+        effectLayer.getChildren().clear();
+        textLayer.getChildren().clear();
+        board.setTranslateX(0);
+        board.setTranslateY(0);
+    }
+
+    private double deploy(Schedule schedule, double startMs, UnitDeployed event) {
+        UnitNode ghost = ghost(event.unitId(), event.playerId(), event.unitName(), event.pos());
+        ghost.setOpacity(0);
+        ghost.setTranslateY(-DEPLOY_DROP_PX);
+        schedule.add(startMs, DEPLOY_MS, Interpolator.EASE_BOTH, f -> {
+            ghost.setOpacity(f);
+            ghost.setTranslateY(-DEPLOY_DROP_PX * (1 - f));
+        });
+        dust(schedule, startMs + DEPLOY_MS * 0.7, event.pos());
+        return startMs + DEPLOY_MS;
+    }
+
+    private double move(Schedule schedule, double startMs, UnitMoved event) {
+        UnitNode ghost = ghost(event.unitId(), event.playerId(), event.unitName(), event.from());
+        Point2D delta = Cells.center(event.to()).subtract(Cells.center(event.from()));
+        double duration = clamp(MOVE_MS_PER_TILE * event.from().distance(event.to()), MOVE_MIN_MS, MOVE_MAX_MS);
+        schedule.add(startMs, duration, Interpolator.EASE_BOTH, f -> {
+            ghost.setTranslateX(delta.getX() * f);
+            ghost.setTranslateY(delta.getY() * f);
+        });
+        if (ghost.getKind() == UnitKind.GROUND) {
+            dust(schedule, startMs, event.from());
+        }
+        return startMs + duration;
+    }
+
+    private double attack(Schedule schedule, double startMs, UnitAttacked event) {
+        UnitNode attacker = ghost(event.attackerId(), event.playerId(), event.attackerName(), event.from());
+        Point2D direction = Cells.center(event.to()).subtract(Cells.center(event.from())).normalize();
+        schedule.add(startMs, LUNGE_MS, Interpolator.LINEAR, f -> {
+            double push = LUNGE_PX * Math.sin(Math.PI * f);
+            attacker.setTranslateX(direction.getX() * push);
+            attacker.setTranslateY(direction.getY() * push);
+        });
+        return weaponFire.fire(schedule, startMs, event);
+    }
+
+    private double damage(Schedule schedule, double startMs, UnitDamaged event) {
+        UnitNode target = ghost(event.unitId(), event.ownerId(), event.unitName(), event.pos());
+        double before = healthRatio(event.hpBefore(), event.maxHp());
+        double after = healthRatio(event.hpAfter(), event.maxHp());
+        target.setHealthRatio(before);
+        ColorAdjust tint = target.tint();
+        schedule.add(startMs, HIT_MS, Interpolator.LINEAR, f -> {
+            tint.setBrightness(Math.abs(Math.sin(2 * Math.PI * f)));
+            target.setTranslateX(HIT_SHAKE_PX * Math.sin(6 * Math.PI * f) * (1 - f));
+        });
+        schedule.add(startMs, HEALTH_TWEEN_MS, Interpolator.EASE_BOTH,
+                f -> target.setHealthRatio(before + (after - before) * f));
+        damageNumber(schedule, startMs, event);
+        return startMs + HIT_MS;
+    }
+
+    private double destroy(Schedule schedule, double startMs, UnitDestroyed event) {
+        UnitNode ghost = ghost(event.unitId(), event.ownerId(), event.unitName(), event.pos());
+        Point2D center = Cells.center(event.pos());
+        if (event.isBase()) {
+            return destroyBase(schedule, startMs, ghost, center);
+        }
+
+        ColorAdjust tint = ghost.tint();
+        effects.frames(schedule, startMs, EXPLOSION_FRAME_MS, sprites.explosion(), center, 1, Point2D.ZERO);
+        schedule.add(startMs, EXPLOSION_MS, Interpolator.LINEAR, f -> {
+            tint.setBrightness(DESTROYED_DARKEN * Math.min(1, f / 0.5));
+            ghost.setOpacity(1 - clamp((f - 0.4) / 0.6, 0, 1));
+        });
+        effects.frames(schedule, startMs + SMOKE_DELAY_MS, SMOKE_FRAME_MS, sprites.smoke(), center, 1, new Point2D(0, -8));
+        return startMs + EXPLOSION_MS;
+    }
+
+    /** A big explosion with smaller ones around it and a shaking board; the burnt-out base stays. */
+    private double destroyBase(Schedule schedule, double startMs, UnitNode ghost, Point2D baseCenter) {
+        ColorAdjust tint = ghost.tint();
+        Point2D center = new Point2D(clamp(baseCenter.getX(), BASE_BLAST_REACH, boardWidth - BASE_BLAST_REACH),
+                clamp(baseCenter.getY(), BASE_BLAST_REACH, boardHeight - BASE_BLAST_REACH));
+        effects.frames(schedule, startMs, EXPLOSION_FRAME_MS, sprites.explosion(), center, 2, Point2D.ZERO);
+        double end = startMs + EXPLOSION_MS;
+        for (double[] blast : BASE_BLASTS) {
+            double blastStart = startMs + blast[2];
+            effects.frames(schedule, blastStart, EXPLOSION_FRAME_MS, sprites.explosion(),
+                    center.add(blast[0], blast[1]), blast[3], Point2D.ZERO);
+            end = Math.max(end, blastStart + EXPLOSION_MS);
+        }
+        schedule.add(startMs, BASE_WRECK_MS, Interpolator.LINEAR, f -> tint.setBrightness(UnitNode.WRECK_BRIGHTNESS * f));
+        effects.frames(schedule, startMs + BASE_WRECK_MS, SMOKE_FRAME_MS, sprites.smoke(), center, 2, new Point2D(0, -12));
+        schedule.add(startMs, BASE_SHAKE_MS, Interpolator.LINEAR, f -> {
+            double strength = BASE_SHAKE_PX * (1 - f);
+            // whole pixels only, so the pixel art stays crisp while the board shakes
+            board.setTranslateX(Math.round(strength * Math.sin(10 * Math.PI * f)));
+            board.setTranslateY(Math.round(strength * Math.sin(8 * Math.PI * f) * 0.6));
+        });
+        return end;
+    }
+
+    private void damageNumber(Schedule schedule, double startMs, UnitDamaged event) {
+        boolean harmless = event.damage() == 0;
+        Text number = new Text(harmless ? "0" : "-" + event.damage());
+        number.setFont(Font.font("System", FontWeight.BOLD, 14));
+        number.setFill(harmless ? Color.LIGHTGRAY : Color.WHITE);
+        number.setStroke(Color.rgb(20, 16, 28));
+        number.setStrokeWidth(3);
+        number.setStrokeType(StrokeType.OUTSIDE);
+        number.setVisible(false);
+        number.setMouseTransparent(true);
+        textLayer.getChildren().add(number);
+
+        // The number starts just above the health bar at the top of the cell, so the bar can be seen while it drains.
+        Point2D center = Cells.center(event.pos());
+        double x = clamp(center.getX() - number.getLayoutBounds().getWidth() / 2, DAMAGE_NUMBER_MARGIN,
+                boardWidth - number.getLayoutBounds().getWidth() - DAMAGE_NUMBER_MARGIN);
+        double y = Math.max(center.getY() - Cells.SIZE / 2.0 - 4, DAMAGE_NUMBER_RISE_PX + 14);
+        schedule.add(startMs, DAMAGE_NUMBER_MS, Interpolator.LINEAR, f -> {
+            boolean floating = f > 0 && f < 1;
+            number.setVisible(floating);
+            if (floating) {
+                number.setX(x);
+                number.setY(y - DAMAGE_NUMBER_RISE_PX * (1 - (1 - f) * (1 - f)));
+                number.setOpacity(f < 0.4 ? 1 : 1 - (f - 0.4) / 0.6);
+            }
+        });
+    }
+
+    /** One or two dust puffs that drift apart at the bottom of a cell. */
+    private void dust(Schedule schedule, double startMs, Point cell) {
+        Point2D feet = Cells.center(cell).add(0, 9);
+        effects.frames(schedule, startMs, DUST_FRAME_MS, sprites.smoke(), feet.add(-6, 0), 0.9, new Point2D(-5, -4));
+        effects.frames(schedule, startMs + 90, DUST_FRAME_MS, sprites.smoke(), feet.add(6, 1), 0.7, new Point2D(5, -3));
+    }
+
+    /** The ghost of a unit; it is created and its static drawing hidden the first time the unit is needed. */
+    private UnitNode ghost(int unitId, int playerId, String unitName, Point cell) {
+        return ghosts.computeIfAbsent(unitId, id -> {
+            UnitNode ghost = ghostSource.lift(id, playerId, unitName);
+            Point2D origin = Cells.origin(cell);
+            ghost.setLayoutX(origin.getX());
+            ghost.setLayoutY(origin.getY());
+            ghostLayer.getChildren().add(ghost);
+            return ghost;
+        });
+    }
+
+    private static double healthRatio(int hp, int maxHp) {
+        return Math.max(0, hp) / (double) maxHp;
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+}

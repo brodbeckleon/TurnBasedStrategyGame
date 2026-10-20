@@ -2,6 +2,7 @@ package game.view;
 
 import game.enums.TerrainEnum;
 import game.enums.UnitEnum;
+import game.events.GameEvent;
 import game.game.Player;
 import game.game.map.Battlefield;
 import game.interfaces.MovableUnit;
@@ -9,22 +10,41 @@ import game.model.Game;
 import game.tools.CircleGenerator;
 import game.units.AssaultClass;
 import game.units.Unit;
+import game.view.anim.AnimationDirector;
+import game.view.anim.Cells;
+import game.view.anim.EffectSprites;
+import game.view.anim.IdleMotion;
+import game.view.anim.UnitKind;
+import game.view.anim.UnitNode;
+import javafx.animation.Animation;
+import javafx.animation.Transition;
+import javafx.event.EventHandler;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
+import javafx.scene.shape.Rectangle;
+import javafx.scene.shape.StrokeType;
 
 import java.awt.Point;
 import java.util.*;
+import java.util.function.Supplier;
 
 public class GameView {
 
+    private static final double FAST_FORWARD_RATE = 8;
+
     private final BorderPane root;
     private final GridPane grid;
+    private final StackPane board;
+    private final Pane effectsLayer;
     private final Label turnLabel;
     private final Label player1Status;
     private final Label player2Status;
@@ -33,12 +53,22 @@ public class GameView {
     private final Button addUnitButton;
     private final Button moveButton;
     private final Button attackButton;
+    private final CheckBox animationsBox;
     private final int gridWidth;
     private final int gridHeight;
-    private static final int CELL_SIZE = 32;
+    private static final int CELL_SIZE = Cells.SIZE;
     private final Map<String, Image> imageCache = new HashMap<>();
     private final Map<Point, StackPane> cellPanes = new HashMap<>();
     private final CircleGenerator circleGenerator = new CircleGenerator();
+
+    private final Map<Integer, UnitNode> unitNodes = new HashMap<>();
+    private final Set<Integer> hiddenUnitIds = new HashSet<>();
+    private final IdleMotion idleMotion = new IdleMotion();
+    private final AnimationDirector director;
+    private Playback current;
+    private boolean inputLocked;
+    private boolean fastForward;
+    private boolean gameOver;
 
     public GameView(int width, int height) {
         this.gridWidth = width;
@@ -54,7 +84,15 @@ public class GameView {
         for (int i = 0; i < gridHeight; i++) {
             grid.getRowConstraints().add(new RowConstraints(CELL_SIZE));
         }
-        root.setCenter(grid);
+
+        // Animations are drawn on a transparent layer above the grid that never takes part in layout or clicks.
+        effectsLayer = new Pane();
+        effectsLayer.setManaged(false);
+        effectsLayer.setMouseTransparent(true);
+        effectsLayer.setClip(new Rectangle(gridWidth * CELL_SIZE, gridHeight * CELL_SIZE));
+        board = new StackPane(grid, effectsLayer);
+        board.setAlignment(Pos.TOP_LEFT);
+        root.setCenter(board);
 
         initializeCellPanes();
 
@@ -70,10 +108,18 @@ public class GameView {
         addUnitButton = new Button("Add Unit");
         moveButton = new Button("Move");
         attackButton = new Button("Attack");
+        animationsBox = new CheckBox("Animations");
+        animationsBox.setSelected(true);
         VBox commandBox = new VBox(5, new Label("Commands:"), addUnitButton, moveButton, attackButton);
-        controlPanel.getChildren().addAll(turnLabel, player1Status, player2Status, skipTurnButton, new Label("Info:"), infoArea);
+        controlPanel.getChildren().addAll(turnLabel, player1Status, player2Status, skipTurnButton, animationsBox, new Label("Info:"), infoArea);
         controlPanel.getChildren().add(3, commandBox);
         root.setRight(controlPanel);
+
+        director = new AnimationDirector(effectsLayer, board, gridWidth * CELL_SIZE, gridHeight * CELL_SIZE,
+                this::liftUnit, new EffectSprites());
+        idleMotion.runWhileShowing(root);
+        animationsBox.selectedProperty().addListener((observable, wasSelected, selected) -> idleMotion.setEnabled(selected));
+        installFastForward();
     }
 
     private void initializeCellPanes() {
@@ -106,6 +152,8 @@ public class GameView {
         player1Status.setText(String.format("Player 1: %d/%d RP", model.getPlayerOne().getResourcePoints(), 10));
         player2Status.setText(String.format("Player 2: %d/%d RP", model.getPlayerTwo().getResourcePoints(), 10));
 
+        idleMotion.clear();
+        unitNodes.clear();
         clearOverlaysAndUnits();
         drawTerrain(model.getBattlefield());
         drawPlayerUnits(model.getPlayerOne());
@@ -113,6 +161,7 @@ public class GameView {
 
         if (selectedUnitId != -1) {
             drawRangeOverlays(model, selectedUnitId);
+            drawSelectionFrame(selectedUnitId);
         }
     }
 
@@ -145,6 +194,7 @@ public class GameView {
                     ImageView terrainView = new ImageView(terrainImage);
                     terrainView.setFitWidth(CELL_SIZE);
                     terrainView.setFitHeight(CELL_SIZE);
+                    terrainView.setSmooth(false);
                     cellPane.getChildren().add(terrainView);
                 }
             }
@@ -228,50 +278,60 @@ public class GameView {
 
 
     private void drawPlayerUnits(Player player) {
+        // the base is one of the deck's units and is drawn with them
         for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
             drawUnitWithHealthBar(entry.getValue(), player.getPlayerID(), entry.getKey());
         }
-        drawUnitWithHealthBar(player.getPlayerDeck().getBase(), player.getPlayerID(), player.getPlayerDeck().getBase().getBaseID());
     }
 
     private void drawUnitWithHealthBar(Unit unit, int playerID, int unitId) {
+        if (hiddenUnitIds.contains(unitId)) return;
+
         Point pos = unit.getPosition();
         StackPane cellPane = cellPanes.get(pos);
         if (cellPane == null) return;
 
-        String unitTypeName = unit.getUnitName();
-        String imagePath = String.format("/images/units/player%d/%s.png", playerID, unitTypeName);
-        Image unitImage = loadImage(imagePath);
-
-        if (unitImage == null) return;
-
-        ImageView unitImageView = new ImageView(unitImage);
-        unitImageView.setFitWidth(CELL_SIZE);
-        unitImageView.setFitHeight(CELL_SIZE);
-        unitImageView.setPreserveRatio(true);
-
-        if (playerID == 2) {
-            unitImageView.setScaleX(-1);
-        }
-
         double healthPercentage = (double) unit.getHealthPoints() / unit.getMaxHealthPoints();
-        ProgressBar hpBar = new ProgressBar(healthPercentage);
-        hpBar.setPrefWidth(CELL_SIZE - 4);
-        hpBar.setPrefHeight(5);
-        if (healthPercentage > 0.6) {
-            hpBar.setStyle("-fx-accent: green;");
-        } else if (healthPercentage > 0.3) {
-            hpBar.setStyle("-fx-accent: orange;");
-        } else {
-            hpBar.setStyle("-fx-accent: red;");
-        }
+        UnitNode unitStack = createUnitNode(playerID, unit.getUnitName(), healthPercentage, UnitKind.of(unit));
+        if (!unitStack.hasArt()) return;
 
-        StackPane unitStack = new StackPane();
-        unitStack.getChildren().addAll(unitImageView, hpBar);
-        StackPane.setAlignment(hpBar, Pos.TOP_CENTER);
+        if (unit.getHealthPoints() <= 0) {
+            unitStack.showWreck();
+        }
         unitStack.setUserData(unitId);
 
         cellPane.getChildren().add(unitStack);
+        unitNodes.put(unitId, unitStack);
+        addIdleMotion(unitStack, unitId);
+    }
+
+    /** The one place that builds a unit sprite with its health bar, for the board and for animation ghosts. */
+    private UnitNode createUnitNode(int playerID, String unitName, double healthRatio, UnitKind kind) {
+        Image unitImage = loadImage(String.format("/images/units/player%d/%s.png", playerID, unitName));
+        return new UnitNode(unitImage, playerID == 2, healthRatio, kind);
+    }
+
+    private void addIdleMotion(UnitNode unitNode, int unitId) {
+        double phase = unitId * 0.618 % 1;
+        if (unitNode.getKind() == UnitKind.AIR) {
+            idleMotion.bob(unitNode, 1.5, 1.6, phase);
+        } else if (unitNode.getKind() == UnitKind.SEA) {
+            idleMotion.bob(unitNode, 1, 2.4, phase);
+        }
+    }
+
+    private void drawSelectionFrame(int selectedUnitId) {
+        UnitNode selected = unitNodes.get(selectedUnitId);
+        if (selected == null) return;
+
+        Rectangle frame = new Rectangle(CELL_SIZE - 2, CELL_SIZE - 2);
+        frame.setFill(Color.TRANSPARENT);
+        frame.setStroke(Color.rgb(255, 245, 170));
+        frame.setStrokeWidth(2);
+        frame.setStrokeType(StrokeType.INSIDE);
+        frame.setMouseTransparent(true);
+        ((StackPane) selected.getParent()).getChildren().add(frame);
+        idleMotion.pulse(frame);
     }
 
     private void drawRangeOverlays(Game model, int selectedUnitId) {
@@ -375,9 +435,145 @@ public class GameView {
     }
 
     public void showWinner(int winnerId) {
+        gameOver = true;
         turnLabel.setText("Player " + winnerId + " has won!");
         skipTurnButton.setDisable(true);
+        addUnitButton.setDisable(true);
         infoArea.appendText("\nGame Over!");
+    }
+
+    public boolean isAnimationsEnabled() {
+        return animationsBox.isSelected();
+    }
+
+    /**
+     * Locks the controls that would interfere with a running animation. While locked, a click on the board or
+     * Space/Enter fast-forwards the animations; the fast-forward ends when the controls are locked or unlocked.
+     */
+    public void setInputLocked(boolean locked) {
+        inputLocked = locked;
+        fastForward = false;
+        skipTurnButton.setDisable(locked || gameOver);
+        addUnitButton.setDisable(locked || gameOver);
+    }
+
+    /**
+     * Plays what happened in the model. The units involved are replaced by animated ghosts, so {@link #update}
+     * may be called while it plays: it skips those units. {@code onDone} runs exactly once on the FX thread when
+     * the animation is over (immediately if there is nothing to play or animations are off); by then all ghosts
+     * and effects are gone, and the caller is expected to {@link #update} the board.
+     */
+    public void playEvents(List<GameEvent> events, Runnable onDone) {
+        finishPlayback();
+        if (events.isEmpty() || !isAnimationsEnabled()) {
+            onDone.run();
+            return;
+        }
+        play(() -> director.direct(events), onDone);
+    }
+
+    /** Shows a banner across the board; {@code onDone} runs exactly once, immediately if animations are off. */
+    public void showBanner(String text, Runnable onDone) {
+        finishPlayback();
+        if (!isAnimationsEnabled()) {
+            onDone.run();
+            return;
+        }
+        play(() -> director.banner(text), onDone);
+    }
+
+    private void play(Supplier<Transition> builder, Runnable onDone) {
+        Transition animation;
+        try {
+            animation = builder.get();
+        } catch (RuntimeException e) {
+            // a broken animation must never block the game: report it and carry on without it
+            e.printStackTrace();
+            endPlayback();
+            onDone.run();
+            return;
+        }
+        Playback playback = new Playback(animation, onDone);
+        current = playback;
+        animation.setRate(fastForward ? FAST_FORWARD_RATE : 1);
+        animation.setOnFinished(event -> playback.finish());
+        animation.play();
+    }
+
+    private void finishPlayback() {
+        if (current != null) {
+            current.finish();
+        }
+    }
+
+    private void endPlayback() {
+        director.reset();
+        hiddenUnitIds.clear();
+    }
+
+    /** Replaces a unit's static drawing by a ghost that the animation can move around. */
+    private UnitNode liftUnit(int unitId, int playerId, String unitName) {
+        hiddenUnitIds.add(unitId);
+        double healthRatio = 1;
+        UnitKind kind = UnitKind.GROUND;
+        UnitNode drawn = unitNodes.get(unitId);
+        if (drawn != null) {
+            drawn.setVisible(false);
+            healthRatio = drawn.getHealthRatio();
+            kind = drawn.getKind();
+        }
+        UnitNode ghost = createUnitNode(playerId, unitName, healthRatio, kind);
+        ghost.setVisible(ghost.hasArt());
+        return ghost;
+    }
+
+    private void installFastForward() {
+        EventHandler<KeyEvent> keyFilter = event -> {
+            if (inputLocked && (event.getCode() == KeyCode.SPACE || event.getCode() == KeyCode.ENTER)) {
+                speedUp();
+                event.consume();
+            }
+        };
+        board.addEventFilter(MouseEvent.MOUSE_CLICKED, event -> {
+            if (inputLocked && event.getClickCount() == 1) { // the second click of a double-click is not a skip
+                speedUp();
+                event.consume();
+            }
+        });
+        root.sceneProperty().addListener((observable, oldScene, newScene) -> {
+            if (oldScene != null) oldScene.removeEventFilter(KeyEvent.KEY_PRESSED, keyFilter);
+            if (newScene != null) newScene.addEventFilter(KeyEvent.KEY_PRESSED, keyFilter);
+        });
+    }
+
+    private void speedUp() {
+        fastForward = true;
+        if (current != null) {
+            current.animation.setRate(FAST_FORWARD_RATE);
+        }
+    }
+
+    /** A running animation; makes sure its cleanup and {@code onDone} happen exactly once. */
+    private final class Playback {
+        private final Animation animation;
+        private final Runnable onDone;
+        private boolean finished;
+
+        private Playback(Animation animation, Runnable onDone) {
+            this.animation = animation;
+            this.onDone = onDone;
+        }
+
+        private void finish() {
+            if (finished) return;
+            finished = true;
+            animation.stop();
+            if (current == this) {
+                current = null;
+            }
+            endPlayback();
+            onDone.run();
+        }
     }
 
     public void logInfo(String message) { infoArea.appendText(message + "\n"); }
