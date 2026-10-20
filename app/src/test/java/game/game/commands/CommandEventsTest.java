@@ -188,6 +188,29 @@ class CommandEventsTest {
     }
 
     @Test
+    void theEnemyBaseCannotBeAttackedFromOutOfRange() {
+        int attacker = Fixtures.place(game, 1, new TypeNinety(1, new Point(5, 5)));
+        Base base = game.getPlayerTwo().getPlayerDeck().getBase();
+
+        CommandResult result = attack.execute(game.getPlayerOne(), attacker, 2);
+
+        assertFalse(result.wasSuccessful());
+        assertTrue(result.getEvents().isEmpty());
+        assertEquals(10000, base.getHealthPoints());
+        assertTrue(game.findUnitById(attacker).isAvailable());
+    }
+
+    @Test
+    void theOwnBaseCannotBeAttacked() {
+        int attacker = Fixtures.place(game, 1, new TypeNinety(1, new Point(1, 0)));
+
+        CommandResult result = attack.execute(game.getPlayerOne(), attacker, 1);
+
+        assertFalse(result.wasSuccessful());
+        assertEquals(10000, game.getPlayerTwo().getPlayerDeck().getBase().getHealthPoints());
+    }
+
+    @Test
     void shipsAttackWithTheNavalGun() {
         Fixtures.setTerrain(game, new Point(5, 5), TerrainEnum.WATER);
         int attacker = Fixtures.place(game, 1, new Yamato(1, new Point(5, 5)));

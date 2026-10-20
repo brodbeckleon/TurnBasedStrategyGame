@@ -45,9 +45,9 @@ public class AttackCommand extends Command {
             return new CommandResult(false, "This unit cannot attack.");
         }
 
-        // Determine possible targets in range
+        // Determine possible targets in range (includes the enemy base)
         List<Integer> targetsInRange = scout(attackingUnitID, attackerPlayer, defenderPlayer);
-        if (!targetsInRange.contains(targetID) && !(targetID == 1 || targetID == 2)) {
+        if (!targetsInRange.contains(targetID)) {
             return new CommandResult(false, "Target is not in range.");
         }
 
