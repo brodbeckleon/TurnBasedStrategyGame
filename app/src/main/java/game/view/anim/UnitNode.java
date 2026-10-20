@@ -13,6 +13,8 @@ import javafx.scene.layout.StackPane;
 public class UnitNode extends StackPane {
 
     public static final double WRECK_BRIGHTNESS = -0.65;
+    private static final double SPENT_SATURATION = -0.8;
+    private static final double SPENT_BRIGHTNESS = -0.25;
 
     private final ImageView sprite;
     private final ProgressBar healthBar;
@@ -84,5 +86,11 @@ public class UnitNode extends StackPane {
     /** The look of a destroyed unit that stays on the board (the base). */
     public void showWreck() {
         tint().setBrightness(WRECK_BRIGHTNESS);
+    }
+
+    /** The look of a unit that has already acted this turn: greyed out, so the ready ones stand out. */
+    public void showSpent() {
+        tint().setSaturation(SPENT_SATURATION);
+        tint().setBrightness(SPENT_BRIGHTNESS);
     }
 }

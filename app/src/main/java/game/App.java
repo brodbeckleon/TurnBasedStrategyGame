@@ -13,21 +13,31 @@ import javafx.stage.Stage;
  */
 public class App extends Application {
 
+    private Scene scene;
+
     @Override
     public void start(Stage primaryStage) {
-        // 1. Initialize the Model and View
+        // 1. Set up the main stage (window); the game itself is put in by newGame()
+        scene = new Scene(new javafx.scene.layout.Pane(), 1180, 780);
+        scene.getStylesheets().add(getClass().getResource("/styling/progress.css").toExternalForm());
+        scene.getStylesheets().add(getClass().getResource("/styling/game.css").toExternalForm());
+        primaryStage.setTitle("Turn-Based Strategy");
+        primaryStage.setMinWidth(760);
+        primaryStage.setMinHeight(600);
+        primaryStage.setScene(scene);
+
+        // 2. Initialize the Model, View and Controller
+        newGame();
+        primaryStage.show();
+    }
+
+    /** Starts a fresh game in the window; the game over screen calls it again for a rematch. */
+    private void newGame() {
         Game model = new Game();
         GameView view = new GameView(model.getBattlefield().getSize().x, model.getBattlefield().getSize().y);
-
-        // 2. Initialize the Controller with references to the Model and View
+        view.setOnRestart(this::newGame);
         new GameController(model, view);
-
-        // 3. Set up the main stage (window)
-        Scene scene = new Scene(view.getRoot(), 950, 700);
-        scene.getStylesheets().add(getClass().getResource("/styling/progress.css").toExternalForm());
-        primaryStage.setTitle("Battlefield Game");
-        primaryStage.setScene(scene);
-        primaryStage.show();
+        scene.setRoot(view.getRoot());
     }
 
     public static void main(String[] args) {
