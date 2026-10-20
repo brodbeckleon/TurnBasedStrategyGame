@@ -4,6 +4,7 @@ import game.enums.TerrainEnum;
 import game.enums.UnitEnum;
 import game.events.GameEvent;
 import game.game.Player;
+import game.game.Vision;
 import game.game.map.Battlefield;
 import game.interfaces.MovableUnit;
 import game.model.Game;
@@ -61,6 +62,7 @@ public class GameView {
     private static final Color RANGE_HATCH = Color.rgb(255, 70, 70, 0.32);
     private static final Color TARGET_COLOR = Color.rgb(255, 70, 60);
     private static final Color SUPPORT_COLOR = Color.rgb(90, 235, 130);
+    private static final Color FOG_COLOR = Color.rgb(12, 16, 30, 0.45);
     private static final Color DEPLOY_FILL = Color.rgb(60, 230, 120, 0.42);
     private static final Color DEPLOY_EDGE = Color.rgb(170, 255, 190, 0.9);
     private static final Color SELECTION_COLOR = Color.rgb(255, 245, 170);
@@ -86,6 +88,8 @@ public class GameView {
     private final TextArea infoArea;
     private final Button skipTurnButton;
     private final CheckBox animationsBox;
+    private final CheckBox fogBox;
+    private Set<Point> visibleTiles = Set.of();
     private final int gridWidth;
     private final int gridHeight;
     private static final int CELL_SIZE = Cells.SIZE;
@@ -192,6 +196,8 @@ public class GameView {
         animationsBox = new CheckBox("Animations");
         animationsBox.setSelected(true);
         animationsBox.setFocusTraversable(false);
+        fogBox = new CheckBox("Fog of war");
+        fogBox.setFocusTraversable(false);
 
         deployTabs = new HBox(4);
         deployCards = new GridPane();
@@ -222,7 +228,7 @@ public class GameView {
                 sectionTitle("DEPLOY"), deployBox,
                 sectionTitle("INSPECT"), inspector,
                 sectionTitle("LOG"), infoArea,
-                animationsBox);
+                new HBox(16, animationsBox, fogBox));
         controlPanel.getStyleClass().add("side-panel");
         controlPanel.setPadding(new Insets(14));
         controlPanel.setPrefWidth(SIDE_PANEL_WIDTH);
@@ -312,6 +318,7 @@ public class GameView {
 
         idleMotion.clear();
         unitNodes.clear();
+        visibleTiles = model.getVisibleTiles(model.getPlayerOne());
         drawTerrain(model.getBattlefield());
         drawRangeOverlays();
         drawPlayerUnits(model, model.getPlayerOne());
@@ -367,6 +374,12 @@ public class GameView {
                         treeView.setSmooth(false);
                         cellPane.getChildren().add(treeView);
                     }
+                }
+                if (model.isFogOfWar() && !visibleTiles.contains(pos)) {
+                    Rectangle fog = new Rectangle(CELL_SIZE, CELL_SIZE, FOG_COLOR);
+                    fog.setMouseTransparent(true);
+                    fog.setViewOrder(-1); // above the units drawn in this cell later
+                    cellPane.getChildren().add(fog);
                 }
                 if (battlefield.isBaseSite(pos) && model.getUnitAt(pos) == null) {
                     cellPane.getChildren().add(createRuins());
@@ -477,6 +490,7 @@ public class GameView {
         // the base is one of the deck's units and is drawn with them
         for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
             Unit unit = entry.getValue();
+            if (!isShown(unit)) continue; // hidden in the fog of war
             boolean spent = playersTurn && !(unit instanceof Infrastructure) && !unit.isAvailable();
             drawUnitWithHealthBar(unit, player.getPlayerID(), entry.getKey(), spent);
         }
@@ -802,6 +816,7 @@ public class GameView {
         Point cell = hoveredCell;
         if (cell != null) {
             unit = model.getUnitAt(cell);
+            if (unit != null && !isShown(unit)) unit = null;
         } else if (highlights.selectedUnitId() != -1) {
             unit = model.findUnitById(highlights.selectedUnitId());
             cell = unit == null ? null : unit.getPosition();
@@ -981,6 +996,17 @@ public class GameView {
     /** What the upgrade button of a selected base does. */
     public void setOnUpgrade(Runnable onUpgrade) {
         this.onUpgrade = onUpgrade;
+    }
+
+    /** Shows the fog of war switch; {@code onChange} gets the new setting. */
+    public void setFogOfWar(boolean fog, Consumer<Boolean> onChange) {
+        fogBox.setSelected(fog);
+        fogBox.selectedProperty().addListener((observable, was, now) -> onChange.accept(now));
+    }
+
+    /** True if the player (player one) can see the unit: its own, buildings, and enemies outside the fog. */
+    private boolean isShown(Unit unit) {
+        return model == null || !model.isFogOfWar() || Vision.canSee(model.getPlayerOne(), unit, visibleTiles);
     }
 
     /** What the "Play again" button on the game over screen does. */

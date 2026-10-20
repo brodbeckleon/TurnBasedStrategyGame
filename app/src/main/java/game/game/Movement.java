@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.Set;
 
 /**
  * How units get around: every step to a neighbouring tile (diagonals included) costs movement points depending on
@@ -63,6 +64,8 @@ public final class Movement {
             return destinations;
         }
         Point start = unit.getPosition();
+        Player owner = unit.getPlayerID() == 1 ? game.getPlayerOne() : game.getPlayerTwo();
+        Set<Point> seen = game.isFogOfWar() ? Vision.visibleTiles(game, owner) : Set.of();
         Map<Point, Integer> spent = new HashMap<>();
         Map<Point, Point> previous = new HashMap<>();
         PriorityQueue<Point> queue = new PriorityQueue<>((a, b) -> Integer.compare(spent.get(a), spent.get(b)));
@@ -73,7 +76,7 @@ public final class Movement {
             for (int[] step : STEPS) {
                 Point next = new Point(point.x + step[0], point.y + step[1]);
                 int cost = cost(unit, game.getBattlefield().getGeographyOfPoint(next));
-                if (cost == IMPASSABLE || blocks(game, unit, next)) continue;
+                if (cost == IMPASSABLE || blocks(game, unit, next, owner, seen)) continue;
                 int total = spent.get(point) + cost;
                 if (total <= movable.getMovingRange() && total < spent.getOrDefault(next, IMPASSABLE)) {
                     spent.put(next, total);
@@ -84,7 +87,7 @@ public final class Movement {
             }
         }
         for (Point point : spent.keySet()) {
-            if (!point.equals(start) && game.isPositionFree(point)) {
+            if (!point.equals(start) && (game.isPositionFree(point) || isHiddenEnemy(game, unit, point, owner, seen))) {
                 destinations.put(point, path(previous, start, point));
             }
         }
@@ -96,11 +99,27 @@ public final class Movement {
         return reachable(game, unit).getOrDefault(destination, List.of());
     }
 
-    /** Enemy units bar the way of ground and sea units; aircraft fly over everything. */
-    private static boolean blocks(Game game, Unit unit, Point point) {
+    /**
+     * Enemy units the mover's side can see bar the way of ground and sea units; aircraft fly over everything.
+     * Enemies hidden in the fog are planned through: walking into one is an ambush (see MoveCommand).
+     */
+    private static boolean blocks(Game game, Unit unit, Point point, Player owner, Set<Point> seen) {
         if (unit instanceof ByAir) return false;
         Unit other = game.getUnitAt(point);
-        return other != null && other.getPlayerID() != unit.getPlayerID() && !(other instanceof ByAir);
+        return other != null && other.getPlayerID() != unit.getPlayerID() && !(other instanceof ByAir)
+                && !isHiddenEnemy(game, unit, point, owner, seen);
+    }
+
+    /** True if an enemy the mover's side cannot see stands on the tile. */
+    public static boolean isHiddenEnemy(Game game, Unit mover, Point point) {
+        Player owner = mover.getPlayerID() == 1 ? game.getPlayerOne() : game.getPlayerTwo();
+        return isHiddenEnemy(game, mover, point, owner, game.isFogOfWar() ? Vision.visibleTiles(game, owner) : Set.of());
+    }
+
+    private static boolean isHiddenEnemy(Game game, Unit mover, Point point, Player owner, Set<Point> seen) {
+        if (!game.isFogOfWar()) return false;
+        Unit other = game.getUnitAt(point);
+        return other != null && other.getPlayerID() != mover.getPlayerID() && !Vision.canSee(owner, other, seen);
     }
 
     private static List<Point> path(Map<Point, Point> previous, Point start, Point end) {

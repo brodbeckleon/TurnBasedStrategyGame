@@ -122,6 +122,18 @@ public class BotService {
         return playerId == 1 ? model.getPlayerOne() : model.getPlayerTwo();
     }
 
+    /** The enemies the bot can see: it plays by the fog of war like the player. */
+    private List<Unit> visibleEnemies() {
+        return model.getVisibleEnemies(me());
+    }
+
+    private List<Map.Entry<Integer, Unit>> visibleEnemyEntries() {
+        java.util.Set<Unit> visible = new java.util.HashSet<>(visibleEnemies());
+        return enemy().getPlayerDeck().getUnits().entrySet().stream()
+                .filter(entry -> visible.contains(entry.getValue()))
+                .toList();
+    }
+
     private Player enemy() {
         return playerId == 1 ? model.getPlayerTwo() : model.getPlayerOne();
     }
@@ -272,7 +284,7 @@ public class BotService {
             boolean here = tile.equals(attacker.getPosition());
             double range = (here ? model.getShootingRange(attacker) : attacker.getShootingRange()) + 0.4;
             double exposure = here ? 0 : danger(attacker, tile) - danger(attacker, attacker.getPosition());
-            for (Map.Entry<Integer, Unit> entry : enemy().getPlayerDeck().getUnits().entrySet()) {
+            for (Map.Entry<Integer, Unit> entry : visibleEnemyEntries()) {
                 Unit target = entry.getValue();
                 if (target.getPosition().distance(tile) > range || !AttackCommand.canTarget(attacker, target)) continue;
                 double trade = tradeScore(attacker, tile, target);
@@ -303,7 +315,7 @@ public class BotService {
         if (attacker instanceof Aircraft) {
             // the enemy's anti-air umbrella fires at an aircraft that attacks under it
             int flak = 0;
-            for (Unit enemy : enemy().getPlayerDeck().getUnits().values()) {
+            for (Unit enemy : visibleEnemies()) {
                 if (enemy != target && enemy instanceof AntiAir && enemy instanceof AssaultClass antiAir
                         && from.distance(enemy.getPosition()) <= model.getShootingRange(antiAir) + 0.4) {
                     flak += attackCommand.counterDamage(antiAir, attacker);
@@ -340,7 +352,7 @@ public class BotService {
      */
     private Point goalFor(AssaultClass unit) {
         Point position = unit.getPosition();
-        List<Unit> enemies = List.copyOf(enemy().getPlayerDeck().getUnits().values());
+        List<Unit> enemies = visibleEnemies();
         Point enemyBase = enemy().getPlayerDeck().getBase().getPosition();
 
         if (unit instanceof SelfPropelledAntiAir) {
@@ -478,7 +490,7 @@ public class BotService {
     private double bestShotFrom(AssaultClass attacker, Point tile) {
         double range = attacker.getShootingRange() + 0.4;
         double best = 0;
-        for (Unit enemy : enemy().getPlayerDeck().getUnits().values()) {
+        for (Unit enemy : visibleEnemies()) {
             if (enemy.getPosition().distance(tile) <= range && AttackCommand.canTarget(attacker, enemy)) {
                 best = Math.max(best, attackScore(attacker, enemy));
             }
@@ -489,7 +501,7 @@ public class BotService {
     /** How much the unit stands to lose on the tile next turn, weighted by how fragile its role is. */
     private double danger(Unit unit, Point tile) {
         double expected = 0;
-        for (Unit enemy : enemy().getPlayerDeck().getUnits().values()) {
+        for (Unit enemy : visibleEnemies()) {
             if (enemy instanceof AssaultClass attacker && AttackCommand.canTarget(attacker, unit)) {
                 // only units that can act after moving threaten tiles beyond their shooting range
                 int reach = attacker.getShootingRange()
@@ -647,7 +659,7 @@ public class BotService {
 
         Army(Player botPlayer) {
             own = List.copyOf(botPlayer.getPlayerDeck().getUnits().values());
-            List<Unit> enemy = List.copyOf(enemy().getPlayerDeck().getUnits().values());
+            List<Unit> enemy = visibleEnemies();
             combat = count(own, AssaultClass.class);
             antiAir = count(own, AntiAir.class);
             artillery = count(own, SelfPropelledArtillery.class);
@@ -677,7 +689,7 @@ public class BotService {
 
     /** True if an enemy combat unit stands close to the point. */
     private boolean isThreatened(Point point) {
-        return enemy().getPlayerDeck().getUnits().values().stream()
+        return visibleEnemies().stream()
                 .anyMatch(enemy -> enemy instanceof AssaultClass && enemy.getPosition().distance(point) <= THREAT_RADIUS);
     }
 

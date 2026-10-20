@@ -22,7 +22,7 @@ public class MoveCommand extends Command {
         if (!unit.isAvailable() || unit.hasMoved()) {
             return new CommandResult(false, "This unit is not available for moving.");
         }
-        if (!checkIfPositionIsFree(position)) {
+        if (!checkIfPositionIsFree(position) && !Movement.isHiddenEnemy(getGameModel(), unit, position)) {
             return new CommandResult(false, "Position is not free!");
         }
         if (!checkIfTerrainIsDeployable(unit, position)) {
@@ -33,6 +33,21 @@ public class MoveCommand extends Command {
             return new CommandResult(false, "The unit cannot get there this turn.");
         }
 
+        // An enemy hidden in the fog on the way stops the unit in front of it: an ambush
+        int stop = path.size() - 1;
+        for (int i = 1; i < path.size(); i++) {
+            if (Movement.isHiddenEnemy(getGameModel(), unit, path.get(i))) {
+                stop = i - 1;
+                break;
+            }
+        }
+        boolean ambushed = stop < path.size() - 1;
+        while (stop > 0 && !checkIfPositionIsFree(path.get(stop))) {
+            stop--; // a friend stands where it would stop: it halts one tile earlier
+        }
+        path = path.subList(0, stop + 1);
+        position = path.get(stop);
+
         Point from = unit.getPosition();
         player.getPlayerDeck().moveUnit(unitID, position);
         unit.setHasMoved(true);
@@ -42,6 +57,7 @@ public class MoveCommand extends Command {
         }
 
         GameEvent moved = new GameEvent.UnitMoved(player.getPlayerID(), unitID, unit.getUnitName(), from, position, path);
-        return new CommandResult(true, "unit with ID: " + unitID + " moved to position: " + position.x + ", " + position.y, List.of(moved));
+        return new CommandResult(true, ambushed ? "Ambush! " + unit.getUnitName() + " ran into a hidden enemy."
+                : "unit with ID: " + unitID + " moved to position: " + position.x + ", " + position.y, List.of(moved));
     }
 }

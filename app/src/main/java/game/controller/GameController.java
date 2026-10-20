@@ -180,6 +180,10 @@ public class GameController {
         view.setDeployOptions(deployOptions, this::prepareAddUnit);
         view.setKeyHandler(this::handleKey);
         view.setOnUpgrade(this::upgradeSelected);
+        view.setFogOfWar(model.isFogOfWar(), fog -> {
+            model.setFogOfWar(fog);
+            if (canAct()) refresh();
+        });
     }
 
     private boolean canAct() {
@@ -252,13 +256,30 @@ public class GameController {
     }
 
     private void botStep() {
+        Set<Point> seenBefore = model.getVisibleTiles(model.getPlayerOne());
         Optional<List<GameEvent>> step = botService.performNextStep();
         if (step.isEmpty()) {
             finishBotTurn();
             return;
         }
-        logEvents(step.get());
-        play(step.get(), this::afterBotStep);
+        // under fog of war the player only sees (and hears about) what happens where its units can see
+        Set<Point> seen = new HashSet<>(seenBefore);
+        seen.addAll(model.getVisibleTiles(model.getPlayerOne()));
+        List<GameEvent> visible = step.get().stream().filter(event -> isSeen(event, seen)).toList();
+        logEvents(visible);
+        play(visible, this::afterBotStep);
+    }
+
+    private static boolean isSeen(GameEvent event, Set<Point> seen) {
+        return switch (event) {
+            case GameEvent.UnitDeployed e -> seen.contains(e.pos());
+            case GameEvent.UnitMoved e -> e.path().stream().anyMatch(seen::contains);
+            case GameEvent.UnitAttacked e -> seen.contains(e.from()) || seen.contains(e.to());
+            case GameEvent.UnitDamaged e -> seen.contains(e.pos());
+            case GameEvent.UnitDestroyed e -> seen.contains(e.pos());
+            case GameEvent.UnitHealed e -> seen.contains(e.pos());
+            case GameEvent.BaseUpgraded e -> seen.contains(e.pos());
+        };
     }
 
     private void afterBotStep() {
@@ -325,6 +346,9 @@ public class GameController {
     private void logResult(CommandResult result) {
         if (result.wasSuccessful() && !result.getEvents().isEmpty()) {
             logEvents(result.getEvents());
+            if (result.getMessage().startsWith("Ambush!")) {
+                view.logInfo(result.getMessage());
+            }
         } else {
             view.logInfo(result.getMessage());
         }

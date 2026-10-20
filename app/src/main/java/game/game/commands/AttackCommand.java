@@ -143,6 +143,7 @@ public class AttackCommand extends Command {
         return defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range).stream()
                 .distinct()
                 .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
+                .filter(id -> getGameModel().isVisibleTo(attacker, defender.getPlayerDeck().getUnit(id))) // fog of war
                 .toList();
     }
 
