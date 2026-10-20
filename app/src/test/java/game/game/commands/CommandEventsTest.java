@@ -121,7 +121,7 @@ class CommandEventsTest {
         TypeTen tank = (TypeTen) game.findUnitById(attacker);
         TypeNinety defender = (TypeNinety) game.findUnitById(target);
         int hit = AttackCommand.predictDamage(tank, defender);
-        int counter = AttackCommand.predictDamage(defender, tank);
+        int counter = AttackCommand.counterDamage(defender, tank);
         assertEquals(List.of(
                 new UnitAttacked(1, attacker, "Type 10", new Point(5, 5), target, new Point(7, 5), false, Weapon.SHELL),
                 new UnitDamaged(2, target, "Type 90", new Point(7, 5), hit, 750, 750 - hit, 750, false),

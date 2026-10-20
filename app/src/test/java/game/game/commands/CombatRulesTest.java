@@ -103,7 +103,7 @@ class CombatRulesTest {
         assertEquals(defenderId, counter.attackerId());
         assertEquals(attackerId, counter.targetId());
         UnitDamaged hurt = assertInstanceOf(UnitDamaged.class, events.get(3));
-        assertEquals(AttackCommand.predictDamage(defender, attacker), hurt.damage());
+        assertEquals(AttackCommand.counterDamage(defender, attacker), hurt.damage());
         assertEquals(attacker.getMaxHealthPoints() - hurt.damage(), attacker.getHealthPoints());
     }
 
@@ -127,6 +127,29 @@ class CombatRulesTest {
         int raiderId = Fixtures.place(game, 1, raider);
         int radar = Fixtures.place(game, 2, new Radarstation(2, new Point(12, 12)));
         assertEquals(2, attack.execute(player, raiderId, radar).getEvents().size(), "buildings do not strike back");
+    }
+
+    @Test
+    void aBatteredDefenderStrikesBackWeaker() {
+        TypeTen fresh = new TypeTen(1, new Point(5, 5));
+        TypeTen other = new TypeTen(1, new Point(5, 9));
+        int freshId = Fixtures.place(game, 1, fresh);
+        int otherId = Fixtures.place(game, 1, other);
+        TypeNinety healthy = new TypeNinety(2, new Point(8, 5));
+        TypeNinety battered = new TypeNinety(2, new Point(8, 9));
+        int healthyId = Fixtures.place(game, 2, healthy);
+        int batteredId = Fixtures.place(game, 2, battered);
+        battered.setHealthPoints(-battered.getMaxHealthPoints() / 2);
+
+        attack.execute(player, freshId, healthyId);
+        attack.execute(player, otherId, batteredId);
+
+        int fromHealthy = fresh.getMaxHealthPoints() - fresh.getHealthPoints();
+        int fromBattered = other.getMaxHealthPoints() - other.getHealthPoints();
+        assertTrue(fromBattered < fromHealthy, fromBattered + " < " + fromHealthy);
+        double expected = AttackCommand.predictDamage(battered, other) * battered.getHealthPoints()
+                / (double) battered.getMaxHealthPoints();
+        assertEquals(Math.round(expected), fromBattered);
     }
 
     @Test

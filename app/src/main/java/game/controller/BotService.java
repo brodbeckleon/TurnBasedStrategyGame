@@ -290,7 +290,9 @@ public class BotService {
         boolean survives = damage < target.getHealthPoints();
         if (survives && target instanceof AssaultClass defender
                 && from.distance(target.getPosition()) <= model.getShootingRange(defender) + 0.4) {
-            int counter = AttackCommand.predictDamage(defender, attacker);
+            // it strikes back with the health it has left after our hit
+            double left = (double) (target.getHealthPoints() - damage) / target.getMaxHealthPoints();
+            int counter = (int) Math.round(AttackCommand.predictDamage(defender, attacker) * left);
             gain -= COUNTER_WEIGHT * valueOf(attacker) * Math.min(1, (double) counter / attacker.getHealthPoints());
         }
         if (attacker instanceof Aircraft) {
@@ -299,7 +301,7 @@ public class BotService {
             for (Unit enemy : enemy().getPlayerDeck().getUnits().values()) {
                 if (enemy != target && enemy instanceof SelfPropelledAntiAir antiAir
                         && from.distance(enemy.getPosition()) <= model.getShootingRange(antiAir) + 0.4) {
-                    flak += AttackCommand.predictDamage(antiAir, attacker);
+                    flak += AttackCommand.counterDamage(antiAir, attacker);
                 }
             }
             gain -= valueOf(attacker) * Math.min(1.5, (double) flak / attacker.getHealthPoints());

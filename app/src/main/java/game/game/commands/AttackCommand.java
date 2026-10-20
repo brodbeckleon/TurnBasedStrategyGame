@@ -94,7 +94,16 @@ public class AttackCommand extends Command {
         return defender instanceof AssaultClass fighter && defender.getHealthPoints() > 0 && attacker.getHealthPoints() > 0
                 && circleGenerator.getCoordinatesInRange(defender.getPosition(), getGameModel().getShootingRange(fighter))
                         .contains(attacker.getPosition())
-                && predictDamage(fighter, attacker) > 0;
+                && counterDamage(fighter, attacker) > 0;
+    }
+
+    /**
+     * What a defender (or covering anti-air) deals when it strikes back: its normal damage, scaled by the share of
+     * health it has left, so a battered unit hits back weakly.
+     */
+    public static int counterDamage(AssaultClass defender, Unit attacker) {
+        double strength = Math.max(0, (double) defender.getHealthPoints() / defender.getMaxHealthPoints());
+        return (int) Math.round(predictDamage(defender, attacker) * strength);
     }
 
     /** The ids of the defender's anti-air units, besides the attacked unit itself, that cover the aircraft. */
@@ -111,7 +120,7 @@ public class AttackCommand extends Command {
 
     private List<GameEvent> strikeBack(Player attackerPlayer, int attackingUnitID, Unit attacker, int defenderID,
                                        AssaultClass defender) {
-        int damage = predictDamage(defender, attacker);
+        int damage = counterDamage(defender, attacker);
         int hpBefore = attacker.getHealthPoints();
         attacker.setHealthPoints(-damage);
         if (attacker.getHealthPoints() <= 0) {
