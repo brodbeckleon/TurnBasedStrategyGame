@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew test --console=plain
+
+      # A short bot-vs-bot run: catches crashes in the bot and big balance regressions.
+      # It fails if either side wins more than 65% or more than 10% of the games hit the round limit.
+      - name: Balance smoke test
+        run: ./gradlew balanceLab --args="60" --console=plain
+        env:
+          BALANCE_CHECK: 'true'
+
+      - name: Test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: app/build/reports/tests/test

@@ -17,6 +17,8 @@
 
 # Package Files #
 *.jar
+# ...except the Gradle wrapper, which ./gradlew needs
+!gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear

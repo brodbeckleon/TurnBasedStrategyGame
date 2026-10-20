@@ -20,7 +20,8 @@ import java.util.function.Predicate;
  * full bot against one that may not buy a family) against the full bot.
  *
  * <pre>gradle balanceLab --args="400 40 120"   # mirror games, specialist games, ablation games</pre>
- * Set DUMP=1 to print the board of games that hit the round limit.
+ * Set DUMP=1 to print the board of games that hit the round limit; BALANCE_CHECK=1 makes it fail (exit 1) when one
+ * side wins more than 65 % of the games or more than 10 % hit the round limit (used by CI).
  */
 public class BalanceLab {
     static final int MAX_ROUNDS = 60;
@@ -157,6 +158,16 @@ public class BalanceLab {
         out.printf("MIRROR %d games: P1 %d  P2 %d  timeout %d | rounds avg %.1f median %d min %d max %d%n", games,
                 wins[1], wins[2], wins[0], totalRounds / (double) games, lengths.get(games / 2), lengths.get(0), lengths.get(games - 1));
         out.println("HQ destroyed by: " + killers);
+        if (System.getenv("BALANCE_CHECK") != null) {
+            // CI smoke test: a side that wins far too often or games that never end mean something broke
+            double sideShare = Math.max(wins[1], wins[2]) / (double) games;
+            double stalemates = wins[0] / (double) games;
+            if (sideShare > 0.65 || stalemates > 0.10) {
+                out.printf("BALANCE CHECK FAILED: side share %.0f%%, stalemates %.0f%%%n", 100 * sideShare, 100 * stalemates);
+                System.exit(1);
+            }
+            out.println("balance check passed");
+        }
         out.printf("%-31s %6s %5s %8s %8s %7s %6s %5s %6s %7s %6s%n", "unit", "bought", "RP", "dmg", "hqDmg", "bldDmg", "kills", "lost", "dmg/RP", "kill/RP", "air/RP");
         for (var e : stats.entrySet()) {
             Stat s = e.getValue();
