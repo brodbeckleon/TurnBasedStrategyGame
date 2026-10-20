@@ -91,6 +91,7 @@ public class GameView {
     private final Button skipTurnButton;
     private final CheckBox animationsBox;
     private final CheckBox fogBox;
+    private final ComboBox<game.controller.Difficulty> difficultyBox = new ComboBox<>();
     private Set<Point> visibleTiles = Set.of();
     private final int gridWidth;
     private final int gridHeight;
@@ -237,7 +238,7 @@ public class GameView {
                 sectionTitle("DEPLOY"), deployBox,
                 sectionTitle("INSPECT"), inspector,
                 sectionTitle("LOG"), infoArea,
-                new HBox(16, animationsBox, fogBox));
+                bottomRow());
         controlPanel.getStyleClass().add("side-panel");
         controlPanel.setPadding(new Insets(14));
         controlPanel.setPrefWidth(SIDE_PANEL_WIDTH);
@@ -1083,6 +1084,26 @@ public class GameView {
     /** What the upgrade button of a selected base does. */
     public void setOnUpgrade(Runnable onUpgrade) {
         this.onUpgrade = onUpgrade;
+    }
+
+    /** The settings under the log: animations and fog of war, then the bot's difficulty. */
+    private VBox bottomRow() {
+        difficultyBox.getItems().setAll(game.controller.Difficulty.values());
+        difficultyBox.setFocusTraversable(false);
+        difficultyBox.setMinWidth(Region.USE_PREF_SIZE);
+        difficultyBox.setTooltip(new Tooltip("How well the bot plays. It never cheats."));
+        Label botLabel = new Label("Bot difficulty");
+        botLabel.getStyleClass().add("muted");
+        HBox switches = new HBox(16, animationsBox, fogBox);
+        HBox level = new HBox(8, botLabel, difficultyBox);
+        level.setAlignment(Pos.CENTER_LEFT);
+        return new VBox(6, switches, level);
+    }
+
+    /** Shows the bot's difficulty picker; {@code onChange} gets the new level. */
+    public void setDifficulty(game.controller.Difficulty difficulty, Consumer<game.controller.Difficulty> onChange) {
+        difficultyBox.setValue(difficulty);
+        difficultyBox.valueProperty().addListener((observable, was, now) -> onChange.accept(now));
     }
 
     /** Shows the fog of war switch; {@code onChange} gets the new setting. */

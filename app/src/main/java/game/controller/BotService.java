@@ -65,8 +65,6 @@ public class BotService {
     private static final double GOAL_WEIGHT = 0.3;
     private static final double THREAT_RADIUS = 6;
     private static final double ESCORT_DISTANCE = 2;
-    private static final int UPGRADE_SPARE_RP = 4;
-    private static final double PURCHASE_NOISE = 0.8;
     private static final double REPEAT_PENALTY = 0.35;
     private static final double SAVE_FOR_BETTER = 1.3;
     private static final double COUNTER_WEIGHT = 0.6;
@@ -82,6 +80,7 @@ public class BotService {
     private final Random random;
     private final int playerId;
     private Predicate<UnitEnum> roster = type -> true;
+    private Difficulty difficulty = Difficulty.NORMAL;
     private final UnitFactory unitFactory = new UnitFactory();
 
     private final Deque<Integer> pendingUnitIds = new ArrayDeque<>();
@@ -111,6 +110,14 @@ public class BotService {
         this.healCommand = heal;
         this.upgradeCommand = upgrade;
         this.random = random;
+    }
+
+    public void setDifficulty(Difficulty difficulty) {
+        this.difficulty = difficulty;
+    }
+
+    public Difficulty getDifficulty() {
+        return difficulty;
     }
 
     /** Limits what the bot may buy; everything by default. */
@@ -280,6 +287,7 @@ public class BotService {
         boolean mayMoveFirst = attacker instanceof ActsAfterMoving && !attacker.hasMoved();
         List<Point> tiles = mayMoveFirst ? candidateTiles(attacker) : List.of(attacker.getPosition());
         Strike best = null;
+        List<Strike> worthwhile = new ArrayList<>();
         for (Point tile : tiles) {
             boolean here = tile.equals(attacker.getPosition());
             double range = (here ? model.getShootingRange(attacker) : attacker.getShootingRange()) + 0.4;
@@ -291,10 +299,16 @@ public class BotService {
                 if (trade <= 0) continue;
                 // on a tie: the weaker target, then the tile the unit already stands on
                 double score = trade - Math.max(0, exposure) - target.getHealthPoints() * 1e-6 + (here ? 1e-3 : 0);
+                Strike strike = new Strike(tile, entry.getKey(), score);
+                worthwhile.add(strike);
                 if (best == null || score > best.score()) {
-                    best = new Strike(tile, entry.getKey(), score);
+                    best = strike;
                 }
             }
+        }
+        if (best != null && random.nextDouble() < difficulty.blunderChance) {
+            // a weaker bot misjudges: half the time it takes some other shot, half the time none at all
+            return random.nextBoolean() ? Optional.of(worthwhile.get(random.nextInt(worthwhile.size()))) : Optional.empty();
         }
         return Optional.ofNullable(best);
     }
@@ -511,7 +525,7 @@ public class BotService {
                 }
             }
         }
-        return Math.min(expected, 1.5) * valueOf(unit) * caution(unit) * boldness;
+        return Math.min(expected, 1.5) * valueOf(unit) * caution(unit) * boldness * difficulty.caution;
     }
 
     private static double caution(Unit unit) {
@@ -546,7 +560,7 @@ public class BotService {
                         .thenComparing(entry -> entry.getValue() instanceof Base ? 0 : 1))
                 .filter(entry -> {
                     int cost = ((MilitaryBase) entry.getValue()).getUpgradeCost();
-                    return overflowing ? rp >= cost : !threatened && rp - cost >= UPGRADE_SPARE_RP + reserve(botPlayer);
+                    return overflowing ? rp >= cost : !threatened && rp - cost >= difficulty.upgradeSpareRp + reserve(botPlayer);
                 })
                 .map(entry -> {
                     System.out.println("Bot: Upgrading " + entry.getValue().getUnitName());
@@ -593,7 +607,7 @@ public class BotService {
             bestNext = Math.max(bestNext, worth);
             if (cost > budget) continue;
             bestNow = Math.max(bestNow, worth);
-            double score = worth + PURCHASE_NOISE * random.nextDouble();
+            double score = worth + difficulty.purchaseNoise * random.nextDouble();
             if (score > bestScore) {
                 best = type;
                 bestScore = score;

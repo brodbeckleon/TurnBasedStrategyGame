@@ -73,6 +73,7 @@ public class GameController {
     private int selectedUnitId = -1; // -1 means no unit is selected
     private boolean animating = false; // true while an animation or the bot turn blocks the player's input
     private int round = 1;
+    private static Difficulty difficulty = Difficulty.NORMAL; // kept for the next game ("Play again")
     private UndoableMove lastMove; // the player's last move, while it can still be taken back
     private final List<GameEvent> enemyTurn = new ArrayList<>(); // what the player saw of the enemy's turn
 
@@ -188,6 +189,12 @@ public class GameController {
         view.setOnUpgrade(this::upgradeSelected);
         view.setAttackPreview(this::attackPreview);
         view.setOnUndo(this::undoMove);
+        botService.setDifficulty(difficulty);
+        view.setDifficulty(difficulty, level -> {
+            difficulty = level;
+            botService.setDifficulty(level);
+            view.logInfo("Bot difficulty: " + level + ".");
+        });
         view.setOnPickReady(this::selectUnit);
         view.setFogOfWar(model.isFogOfWar(), fog -> {
             model.setFogOfWar(fog);
