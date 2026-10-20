@@ -1,11 +1,7 @@
 package game.units;
 
-import game.interfaces.MovableUnit;
-import game.tools.CircleGenerator;
 
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.stream.Collectors;
 
 public abstract class Unit {
     private final int playerID; // Added playerID
@@ -93,30 +89,5 @@ public abstract class Unit {
 
     public void setHasMoved(boolean hasMoved) {
         this.hasMoved = hasMoved;
-    }
-
-    /**
-     * Berechnet alle theoretisch möglichen Bewegungspunkte für diese Einheit,
-     * basierend auf ihrer Bewegungsreichweite und den Grenzen des Spielfelds.
-     * Diese Methode prüft NICHT, ob die Felder blockiert oder passierbar sind.
-     *
-     * @param mapSize Die Größe des Schlachtfelds (z.B. ein Point(16, 16)).
-     * @return Eine Liste von möglichen Zielpunkten.
-     */
-    public ArrayList<Point> getPossibleMoves(Point mapSize) {
-        if (!(this instanceof MovableUnit)) {
-            return new ArrayList<>();
-        }
-
-        int movingRange = ((MovableUnit) this).getMovingRange();
-        if (movingRange <= 0) {
-            return new ArrayList<>();
-        }
-
-        ArrayList<Point> pointsInRange = new CircleGenerator().getCoordinatesInRange(this.getPosition(), movingRange);
-
-        return pointsInRange.stream()
-                .filter(p -> p.x >= 0 && p.x < mapSize.x && p.y >= 0 && p.y < mapSize.y)
-                .collect(Collectors.toCollection(ArrayList::new));
     }
 }

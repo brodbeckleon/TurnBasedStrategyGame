@@ -2,6 +2,7 @@ package game.controller;
 
 import game.events.GameEvent;
 import game.game.Command;
+import game.game.Movement;
 import game.game.Player;
 import game.game.UnitFactory;
 import game.game.commands.*;
@@ -523,11 +524,7 @@ public class GameController {
 
         Set<Point> moves = new HashSet<>();
         if (selected instanceof MovableUnit && !selected.hasMoved()) {
-            for (Point point : selected.getPossibleMoves(model.getBattlefield().getSize())) {
-                if (moveCommand.checkIfPositionIsFree(point) && moveCommand.checkIfTerrainIsDeployable(selected, point)) {
-                    moves.add(point);
-                }
-            }
+            moves.addAll(Movement.reachable(model, selected).keySet());
         }
         Set<Point> range = new HashSet<>();
         Set<Point> targets = new HashSet<>();

@@ -181,11 +181,26 @@ public final class AnimationDirector {
 
     private double move(Schedule schedule, double startMs, UnitMoved event) {
         UnitNode ghost = ghost(event.unitId(), event.playerId(), event.unitName(), event.from());
-        Point2D delta = Cells.center(event.to()).subtract(Cells.center(event.from()));
-        double duration = clamp(MOVE_MS_PER_TILE * event.from().distance(event.to()), MOVE_MIN_MS, MOVE_MAX_MS);
+        // the unit follows its path tile by tile (around water, mountains and enemies)
+        List<Point> path = event.path().size() >= 2 ? event.path() : List.of(event.from(), event.to());
+        Point2D origin = Cells.center(path.get(0));
+        double[] lengths = new double[path.size()];
+        for (int i = 1; i < path.size(); i++) {
+            lengths[i] = lengths[i - 1] + path.get(i - 1).distance(path.get(i));
+        }
+        double total = lengths[path.size() - 1];
+        double duration = clamp(MOVE_MS_PER_TILE * total, MOVE_MIN_MS, MOVE_MAX_MS);
         schedule.add(startMs, duration, Interpolator.EASE_BOTH, f -> {
-            ghost.setTranslateX(delta.getX() * f);
-            ghost.setTranslateY(delta.getY() * f);
+            double travelled = total * f;
+            int leg = 1;
+            while (leg < path.size() - 1 && lengths[leg] < travelled) leg++;
+            double legLength = lengths[leg] - lengths[leg - 1];
+            double t = legLength == 0 ? 1 : (travelled - lengths[leg - 1]) / legLength;
+            Point2D a = Cells.center(path.get(leg - 1));
+            Point2D b = Cells.center(path.get(leg));
+            Point2D at = a.add(b.subtract(a).multiply(t)).subtract(origin);
+            ghost.setTranslateX(at.getX());
+            ghost.setTranslateY(at.getY());
         });
         if (ghost.getKind() == UnitKind.GROUND) {
             dust(schedule, startMs, event.from());

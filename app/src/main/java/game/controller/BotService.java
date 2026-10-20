@@ -2,6 +2,7 @@ package game.controller;
 
 import game.events.GameEvent;
 import game.game.Command;
+import game.game.Movement;
 import game.game.Player;
 import game.game.UnitFactory;
 import game.game.commands.AddCommand;
@@ -286,13 +287,13 @@ public class BotService {
     private double tradeScore(AssaultClass attacker, Point from, Unit target) {
         double gain = attackScore(attacker, target);
         if (gain <= 0) return 0;
-        int damage = AttackCommand.predictDamage(attacker, target);
+        int damage = attackCommand.predictDamage(attacker, target);
         boolean survives = damage < target.getHealthPoints();
         if (survives && target instanceof AssaultClass defender
                 && from.distance(target.getPosition()) <= model.getShootingRange(defender) + 0.4) {
             // it strikes back with the health it has left after our hit
             double left = (double) (target.getHealthPoints() - damage) / target.getMaxHealthPoints();
-            int counter = (int) Math.round(AttackCommand.predictDamage(defender, attacker) * left);
+            int counter = (int) Math.round(attackCommand.predictDamage(defender, attacker, from) * left);
             gain -= COUNTER_WEIGHT * valueOf(attacker) * Math.min(1, (double) counter / attacker.getHealthPoints());
         }
         if (attacker instanceof Aircraft) {
@@ -301,7 +302,7 @@ public class BotService {
             for (Unit enemy : enemy().getPlayerDeck().getUnits().values()) {
                 if (enemy != target && enemy instanceof SelfPropelledAntiAir antiAir
                         && from.distance(enemy.getPosition()) <= model.getShootingRange(antiAir) + 0.4) {
-                    flak += AttackCommand.counterDamage(antiAir, attacker);
+                    flak += attackCommand.counterDamage(antiAir, attacker);
                 }
             }
             gain -= valueOf(attacker) * Math.min(1.5, (double) flak / attacker.getHealthPoints());
@@ -309,9 +310,9 @@ public class BotService {
         return gain;
     }
 
-    private static double attackScore(AssaultClass attacker, Unit target) {
+    private double attackScore(AssaultClass attacker, Unit target) {
         if (target.getHealthPoints() <= 0) return 0;
-        int damage = AttackCommand.predictDamage(attacker, target);
+        int damage = attackCommand.predictDamage(attacker, target);
         if (damage <= 0) return 0;
         double value = valueOf(target);
         if (damage >= target.getHealthPoints()) {
@@ -466,11 +467,7 @@ public class BotService {
         if (unit.hasMoved()) {
             return tiles;
         }
-        for (Point point : unit.getPossibleMoves(model.getBattlefield().getSize())) {
-            if (model.isPositionFree(point) && moveCommand.checkIfTerrainIsDeployable(unit, point)) {
-                tiles.add(point);
-            }
-        }
+        tiles.addAll(Movement.reachable(model, unit).keySet());
         return tiles;
     }
 
@@ -494,7 +491,7 @@ public class BotService {
                 int reach = attacker.getShootingRange()
                         + (enemy instanceof ActsAfterMoving && enemy instanceof MovableUnit movable ? movable.getMovingRange() : 0);
                 if (tile.distance(enemy.getPosition()) <= reach + 0.4) {
-                    expected += Math.min(1, (double) AttackCommand.predictDamage(attacker, unit) / unit.getHealthPoints());
+                    expected += Math.min(1, (double) attackCommand.predictDamage(attacker, unit, tile) / unit.getHealthPoints());
                 }
             }
         }

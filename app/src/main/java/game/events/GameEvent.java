@@ -1,6 +1,7 @@
 package game.events;
 
 import java.awt.Point;
+import java.util.List;
 
 /**
  * Something that happened in the model while a command was executed. Events carry everything the view
@@ -14,10 +15,17 @@ public sealed interface GameEvent {
         }
     }
 
-    record UnitMoved(int playerId, int unitId, String unitName, Point from, Point to) implements GameEvent {
+    /** A unit moved; the path runs from {@code from} to {@code to}, both included, tile by tile. */
+    record UnitMoved(int playerId, int unitId, String unitName, Point from, Point to, List<Point> path) implements GameEvent {
         public UnitMoved {
             from = new Point(from);
             to = new Point(to);
+            path = path.stream().map(Point::new).toList();
+        }
+
+        /** A move straight from one tile to the next. */
+        public UnitMoved(int playerId, int unitId, String unitName, Point from, Point to) {
+            this(playerId, unitId, unitName, from, to, List.of(from, to));
         }
     }
 

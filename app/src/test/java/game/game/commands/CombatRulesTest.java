@@ -103,7 +103,7 @@ class CombatRulesTest {
         assertEquals(defenderId, counter.attackerId());
         assertEquals(attackerId, counter.targetId());
         UnitDamaged hurt = assertInstanceOf(UnitDamaged.class, events.get(3));
-        assertEquals(AttackCommand.counterDamage(defender, attacker), hurt.damage());
+        assertEquals(attack.counterDamage(defender, attacker), hurt.damage());
         assertEquals(attacker.getMaxHealthPoints() - hurt.damage(), attacker.getHealthPoints());
     }
 
@@ -147,7 +147,7 @@ class CombatRulesTest {
         int fromHealthy = fresh.getMaxHealthPoints() - fresh.getHealthPoints();
         int fromBattered = other.getMaxHealthPoints() - other.getHealthPoints();
         assertTrue(fromBattered < fromHealthy, fromBattered + " < " + fromHealthy);
-        double expected = AttackCommand.predictDamage(battered, other) * battered.getHealthPoints()
+        double expected = attack.predictDamage(battered, other) * battered.getHealthPoints()
                 / (double) battered.getMaxHealthPoints();
         assertEquals(Math.round(expected), fromBattered);
     }
@@ -235,7 +235,8 @@ class CombatRulesTest {
             if (point.equals(to)) return true;
             for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
                 Point next = new Point(point.x + d[0], point.y + d[1]);
-                if (battlefield.getGeographyOfPoint(next) == TerrainEnum.PLAIN && seen.add(next)) queue.add(next);
+                TerrainEnum terrain = battlefield.getGeographyOfPoint(next);
+                if ((terrain == TerrainEnum.PLAIN || terrain == TerrainEnum.FOREST) && seen.add(next)) queue.add(next);
             }
         }
         return false;

@@ -358,6 +358,16 @@ public class GameView {
                     terrainView.setSmooth(false);
                     cellPane.getChildren().add(terrainView);
                 }
+                if (battlefield.getGeographyOfPoint(pos) == TerrainEnum.FOREST) {
+                    Image trees = loadImage("/images/terrain/FOREST.png");
+                    if (trees != null) {
+                        ImageView treeView = new ImageView(trees);
+                        treeView.setFitWidth(CELL_SIZE);
+                        treeView.setFitHeight(CELL_SIZE);
+                        treeView.setSmooth(false);
+                        cellPane.getChildren().add(treeView);
+                    }
+                }
                 if (battlefield.isBaseSite(pos) && model.getUnitAt(pos) == null) {
                     cellPane.getChildren().add(createRuins());
                 }
@@ -386,7 +396,9 @@ public class GameView {
     private String getTerrainImagePath(Battlefield battlefield, Point pos) {
         StringBuilder path = new StringBuilder("/images/terrain/");
 
+        // a forest is grass with trees drawn on top (see drawTerrain)
         TerrainEnum centerTerrain = battlefield.getGeographyOfPoint(pos);
+        if (centerTerrain == TerrainEnum.FOREST) centerTerrain = TerrainEnum.PLAIN;
         path.append(centerTerrain);
 
         if (!isInsideBattlefield(battlefield, pos)) {
@@ -437,6 +449,7 @@ public class GameView {
             if (s.contains("M")) {
                 s = s.replace("M", "P");
             }
+            s = s.replace("F", "P"); // forest is grass underneath
 
             path.append(s);
 
@@ -939,12 +952,17 @@ public class GameView {
             case PLAIN -> "Plains";
             case WATER -> "Water";
             case MOUNTAIN -> "Mountains";
+            case FOREST -> "Forest";
         };
         String access = switch (terrain) {
-            case PLAIN -> "Open ground: vehicles and aircraft can enter.";
+            case PLAIN -> "Open ground: vehicles, infantry and aircraft can enter.";
             case WATER -> "Only ships and aircraft can enter.";
-            case MOUNTAIN -> "Impassable for vehicles; aircraft can fly over.";
+            case MOUNTAIN -> "Impassable for vehicles. Infantry climbs it slowly (2 movement); aircraft fly over.";
+            case FOREST -> "Vehicles need 2 movement to enter, infantry 1.";
         };
+        if (terrain.coverPercent() > 0) {
+            access += " Ground units here take " + terrain.coverPercent() + "% less damage.";
+        }
         Label title = new Label(name);
         title.getStyleClass().add("inspect-name");
         Label text = new Label(access);
