@@ -120,6 +120,11 @@ public class GameView {
     private Runnable onRestart;
     private Runnable onUpgrade = () -> { };
     private Function<Point, AttackPreview> attackPreview = cell -> null;
+    private Runnable onUndo = () -> { };
+    private java.util.function.IntConsumer onPickReady = id -> { };
+    private int undoableUnitId = -1;
+    private final FlowPane readyStrip = new FlowPane(4, 4);
+    private final Label readyTitle = sectionTitle("READY");
 
     public GameView(int width, int height) {
         this.gridWidth = width;
@@ -228,6 +233,7 @@ public class GameView {
                 header,
                 playerCards,
                 skipTurnButton,
+                new VBox(4, readyTitle, readyStrip),
                 sectionTitle("DEPLOY"), deployBox,
                 sectionTitle("INSPECT"), inspector,
                 sectionTitle("LOG"), infoArea,
@@ -925,6 +931,14 @@ public class GameView {
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
 
         boolean selected = model.findUnitById(highlights.selectedUnitId()) == unit;
+        if (undoableUnitId != -1 && model.findUnitById(undoableUnitId) == unit && !inputLocked) {
+            Button undo = new Button("Undo move  [Z]");
+            undo.getStyleClass().add("upgrade-button");
+            undo.setMaxWidth(Double.MAX_VALUE);
+            undo.setFocusTraversable(false);
+            undo.setOnAction(event -> onUndo.run());
+            inspector.getChildren().add(undo);
+        }
         if (unit instanceof MilitaryBase base && unit.getPlayerID() == 1 && selected && unit.getHealthPoints() > 0) {
             Button upgrade = new Button(base.canUpgrade()
                     ? "Upgrade to level " + (base.getLevel() + 1) + "  ·  " + base.getUpgradeCost() + " RP  [U]"
@@ -1029,6 +1043,43 @@ public class GameView {
         }
     }
 
+    /** The units that can still act; each gets a small button that selects it. */
+    public void setReadyUnits(List<Integer> unitIds) {
+        readyStrip.getChildren().clear();
+        readyTitle.setText(unitIds.isEmpty() ? "READY  –  all units have acted" : "READY  (" + unitIds.size() + ")  ·  N: next");
+        if (model == null) return;
+        for (int id : unitIds) {
+            Unit unit = model.findUnitById(id);
+            if (unit == null) continue;
+            ImageView icon = new ImageView(unitImage(unit.getPlayerID(), unit.getUnitName()));
+            icon.setFitWidth(24);
+            icon.setFitHeight(24);
+            icon.setSmooth(false);
+            Button button = new Button();
+            button.setGraphic(icon);
+            button.getStyleClass().add("ready-unit");
+            button.setFocusTraversable(false);
+            button.setTooltip(new Tooltip(unit.getUnitName() + (unit.hasMoved() ? " (moved, can still act)" : "")));
+            if (id == highlights.selectedUnitId()) button.getStyleClass().add("armed-card");
+            button.setOnAction(event -> onPickReady.accept(id));
+            readyStrip.getChildren().add(button);
+        }
+    }
+
+    /** The unit whose last move can be taken back, or -1; its inspector shows an Undo button. */
+    public void setUndoableUnit(int unitId) {
+        undoableUnitId = unitId;
+        refreshInspector();
+    }
+
+    public void setOnUndo(Runnable onUndo) {
+        this.onUndo = onUndo;
+    }
+
+    public void setOnPickReady(java.util.function.IntConsumer onPickReady) {
+        this.onPickReady = onPickReady;
+    }
+
     /** What the upgrade button of a selected base does. */
     public void setOnUpgrade(Runnable onUpgrade) {
         this.onUpgrade = onUpgrade;
@@ -1112,12 +1163,17 @@ public class GameView {
 
     /** Shows a banner across the board; {@code onDone} runs exactly once, immediately if animations are off. */
     public void showBanner(String text, Runnable onDone) {
+        showBanner(text, null, onDone);
+    }
+
+    /** A banner with a smaller second line; {@code onDone} runs exactly once, immediately if animations are off. */
+    public void showBanner(String text, String subtitle, Runnable onDone) {
         finishPlayback();
         if (!isAnimationsEnabled()) {
             onDone.run();
             return;
         }
-        play(() -> director.banner(text), onDone);
+        play(() -> director.banner(text, subtitle), onDone);
     }
 
     private void play(Supplier<Transition> builder, Runnable onDone) {

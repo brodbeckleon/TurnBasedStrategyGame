@@ -138,4 +138,39 @@ class MovementTest {
         FTwo jet = new FTwo(2, new Point(7, 5));
         assertEquals(0, attack.coverPercent(jet, new Point(7, 5)), "aircraft get no cover");
     }
+
+    @Test
+    void aMoveCanBeTakenBackUntilTheUnitActs() {
+        TypeNinety heavy = new TypeNinety(1, new Point(3, 3)); // done after moving
+        int id = Fixtures.place(game, 1, heavy);
+        UnitMoved moved = (UnitMoved) move.execute(game.getPlayerOne(), id, new Point(5, 3)).getEvents().get(0);
+        assertFalse(heavy.isAvailable());
+
+        var undone = move.undo(game.getPlayerOne(), id, moved.path());
+
+        assertTrue(undone.wasSuccessful());
+        assertEquals(new Point(3, 3), heavy.getPosition());
+        assertTrue(heavy.isAvailable());
+        assertFalse(heavy.hasMoved());
+        UnitMoved back = assertInstanceOf(UnitMoved.class, undone.getEvents().get(0));
+        assertEquals(moved.path().get(moved.path().size() - 1), back.path().get(0));
+        assertTrue(move.execute(game.getPlayerOne(), id, new Point(4, 4)).wasSuccessful(), "it may move again");
+    }
+
+    @Test
+    void noUndoAfterAttackingOrWhenTheWayBackIsTaken() {
+        TypeTen tank = new TypeTen(1, new Point(3, 3));
+        int id = Fixtures.place(game, 1, tank);
+        int target = Fixtures.place(game, 2, new TypeNinety(2, new Point(7, 3)));
+        UnitMoved moved = (UnitMoved) move.execute(game.getPlayerOne(), id, new Point(5, 3)).getEvents().get(0);
+        new AttackCommand(game).execute(game.getPlayerOne(), id, target);
+
+        assertFalse(move.undo(game.getPlayerOne(), id, moved.path()).wasSuccessful(), "it already attacked");
+
+        TypeTen other = new TypeTen(1, new Point(3, 8));
+        int otherId = Fixtures.place(game, 1, other);
+        UnitMoved otherMove = (UnitMoved) move.execute(game.getPlayerOne(), otherId, new Point(5, 8)).getEvents().get(0);
+        Fixtures.place(game, 1, new TypeNinety(1, new Point(3, 8)));
+        assertFalse(move.undo(game.getPlayerOne(), otherId, otherMove.path()).wasSuccessful(), "the way back is blocked");
+    }
 }

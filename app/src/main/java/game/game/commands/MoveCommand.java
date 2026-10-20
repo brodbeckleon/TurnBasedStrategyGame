@@ -60,4 +60,29 @@ public class MoveCommand extends Command {
         return new CommandResult(true, ambushed ? "Ambush! " + unit.getUnitName() + " ran into a hidden enemy."
                 : "unit with ID: " + unitID + " moved to position: " + position.x + ", " + position.y, List.of(moved));
     }
+
+    /**
+     * Takes a move back: the unit returns along its path and may move (and act) again this turn. The caller makes
+     * sure nothing else happened in between.
+     */
+    public CommandResult undo(Player player, int unitID, List<Point> path) {
+        Unit unit = player.getPlayerDeck().getUnit(unitID);
+        Point from = path.get(0);
+        Point to = path.get(path.size() - 1);
+        if (unit == null || !unit.hasMoved() || !unit.getPosition().equals(to)
+                || (unit instanceof ActsAfterMoving && !unit.isAvailable())) {
+            return new CommandResult(false, "There is no move to take back.");
+        }
+        if (!from.equals(to) && !checkIfPositionIsFree(from)) {
+            return new CommandResult(false, "The way back is blocked.");
+        }
+        player.getPlayerDeck().moveUnit(unitID, from);
+        unit.setHasMoved(false);
+        unit.setIsAvailable(true);
+
+        List<Point> back = new java.util.ArrayList<>(path);
+        java.util.Collections.reverse(back);
+        GameEvent moved = new GameEvent.UnitMoved(player.getPlayerID(), unitID, unit.getUnitName(), to, from, back);
+        return new CommandResult(true, unit.getUnitName() + " moved back.", List.of(moved));
+    }
 }
