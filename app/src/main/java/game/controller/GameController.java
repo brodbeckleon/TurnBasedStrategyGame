@@ -9,7 +9,12 @@ import game.model.Game;
 import game.enums.UnitEnum;
 import game.tools.CircleGenerator;
 import game.units.AssaultClass;
+import game.units.Infrastructure;
+import game.units.SupportClass;
 import game.units.Unit;
+import game.units.assaultClasses.Aircraft;
+import game.units.assaultClasses.Ship;
+import game.units.infrastructures.NavyBase;
 import game.view.BoardHighlights;
 import game.view.DeployOption;
 import game.view.GameView;
@@ -22,8 +27,10 @@ import javafx.util.Duration;
 
 import java.awt.Point;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -66,7 +73,7 @@ public class GameController {
         this.moveCommand = new MoveCommand(model);
         this.attackCommand = new AttackCommand(model);
         this.healCommand = new HealCommand(model);
-        this.botService = new BotService(model, addCommand, moveCommand, attackCommand);
+        this.botService = new BotService(model, addCommand, moveCommand, attackCommand, healCommand);
         this.deployOptions = buildDeployOptions();
 
         attachHandlers();
@@ -74,17 +81,66 @@ public class GameController {
         refresh();
     }
 
-    /** The unit types the factory can build, with their numbers for the deploy panel. */
+    /** Everything the factory can build, with what the deploy panel shows about it. */
     private List<DeployOption> buildDeployOptions() {
         List<DeployOption> options = new ArrayList<>();
         for (UnitEnum type : UnitEnum.values()) {
-            Unit unit = unitFactory.createUnit(1, type.name(), PROBE_POSITION);
-            if (unit instanceof AssaultClass assault) {
-                options.add(new DeployOption(type, unit.getUnitName(), unit.getResourceCost(), unit.getMaxHealthPoints(),
-                        assault.getDamage(), assault.getMovingRange(), assault.getShootingRange()));
-            }
+            Unit unit = unitFactory.createUnit(1, type, PROBE_POSITION);
+            options.add(new DeployOption(type, categoryOf(unit), unit.getUnitName(), unit.getResourceCost(),
+                    statsOf(unit), describe(unit)));
         }
         return options;
+    }
+
+    private static DeployOption.Category categoryOf(Unit unit) {
+        if (unit instanceof Infrastructure) return DeployOption.Category.BUILDINGS;
+        if (unit instanceof SupportClass) return DeployOption.Category.SUPPORT;
+        if (unit instanceof Aircraft) return DeployOption.Category.AIR;
+        if (unit instanceof Ship) return DeployOption.Category.NAVY;
+        return DeployOption.Category.ARMY;
+    }
+
+    private static String statsOf(Unit unit) {
+        StringBuilder stats = new StringBuilder("HP " + unit.getMaxHealthPoints());
+        if (unit instanceof AssaultClass assault) {
+            stats.append("  DMG ").append(assault.getDamage());
+        }
+        if (unit instanceof MovableUnit movable) {
+            stats.append("  MOV ").append(movable.getMovingRange());
+        }
+        if (unit instanceof AssaultClass assault) {
+            stats.append("  RNG ").append(assault.getShootingRange());
+        }
+        if (unit instanceof SupportClass support && support.getSupportPoints() > 0) {
+            stats.append("  +").append(support.getSupportPoints()).append(" HP");
+        }
+        if (unit instanceof Infrastructure building) {
+            stats.append("  ARM ").append(building.getArmorValue());
+        }
+        return stats.toString();
+    }
+
+    /** One or two sentences on what the unit does and where it can be deployed. */
+    private static String describe(Unit unit) {
+        return switch (unit.getUnitName()) {
+            case "Type 10" -> "Modern main battle tank: hard-hitting, long range. Deploys at your base or an army base.";
+            case "Type 90" -> "Heavily armoured main battle tank. Deploys at your base or an army base.";
+            case "Type 16" -> "Wheeled tank destroyer: fast and cheap, lightly armoured. Deploys at your base or an army base.";
+            case "Type 89" -> "Infantry fighting vehicle: tough and cheap, but can't get through tank armour. Deploys at your base or an army base.";
+            case "Type 99 SPH" -> "Self-propelled howitzer: shoots very far and wrecks buildings. Deploys at your base or an army base.";
+            case "Type 87", "Type 81 (C)", "Type 93" -> "Anti-air: double damage against aircraft. Deploys at your base or an army base.";
+            case "Armored Ambulance" -> "Heals an adjacent friendly unit by 300 HP instead of acting. Deploys at your base or an army base.";
+            case "Armored Recovery Vehicle" -> "Repairs an adjacent friendly building (your base too) by 600 HP. Deploys at your base or an army base.";
+            case "Armored Reconnaissance Vehicle" -> "Unarmed scout: friendly units within 3 tiles shoot 1 tile further. Deploys at your base or an army base.";
+            case "Yamato" -> "Battleship with a huge punch. Deploys on the water around a naval base.";
+            case "Army Base" -> "Forward base: deploys army units around it, and more buildings can be built near it.";
+            case "Air Base" -> "Airfield: required to deploy aircraft, which deploy around it.";
+            case "Naval Base" -> "Harbour: required to deploy ships. Must be built on open ground next to water.";
+            case "Radar Station" -> "Friendly units within 4 tiles shoot 1 tile further.";
+            default -> unit instanceof Aircraft
+                    ? "Flies over any terrain; ground units only deal half damage to it. Deploys at an air base."
+                    : "";
+        };
     }
 
     private void attachHandlers() {
@@ -108,9 +164,11 @@ public class GameController {
             default -> {
                 String key = event.getText();
                 if (key.length() == 1 && Character.isDigit(key.charAt(0))) {
+                    // the number keys pick from the deploy tab that is open
+                    List<DeployOption> shown = view.getShownDeployOptions();
                     int index = key.charAt(0) - '1';
-                    if (index >= 0 && index < deployOptions.size()) {
-                        prepareAddUnit(deployOptions.get(index).type());
+                    if (index >= 0 && index < shown.size()) {
+                        prepareAddUnit(shown.get(index).type());
                     }
                 }
             }
@@ -251,6 +309,8 @@ public class GameController {
                         + " took " + e.damage() + " damage (" + Math.max(0, e.hpAfter()) + " HP left).";
                 case GameEvent.UnitDestroyed e -> owner(e.ownerId()) + " " + (e.isBase() ? "base" : e.unitName())
                         + " was destroyed!";
+                case GameEvent.UnitHealed e -> owner(e.playerId()) + " " + e.supporterName() + " restored "
+                        + e.amount() + " HP to " + e.targetName() + ".";
             };
             if (line != null) {
                 view.logInfo(line);
@@ -294,6 +354,11 @@ public class GameController {
         DeployOption option = optionFor(type);
         if (model.getCurrentPlayer().getResourcePoints() < option.cost()) {
             view.logInfo("Not enough resource points for a " + option.name() + " (" + option.cost() + " RP).");
+            return;
+        }
+        String blocked = blockedReason(type);
+        if (blocked != null) {
+            view.logInfo("Cannot deploy a " + option.name() + ": " + blocked);
             return;
         }
         resetSelection();
@@ -360,6 +425,13 @@ public class GameController {
                     resetSelection();
                 }
                 animated = playPlayerAction(result);
+            } else if (clickedUnit != null && highlights.supportTargets().contains(clickedPoint)) {
+                CommandResult result = healCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
+                logResult(result);
+                if (result.wasSuccessful()) {
+                    resetSelection();
+                }
+                animated = playPlayerAction(result);
             } else if (clickedUnit == null && highlights.moveTiles().contains(clickedPoint)) {
                 CommandResult result = moveCommand.execute(currentPlayer, selectedUnitId, clickedPoint);
                 logResult(result);
@@ -392,6 +464,7 @@ public class GameController {
     /** The hint, the armed deploy card and the end turn suggestion, which change with the input lock too. */
     private void refreshStatus() {
         view.setArmedDeploy(currentState == ControllerState.AWAITING_PLACEMENT ? unitTypeToAdd : null);
+        view.setBlockedDeploys(blockedDeploys());
         view.setEndTurnSuggested(canAct() && currentState == ControllerState.NORMAL && nothingLeftToDo());
         view.setHint(hint());
     }
@@ -402,11 +475,11 @@ public class GameController {
             return BoardHighlights.NONE;
         }
         if (currentState == ControllerState.AWAITING_PLACEMENT) {
-            return new BoardHighlights(-1, Set.of(), Set.of(), Set.of(), deployTiles(unitTypeToAdd));
+            return new BoardHighlights(-1, Set.of(), Set.of(), Set.of(), Set.of(), deployTiles(unitTypeToAdd));
         }
         Unit selected = currentState == ControllerState.UNIT_SELECTED ? model.findUnitById(selectedUnitId) : null;
         if (selected == null || !selected.isAvailable()) {
-            return new BoardHighlights(selectedUnitId, Set.of(), Set.of(), Set.of(), Set.of());
+            return new BoardHighlights(selectedUnitId, Set.of(), Set.of(), Set.of(), Set.of(), Set.of());
         }
 
         Set<Point> moves = new HashSet<>();
@@ -421,29 +494,56 @@ public class GameController {
         Set<Point> targets = new HashSet<>();
         if (selected instanceof AssaultClass assault) {
             Point origin = selected.getPosition();
-            for (Point point : circleGenerator.getCoordinatesInRange(origin, assault.getShootingRange())) {
+            int shootingRange = model.getShootingRange(assault);
+            for (Point point : circleGenerator.getCoordinatesInRange(origin, shootingRange)) {
                 if (isOnBoard(point) && !point.equals(origin)) {
                     range.add(point);
                 }
             }
-            for (int targetId : model.getOpponent().getPlayerDeck().getUnitIDsInRange(origin, assault.getShootingRange())) {
+            for (int targetId : model.getOpponent().getPlayerDeck().getUnitIDsInRange(origin, shootingRange)) {
                 targets.add(model.findUnitById(targetId).getPosition());
             }
         }
-        return new BoardHighlights(selectedUnitId, moves, range, targets, Set.of());
+        Set<Point> supportTargets = new HashSet<>();
+        for (int targetId : healCommand.findTargets(model.getCurrentPlayer(), selectedUnitId)) {
+            supportTargets.add(model.findUnitById(targetId).getPosition());
+        }
+        return new BoardHighlights(selectedUnitId, moves, range, targets, supportTargets, Set.of());
     }
 
     private Set<Point> deployTiles(UnitEnum type) {
         Player player = model.getCurrentPlayer();
-        Point base = player.getPlayerDeck().getBase().getPosition();
-        Set<Point> tiles = new HashSet<>();
-        for (Point point : circleGenerator.getCoordinatesInRange(base, player.getPlayerDeck().getBase().getDeploymentRadius())) {
-            if (addCommand.checkIfPositionIsFree(point)
-                    && addCommand.checkIfTerrainIsDeployable(unitFactory.createUnit(player.getPlayerID(), type.name(), point), point)) {
-                tiles.add(point);
+        return addCommand.findDeployablePositions(player, unitFactory.createUnit(player.getPlayerID(), type, PROBE_POSITION));
+    }
+
+    /** Why the type cannot be deployed right now (resources aside), or null if it can. */
+    private String blockedReason(UnitEnum type) {
+        if (!deployTiles(type).isEmpty()) {
+            return null;
+        }
+        Unit unit = unitFactory.createUnit(model.getCurrentPlayer().getPlayerID(), type, PROBE_POSITION);
+        boolean hasBuilding = model.getCurrentPlayer().getPlayerDeck().getBuildings().stream()
+                .anyMatch(building -> unit instanceof Infrastructure ? building.getConstructionRadius() > 0 : building.canDeploy(unit));
+        if (unit instanceof NavyBase) return "needs open ground next to water near your base or an army base.";
+        if (unit instanceof Infrastructure) return "no free open ground near your base or an army base.";
+        if (!hasBuilding && unit instanceof Aircraft) return "build an Air Base first.";
+        if (!hasBuilding && unit instanceof Ship) return "build a Naval Base first.";
+        return "no free tile to deploy it on.";
+    }
+
+    /** The reasons of every type that cannot be deployed right now, for the deploy panel. */
+    private Map<UnitEnum, String> blockedDeploys() {
+        Map<UnitEnum, String> blocked = new EnumMap<>(UnitEnum.class);
+        if (!canAct()) {
+            return blocked;
+        }
+        for (DeployOption option : deployOptions) {
+            String reason = blockedReason(option.type());
+            if (reason != null) {
+                blocked.put(option.type(), reason);
             }
         }
-        return tiles;
+        return blocked;
     }
 
     private boolean isOnBoard(Point point) {
@@ -459,7 +559,7 @@ public class GameController {
             }
         }
         int resources = model.getCurrentPlayer().getResourcePoints();
-        return deployOptions.stream().noneMatch(option -> option.cost() <= resources);
+        return deployOptions.stream().noneMatch(option -> option.cost() <= resources && !deployTiles(option.type()).isEmpty());
     }
 
     private String hint() {
@@ -476,9 +576,9 @@ public class GameController {
             case AWAITING_PLACEMENT -> {
                 DeployOption option = optionFor(unitTypeToAdd);
                 if (deployTiles(unitTypeToAdd).isEmpty()) {
-                    return "There is no free tile near your base for a " + option.name() + ".  Esc to cancel.";
+                    return "There is no free tile for a " + option.name() + " any more.  Esc to cancel.";
                 }
-                return "Deploy " + option.name() + " (" + option.cost() + " RP): click a green tile near your base.  "
+                return "Deploy " + option.name() + " (" + option.cost() + " RP): click a green tile.  "
                         + "Right-click or Esc to cancel.";
             }
             case UNIT_SELECTED -> {
@@ -486,14 +586,21 @@ public class GameController {
                 if (selected == null || !selected.isAvailable()) {
                     return "This unit cannot act right now.  Select another unit or press E to end your turn.";
                 }
+                if (selected instanceof SupportClass support && support.getSupportPoints() > 0) {
+                    return "Blue tiles: move.  Green brackets: " + (support.canSupport(model.getCurrentPlayer().getPlayerDeck().getBase())
+                            ? "repair" : "heal") + " a damaged friend.  Right-click or Esc to deselect.";
+                }
+                if (selected instanceof SupportClass) {
+                    return "Blue tiles: move.  Units within 3 tiles of this scout shoot 1 tile further.  Esc to deselect.";
+                }
                 return "Blue tiles: move.  Red brackets: attack.  Right-click or Esc to deselect.";
             }
             default -> {
                 if (nothingLeftToDo()) {
                     return "Nothing left to do this turn.  Press E to end your turn.";
                 }
-                return "Select one of your units, or deploy a new one with keys 1–" + deployOptions.size()
-                        + ".  Press E to end your turn.";
+                return "Select one of your units, or deploy a new one with keys 1–9 (Tab switches the deploy tab).  "
+                        + "Press E to end your turn.";
             }
         }
     }

@@ -2,7 +2,7 @@ package game.events;
 
 import game.units.assaultClasses.AssaultTanks.TypeNinety;
 import game.units.assaultClasses.Aircraft;
-import game.units.assaultClasses.InfantryFightingVehicle;
+import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
 import game.units.assaultClasses.SelfPropelledAntiAir;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.assaultClasses.Ship;
@@ -44,6 +44,6 @@ class WeaponTest {
     void everythingElseFiresShells() {
         assertEquals(Weapon.SHELL, Weapon.of(new TypeNinety(1, origin)));
         assertEquals(Weapon.SHELL, Weapon.of(new TankDestroyer(1, "test", origin, 1, 1, 1, 1, 1) { }));
-        assertEquals(Weapon.SHELL, Weapon.of(new InfantryFightingVehicle(1, "test", origin, 1, 1, 1, 1, 1)));
+        assertEquals(Weapon.SHELL, Weapon.of(new TypeEightyNine(1, origin)));
     }
 }

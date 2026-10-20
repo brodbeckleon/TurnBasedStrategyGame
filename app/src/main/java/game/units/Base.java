@@ -1,45 +1,34 @@
-package game.units; // Or move to game.units
+package game.units;
+
+import game.interfaces.militaryBranches.Army;
 
 import java.awt.Point;
 
-public class Base extends Unit {
+/** The headquarters: losing it loses the game. Army units deploy around it and new buildings are built near it. */
+public class Base extends Infrastructure {
     private final int baseID;
-    private int armorValue;
-    private final int deploymentRadius = 3;
 
     public Base(int playerID, int baseID, Point position) {
-        // Call the Unit constructor with fixed values for a Base
-        super(playerID, "Base", position, 0, 10000);
+        // Call the Infrastructure constructor with fixed values for a Base
+        super(playerID, "Base", position, 0, 10000, 200, 3);
 
         this.baseID = baseID;
-        this.armorValue = 200;
     }
 
-    /**
-     * A Base cannot initiate an action, so it's never "available" in that sense.
-     * Override this to prevent it from being selected as an attacker.
-     */
     @Override
-    public boolean isAvailable() {
-        return false;
+    public boolean canDeploy(Unit unit) {
+        return unit instanceof Army && !(unit instanceof Infrastructure);
     }
 
-    // --- Base-specific getters and setters ---
+    @Override
+    public int getConstructionRadius() {
+        return 5;
+    }
+
+    // --- Base-specific getters ---
 
     public int getBaseID() {
         return baseID;
-    }
-
-    public int getArmorValue() {
-        return armorValue;
-    }
-
-    public void setArmorValue(int armorValue) {
-        this.armorValue = armorValue;
-    }
-
-    public int getDeploymentRadius() {
-        return deploymentRadius;
     }
 
     @Override

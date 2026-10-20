@@ -20,4 +20,14 @@ public abstract class SupportClass extends Unit implements MovableUnit {
     public int getSupportRange() {
         return supportRange;
     }
+
+    /** True if this unit can restore health to the given friendly unit. */
+    public boolean canSupport(Unit target) {
+        return false;
+    }
+
+    /** How much health one support action restores. */
+    public int getSupportPoints() {
+        return 0;
+    }
 }

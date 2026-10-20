@@ -132,7 +132,7 @@
     -fx-background-radius: 8;
     -fx-border-color: #2e3850;
     -fx-border-radius: 8;
-    -fx-padding: 6 10 6 8;
+    -fx-padding: 5 6 5 5;
     -fx-alignment: center-left;
     -fx-cursor: hand;
 }
@@ -140,15 +140,19 @@
 .deploy-card:hover { -fx-background-color: #2b3550; -fx-border-color: #4a587a; }
 .deploy-card:disabled { -fx-opacity: 0.4; }
 
+/* Unaffordable, or nowhere to deploy it yet: still hoverable so its tooltip can say why */
+.deploy-card.locked-card { -fx-opacity: 0.45; }
+
 .deploy-card.armed-card {
     -fx-background-color: #1f3a2a;
     -fx-border-color: #5ed68a;
     -fx-border-width: 2;
-    -fx-padding: 5 9 5 7;
+    -fx-padding: 4 5 4 4;
 }
 
 .deploy-name {
     -fx-font-weight: bold;
+    -fx-font-size: 11px;
     -fx-text-fill: #e8edf7;
 }
 
@@ -160,10 +164,36 @@
 .deploy-cost {
     -fx-background-color: #10141c;
     -fx-background-radius: 10;
-    -fx-padding: 2 8 2 8;
+    -fx-padding: 1 6 1 6;
     -fx-text-fill: #f5b942;
     -fx-font-weight: bold;
-    -fx-font-size: 11px;
+    -fx-font-size: 10px;
+}
+
+.deploy-key {
+    -fx-text-fill: #6d7890;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+}
+
+.deploy-tab {
+    -fx-background-color: #1a2131;
+    -fx-background-radius: 6;
+    -fx-border-color: #2e3850;
+    -fx-border-radius: 6;
+    -fx-text-fill: #8d97ab;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-padding: 4 2 4 2;
+    -fx-cursor: hand;
+}
+
+.deploy-tab:hover { -fx-background-color: #232b3d; -fx-text-fill: #e8edf7; }
+
+.deploy-tab:selected {
+    -fx-background-color: #2b3550;
+    -fx-border-color: #f5b942;
+    -fx-text-fill: #f5b942;
 }
 
 /* Inspector */
