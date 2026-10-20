@@ -4,6 +4,7 @@ import game.enums.TerrainEnum;
 import game.enums.UnitEnum;
 import game.events.GameEvent;
 import game.game.Player;
+import game.game.commands.AttackPreview;
 import game.game.Vision;
 import game.game.map.Battlefield;
 import game.interfaces.MovableUnit;
@@ -49,6 +50,7 @@ import javafx.util.Duration;
 import java.awt.Point;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public class GameView {
@@ -117,6 +119,7 @@ public class GameView {
     private Consumer<KeyEvent> keyHandler = event -> { };
     private Runnable onRestart;
     private Runnable onUpgrade = () -> { };
+    private Function<Point, AttackPreview> attackPreview = cell -> null;
 
     public GameView(int width, int height) {
         this.gridWidth = width;
@@ -853,6 +856,9 @@ public class GameView {
                 actionLabel.getStyleClass().add("inspect-action");
                 inspector.getChildren().add(actionLabel);
             }
+            if (highlights.targets().contains(cell)) {
+                showAttackPreview(attackPreview.apply(cell));
+            }
         }
     }
 
@@ -991,6 +997,36 @@ public class GameView {
     /** Called with every key the player presses, unless it fast-forwards an animation. */
     public void setKeyHandler(Consumer<KeyEvent> keyHandler) {
         this.keyHandler = keyHandler;
+    }
+
+    /** Where the inspector gets the forecast of an attack on a hovered target. */
+    public void setAttackPreview(Function<Point, AttackPreview> attackPreview) {
+        this.attackPreview = attackPreview;
+    }
+
+    /** The forecast of an attack: damage dealt, and what comes back. */
+    private void showAttackPreview(AttackPreview preview) {
+        if (preview == null) return;
+        Label dealt = new Label(preview.destroysTarget()
+                ? "Deals " + preview.damage() + " damage: destroys it!"
+                : "Deals " + preview.damage() + " damage (" + preview.targetHpAfter() + " HP left)");
+        dealt.getStyleClass().add(preview.destroysTarget() ? "preview-good" : "preview-line");
+        inspector.getChildren().add(dealt);
+        if (preview.counterDamage() > 0) {
+            Label counter = new Label("Strikes back for " + preview.counterDamage() + " damage");
+            counter.getStyleClass().add("preview-bad");
+            inspector.getChildren().add(counter);
+        }
+        if (preview.antiAirDamage() > 0) {
+            Label flak = new Label("Anti-air fire: " + preview.antiAirDamage() + " damage");
+            flak.getStyleClass().add("preview-bad");
+            inspector.getChildren().add(flak);
+        }
+        if (preview.attackerLost()) {
+            Label lost = new Label("Your unit would be destroyed!");
+            lost.getStyleClass().add("preview-bad");
+            inspector.getChildren().add(lost);
+        }
     }
 
     /** What the upgrade button of a selected base does. */

@@ -180,6 +180,7 @@ public class GameController {
         view.setDeployOptions(deployOptions, this::prepareAddUnit);
         view.setKeyHandler(this::handleKey);
         view.setOnUpgrade(this::upgradeSelected);
+        view.setAttackPreview(this::attackPreview);
         view.setFogOfWar(model.isFogOfWar(), fog -> {
             model.setFogOfWar(fog);
             if (canAct()) refresh();
@@ -399,6 +400,14 @@ public class GameController {
             unlockInput();
             throw e;
         }
+    }
+
+    /** What the selected unit's attack on the unit at the cell would do, for the inspector; null if none. */
+    private AttackPreview attackPreview(Point cell) {
+        if (currentState != ControllerState.UNIT_SELECTED || !canAct()) return null;
+        Unit target = model.getUnitAt(cell);
+        if (target == null || model.isUnitOwnedByCurrentPlayer(model.getUnitID(target))) return null;
+        return attackCommand.preview(model.getCurrentPlayer(), selectedUnitId, model.getUnitID(target));
     }
 
     /** Upgrades the selected base (button in the inspector, or U). */

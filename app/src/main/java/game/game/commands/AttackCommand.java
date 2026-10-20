@@ -147,6 +147,34 @@ public class AttackCommand extends Command {
                 .toList();
     }
 
+    /** What attacking the target would do, or null if the attack is not possible. */
+    public AttackPreview preview(Player attackerPlayer, int attackingUnitID, int targetID) {
+        Unit attacker = attackerPlayer.getPlayerDeck().getUnit(attackingUnitID);
+        if (!(attacker instanceof AssaultClass assault) || !findTargets(attackerPlayer, attackingUnitID).contains(targetID)) {
+            return null;
+        }
+        Player defenderPlayer = attackerPlayer.getPlayerID() == 1 ? getGameModel().getPlayerTwo() : getGameModel().getPlayerOne();
+        Unit target = defenderPlayer.getPlayerDeck().getUnit(targetID);
+        int damage = predictDamage(assault, target);
+        int targetHpAfter = target.getHealthPoints() - damage;
+        boolean destroys = targetHpAfter <= 0;
+
+        int counter = 0;
+        if (!destroys && target instanceof AssaultClass defender && canTarget(defender, attacker)
+                && circleGenerator.getCoordinatesInRange(target.getPosition(), getGameModel().getShootingRange(defender))
+                        .contains(attacker.getPosition())) {
+            counter = (int) Math.round(predictDamage(defender, attacker) * (double) targetHpAfter / target.getMaxHealthPoints());
+        }
+        int flak = 0;
+        if (attacker instanceof Aircraft) {
+            for (int interceptorID : findInterceptors(defenderPlayer, attacker, targetID)) {
+                flak += counterDamage((AssaultClass) defenderPlayer.getPlayerDeck().getUnit(interceptorID), attacker);
+            }
+        }
+        return new AttackPreview(damage, Math.max(0, targetHpAfter), destroys, counter, flak,
+                counter + flak >= attacker.getHealthPoints());
+    }
+
     /** The ids of the enemies the player's unit could attack right now. */
     public List<Integer> findTargets(Player attacker, int attackingUnitID) {
         Unit unit = attacker.getPlayerDeck().getUnit(attackingUnitID);
