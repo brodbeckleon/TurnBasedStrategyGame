@@ -89,3 +89,6 @@ target/
 
 # Ignore Gradle build output directory
 build
+
+# Python caches (pixel-art build)
+__pycache__/
