@@ -9,6 +9,7 @@ import game.events.GameEvent.UnitMoved;
 import game.game.Player;
 import game.game.commands.AddCommand;
 import game.game.commands.AttackCommand;
+import game.game.commands.HealCommand;
 import game.game.commands.MoveCommand;
 import game.model.Game;
 import game.testing.Fixtures;
@@ -44,7 +45,8 @@ class BotServiceTest {
     }
 
     private static BotService newBot(Game game) {
-        return new BotService(game, new AddCommand(game), new MoveCommand(game), new AttackCommand(game));
+        return new BotService(game, new AddCommand(game), new MoveCommand(game), new AttackCommand(game),
+                new HealCommand(game));
     }
 
     private List<List<GameEvent>> runSteps(BotService service) {
@@ -190,6 +192,7 @@ class BotServiceTest {
                         health.put(e.unitId(), e.hpAfter());
                     }
                     case UnitDestroyed e -> destroyed.add(e.unitId());
+                    case GameEvent.UnitHealed e -> health.put(e.targetId(), e.hpAfter());
                 }
             }
         }

@@ -7,7 +7,10 @@ import game.game.Player;
 import game.model.Game;
 import game.units.AssaultClass;
 import game.units.Base;
+import game.units.Infrastructure;
+import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.AssaultTank;
+import game.units.assaultClasses.SelfPropelledAntiAir;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.Unit;
 
@@ -70,23 +73,15 @@ public class AttackCommand extends Command {
     private List<Integer> scout(int attackingUnitID, Player attacker, Player defender) {
         Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
         Point attackingPos = attackingUnit.getPosition();
-        int range = ((AssaultClass) attackingUnit).getShootingRange();
+        int range = getGameModel().getShootingRange((AssaultClass) attackingUnit);
 
         return defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range);
     }
 
     private List<GameEvent> attackBase(int attackingUnitID, Unit attackingUnit, Player defender) {
-        int damage = ((AssaultClass) attackingUnit).getDamage();
         var base = defender.getPlayerDeck().getBase();
         int hpBefore = base.getHealthPoints();
-
-        // Special multipliers
-        if (attackingUnit instanceof SelfPropelledArtillery) damage *= 4;
-        else if (attackingUnit instanceof AssaultTank) damage *= 2;
-        else damage /= 2;
-
-        damage -= base.getArmorValue();
-        if (damage <= 0) damage = 0;
+        int damage = structureDamage((AssaultClass) attackingUnit, base);
 
         base.setHealthPoints(-damage);
 
@@ -100,10 +95,10 @@ public class AttackCommand extends Command {
         Unit defendingUnit = defender.getPlayerDeck().getUnit(defendingUnitID);
         if (defendingUnit == null) return List.of();
 
-        int damage = ((AssaultClass) attackingUnit).getDamage();
-        if (defendingUnit instanceof AssaultTank) damage -= ((AssaultTank) defendingUnit).getArmorValue();
-
-        if (damage <= 0) damage = 0;
+        AssaultClass attacker = (AssaultClass) attackingUnit;
+        int damage = defendingUnit instanceof Infrastructure building
+                ? structureDamage(attacker, building)
+                : unitDamage(attacker, defendingUnit);
 
         int hpBefore = defendingUnit.getHealthPoints();
         defendingUnit.setHealthPoints(-damage);
@@ -112,6 +107,28 @@ public class AttackCommand extends Command {
             defender.getPlayerDeck().removeUnit(defendingUnitID);
         }
         return describeAttack(attackingUnitID, attackingUnit, defendingUnitID, defendingUnit, damage, hpBefore);
+    }
+
+    /** Artillery and tanks are made to break buildings, everything else barely scratches them. */
+    private static int structureDamage(AssaultClass attacker, Infrastructure building) {
+        int damage = attacker.getDamage();
+        if (attacker instanceof SelfPropelledArtillery) damage *= 4;
+        else if (attacker instanceof AssaultTank) damage *= 2;
+        else damage /= 2;
+
+        damage -= building.getArmorValue();
+        return Math.max(0, damage);
+    }
+
+    /** Anti-air hits aircraft twice as hard; other ground and sea units only half as hard. Armour absorbs the rest. */
+    private static int unitDamage(AssaultClass attacker, Unit target) {
+        int damage = attacker.getDamage();
+        if (target instanceof Aircraft) {
+            if (attacker instanceof SelfPropelledAntiAir) damage *= 2;
+            else if (!(attacker instanceof Aircraft)) damage /= 2;
+        }
+        if (target instanceof AssaultTank tank) damage -= tank.getArmorValue();
+        return Math.max(0, damage);
     }
 
     /** Builds the events of an attack that has already been applied to the model, in causal order. */

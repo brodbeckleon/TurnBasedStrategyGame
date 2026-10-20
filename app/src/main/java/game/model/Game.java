@@ -2,7 +2,9 @@ package game.model;
 
 import game.game.Player;
 import game.game.map.Battlefield;
+import game.interfaces.Spotter;
 import game.tools.CircleGenerator;
+import game.units.AssaultClass;
 import game.units.Unit;
 import java.awt.Point;
 import java.util.Map;
@@ -61,6 +63,18 @@ public class Game {
             this.gameOver = true;
             this.winnerId = 1;
         }
+    }
+
+    /** The range the unit shoots at right now: one tile further while a friendly spotter covers it. */
+    public int getShootingRange(AssaultClass unit) {
+        Player owner = unit.getPlayerID() == 1 ? playerOne : playerTwo;
+        for (Unit friend : owner.getPlayerDeck().getUnits().values()) {
+            if (friend != unit && friend instanceof Spotter spotter && friend.getHealthPoints() > 0
+                    && circleGenerator.getCoordinatesInRange(friend.getPosition(), spotter.getSpottingRange()).contains(unit.getPosition())) {
+                return unit.getShootingRange() + Spotter.SPOTTING_BONUS;
+            }
+        }
+        return unit.getShootingRange();
     }
 
     public boolean isPositionFree(Point position) {

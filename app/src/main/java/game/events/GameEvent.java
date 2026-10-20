@@ -41,4 +41,14 @@ public sealed interface GameEvent {
             pos = new Point(pos);
         }
     }
+
+    /** A support unit restored health to a friendly unit or building. */
+    record UnitHealed(int playerId, int supporterId, String supporterName, Point from,
+                      int targetId, String targetName, Point pos, int amount,
+                      int hpBefore, int hpAfter, int maxHp) implements GameEvent {
+        public UnitHealed {
+            from = new Point(from);
+            pos = new Point(pos);
+        }
+    }
 }

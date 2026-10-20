@@ -7,8 +7,11 @@ import game.game.Player;
 import game.game.map.Battlefield;
 import game.interfaces.MovableUnit;
 import game.model.Game;
+import game.interfaces.Spotter;
 import game.units.AssaultClass;
 import game.units.Base;
+import game.units.Infrastructure;
+import game.units.SupportClass;
 import game.units.Unit;
 import game.units.assaultClasses.AssaultTank;
 import game.view.anim.AnimationDirector;
@@ -39,6 +42,7 @@ import javafx.scene.shape.Path;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.StrokeType;
 import javafx.scene.transform.Scale;
+import javafx.util.Duration;
 
 import java.awt.Point;
 import java.util.*;
@@ -56,6 +60,7 @@ public class GameView {
     private static final Color MOVE_EDGE = Color.rgb(160, 200, 255, 0.9);
     private static final Color RANGE_HATCH = Color.rgb(255, 70, 70, 0.32);
     private static final Color TARGET_COLOR = Color.rgb(255, 70, 60);
+    private static final Color SUPPORT_COLOR = Color.rgb(90, 235, 130);
     private static final Color DEPLOY_FILL = Color.rgb(60, 230, 120, 0.42);
     private static final Color DEPLOY_EDGE = Color.rgb(170, 255, 190, 0.9);
     private static final Color SELECTION_COLOR = Color.rgb(255, 245, 170);
@@ -75,6 +80,8 @@ public class GameView {
     private final PlayerCard player1Card;
     private final PlayerCard player2Card;
     private final VBox deployBox;
+    private final HBox deployTabs;
+    private final GridPane deployCards;
     private final VBox inspector;
     private final TextArea infoArea;
     private final Button skipTurnButton;
@@ -91,6 +98,10 @@ public class GameView {
     private final AnimationDirector director;
     private final Map<UnitEnum, Button> deployButtons = new EnumMap<>(UnitEnum.class);
     private final Map<UnitEnum, DeployOption> deployOptions = new EnumMap<>(UnitEnum.class);
+    private final Map<DeployOption.Category, ToggleButton> deployTabButtons = new EnumMap<>(DeployOption.Category.class);
+    private Map<UnitEnum, String> blockedDeploys = Map.of();
+    private DeployOption.Category deployCategory = DeployOption.Category.ARMY;
+    private Consumer<UnitEnum> onDeployPick = type -> { };
     private Playback current;
     private boolean inputLocked;
     private boolean fastForward;
@@ -181,7 +192,16 @@ public class GameView {
         animationsBox.setSelected(true);
         animationsBox.setFocusTraversable(false);
 
-        deployBox = new VBox(6);
+        deployTabs = new HBox(4);
+        deployCards = new GridPane();
+        deployCards.setHgap(6);
+        deployCards.setVgap(6);
+        for (int i = 0; i < 2; i++) {
+            ColumnConstraints half = new ColumnConstraints();
+            half.setPercentWidth(50);
+            deployCards.getColumnConstraints().add(half);
+        }
+        deployBox = new VBox(8, deployTabs, deployCards);
         inspector = new VBox(6);
         inspector.getStyleClass().add("card");
 
@@ -422,7 +442,7 @@ public class GameView {
         // the base is one of the deck's units and is drawn with them
         for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
             Unit unit = entry.getValue();
-            boolean spent = playersTurn && !(unit instanceof Base) && !unit.isAvailable();
+            boolean spent = playersTurn && !(unit instanceof Infrastructure) && !unit.isAvailable();
             drawUnitWithHealthBar(unit, player.getPlayerID(), entry.getKey(), spent);
         }
     }
@@ -497,7 +517,14 @@ public class GameView {
             glow.setMouseTransparent(true);
             addOverlay(cell, glow);
             idleMotion.pulse(glow);
-            addOverlay(cell, createTargetMarker());
+            addOverlay(cell, createTargetMarker(TARGET_COLOR));
+        }
+        for (Point cell : highlights.supportTargets()) {
+            Rectangle glow = new Rectangle(CELL_SIZE - 2, CELL_SIZE - 2, Color.rgb(90, 235, 130, 0.28));
+            glow.setMouseTransparent(true);
+            addOverlay(cell, glow);
+            idleMotion.pulse(glow);
+            addOverlay(cell, createTargetMarker(SUPPORT_COLOR));
         }
     }
 
@@ -539,8 +566,8 @@ public class GameView {
         return pane;
     }
 
-    /** Four corner brackets around an enemy that the selected unit can attack. */
-    private Node createTargetMarker() {
+    /** Four corner brackets around a unit that the selected unit can attack (or heal). */
+    private Node createTargetMarker(Color color) {
         double inset = 2.5;
         double arm = 9;
         double far = CELL_SIZE - inset;
@@ -549,7 +576,7 @@ public class GameView {
                 new MoveTo(far - arm, inset), new LineTo(far, inset), new LineTo(far, inset + arm),
                 new MoveTo(far, far - arm), new LineTo(far, far), new LineTo(far - arm, far),
                 new MoveTo(inset + arm, far), new LineTo(inset, far), new LineTo(inset, far - arm));
-        brackets.setStroke(TARGET_COLOR);
+        brackets.setStroke(color);
         brackets.setStrokeWidth(3);
         brackets.setMouseTransparent(true);
         return brackets;
@@ -557,50 +584,104 @@ public class GameView {
 
     // --- Side panel ---
 
-    /** Builds one card per unit type that can be deployed; a click (or its number key) picks it. */
+    /** Takes everything that can be deployed; the panel shows one tab per category, a click (or number key) picks a card. */
     public void setDeployOptions(List<DeployOption> options, Consumer<UnitEnum> onPick) {
-        deployBox.getChildren().clear();
-        deployButtons.clear();
+        onDeployPick = onPick;
         deployOptions.clear();
-        int hotkey = 1;
         for (DeployOption option : options) {
-            ImageView icon = new ImageView(unitImage(1, option.name()));
-            icon.setFitWidth(32);
-            icon.setFitHeight(32);
-            icon.setPreserveRatio(true);
-            icon.setSmooth(false);
-
-            Label name = new Label(hotkey + "  " + option.name());
-            name.getStyleClass().add("deploy-name");
-            Label stats = new Label(String.format("HP %d  DMG %d  MOV %d  RNG %d",
-                    option.health(), option.damage(), option.moveRange(), option.shootingRange()));
-            stats.getStyleClass().add("deploy-stats");
-            VBox text = new VBox(1, name, stats);
-            Label cost = new Label(option.cost() + " RP");
-            cost.getStyleClass().add("deploy-cost");
-            cost.setMinWidth(Region.USE_PREF_SIZE);
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
-            HBox content = new HBox(8, icon, text, spacer, cost);
-            content.setAlignment(Pos.CENTER_LEFT);
-
-            Button button = new Button();
-            button.setGraphic(content);
-            button.getStyleClass().add("deploy-card");
-            button.setMaxWidth(Double.MAX_VALUE);
-            button.setFocusTraversable(false);
-            button.setOnAction(event -> onPick.accept(option.type()));
-            deployBox.getChildren().add(button);
-            deployButtons.put(option.type(), button);
             deployOptions.put(option.type(), option);
+        }
+
+        deployTabs.getChildren().clear();
+        deployTabButtons.clear();
+        ToggleGroup group = new ToggleGroup();
+        for (DeployOption.Category category : DeployOption.Category.values()) {
+            if (options.stream().noneMatch(option -> option.category() == category)) continue;
+            ToggleButton tab = new ToggleButton(category.label());
+            tab.getStyleClass().add("deploy-tab");
+            tab.setToggleGroup(group);
+            tab.setFocusTraversable(false);
+            tab.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(tab, Priority.ALWAYS);
+            tab.setOnAction(event -> showDeployCategory(category));
+            deployTabs.getChildren().add(tab);
+            deployTabButtons.put(category, tab);
+        }
+        showDeployCategory(deployTabButtons.containsKey(deployCategory) ? deployCategory
+                : deployTabButtons.keySet().iterator().next());
+    }
+
+    /** The cards of the open tab, in the order of their number keys. */
+    public List<DeployOption> getShownDeployOptions() {
+        return deployOptions.values().stream().filter(option -> option.category() == deployCategory).toList();
+    }
+
+    private void showDeployCategory(DeployOption.Category category) {
+        deployCategory = category;
+        deployTabButtons.forEach((tabCategory, tab) -> tab.setSelected(tabCategory == category));
+
+        deployCards.getChildren().clear();
+        deployButtons.clear();
+        int hotkey = 1;
+        for (DeployOption option : getShownDeployOptions()) {
+            Button button = createDeployCard(option, hotkey);
+            deployCards.add(button, (hotkey - 1) % 2, (hotkey - 1) / 2);
+            deployButtons.put(option.type(), button);
             hotkey++;
         }
         refreshDeployButtons();
     }
 
+    /** Opens the next deploy tab (Tab key). */
+    private void nextDeployCategory() {
+        List<DeployOption.Category> categories = List.copyOf(deployTabButtons.keySet());
+        if (categories.isEmpty()) return;
+        showDeployCategory(categories.get((categories.indexOf(deployCategory) + 1) % categories.size()));
+    }
+
+    private Button createDeployCard(DeployOption option, int hotkey) {
+        ImageView icon = new ImageView(unitImage(1, option.name()));
+        icon.setFitWidth(28);
+        icon.setFitHeight(28);
+        icon.setPreserveRatio(true);
+        icon.setSmooth(false);
+
+        Label name = new Label(option.name());
+        name.getStyleClass().add("deploy-name");
+        name.setWrapText(true);
+        Label cost = new Label(option.cost() + " RP");
+        cost.getStyleClass().add("deploy-cost");
+        cost.setMinWidth(Region.USE_PREF_SIZE);
+        Label key = new Label(hotkey <= 9 ? String.valueOf(hotkey) : "");
+        key.getStyleClass().add("deploy-key");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox bottom = new HBox(4, cost, spacer, key);
+        bottom.setAlignment(Pos.CENTER_LEFT);
+        VBox text = new VBox(2, name, bottom);
+        HBox.setHgrow(text, Priority.ALWAYS);
+        HBox content = new HBox(6, icon, text);
+        content.setAlignment(Pos.CENTER_LEFT);
+
+        Button button = new Button();
+        button.setGraphic(content);
+        button.getStyleClass().add("deploy-card");
+        button.setMaxWidth(Double.MAX_VALUE);
+        button.setMaxHeight(Double.MAX_VALUE);
+        button.setFocusTraversable(false);
+        button.setOnAction(event -> onDeployPick.accept(option.type()));
+        return button;
+    }
+
     /** Marks the card of the unit type that is waiting to be placed, or none. */
     public void setArmedDeploy(UnitEnum type) {
         armedDeploy = type;
+        refreshDeployButtons();
+    }
+
+    /** The types that cannot be deployed right now, with the reason; their cards are dimmed. */
+    public void setBlockedDeploys(Map<UnitEnum, String> blocked) {
+        blockedDeploys = Map.copyOf(blocked);
         refreshDeployButtons();
     }
 
@@ -610,13 +691,30 @@ public class GameView {
             Button button = entry.getValue();
             DeployOption option = deployOptions.get(entry.getKey());
             boolean affordable = model != null && model.getPlayerOne().getResourcePoints() >= option.cost();
-            button.setDisable(!canAct || !affordable);
-            button.getStyleClass().remove("armed-card");
+            String blocked = blockedDeploys.get(entry.getKey());
+            // Locked cards stay enabled so their tooltip can say why; a click on one just logs the reason.
+            button.setDisable(!canAct);
+            button.getStyleClass().removeAll("armed-card", "locked-card");
             if (entry.getKey() == armedDeploy) {
                 button.getStyleClass().add("armed-card");
+            } else if (!affordable || blocked != null) {
+                button.getStyleClass().add("locked-card");
             }
-            String reason = affordable ? "" : "Needs " + option.cost() + " RP";
-            button.setTooltip(reason.isEmpty() ? null : new Tooltip(reason));
+            StringBuilder tip = new StringBuilder(option.name()).append("  ·  ").append(option.cost()).append(" RP\n")
+                    .append(option.stats());
+            if (!option.description().isEmpty()) {
+                tip.append("\n").append(option.description());
+            }
+            if (!affordable) {
+                tip.append("\n\nNeeds ").append(option.cost()).append(" RP.");
+            } else if (blocked != null) {
+                tip.append("\n\nCannot deploy: ").append(blocked);
+            }
+            Tooltip tooltip = new Tooltip(tip.toString());
+            tooltip.setWrapText(true);
+            tooltip.setMaxWidth(280);
+            tooltip.setShowDelay(Duration.millis(250));
+            button.setTooltip(tooltip);
         }
     }
 
@@ -682,6 +780,8 @@ public class GameView {
             String action = null;
             if (highlights.targets().contains(cell)) {
                 action = "Click to attack";
+            } else if (highlights.supportTargets().contains(cell)) {
+                action = "Click to heal / repair";
             } else if (highlights.moveTiles().contains(cell)) {
                 action = "Click to move here";
             } else if (highlights.deployTiles().contains(cell)) {
@@ -727,21 +827,33 @@ public class GameView {
         int column = 0;
         if (unit instanceof AssaultClass assault) {
             addStat(stats, column++, "DMG", assault.getDamage());
-            addStat(stats, column++, "RNG", assault.getShootingRange());
+            addStat(stats, column++, "RNG", model.getShootingRange(assault));
         }
         if (unit instanceof MovableUnit movable) {
             addStat(stats, column++, "MOV", movable.getMovingRange());
         }
+        if (unit instanceof SupportClass support && support.getSupportPoints() > 0) {
+            addStat(stats, column++, support.canSupport(model.getPlayerOne().getPlayerDeck().getBase()) ? "REPAIR" : "HEAL",
+                    support.getSupportPoints());
+        }
+        if (unit instanceof Spotter spotter) {
+            addStat(stats, column++, "SPOT", spotter.getSpottingRange());
+        }
         if (unit instanceof AssaultTank tank) {
             addStat(stats, column++, "ARM", tank.getArmorValue());
-        } else if (unit instanceof Base base) {
-            addStat(stats, column++, "ARM", base.getArmorValue());
-            addStat(stats, column, "DEPLOY", base.getDeploymentRadius());
+        } else if (unit instanceof Infrastructure building) {
+            addStat(stats, column++, "ARM", building.getArmorValue());
+            if (building.getDeploymentRadius() > 0) {
+                addStat(stats, column++, "DEPLOY", building.getDeploymentRadius());
+            }
+            if (building.getConstructionRadius() > 0) {
+                addStat(stats, column, "BUILD", building.getConstructionRadius());
+            }
         }
 
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
 
-        if (!(unit instanceof Base) && model.getCurrentPlayer().getPlayerID() == unit.getPlayerID()) {
+        if (!(unit instanceof Infrastructure) && model.getCurrentPlayer().getPlayerID() == unit.getPlayerID()) {
             Label status = new Label(unit.isAvailable() ? "Ready to act" : "Already acted this turn");
             status.getStyleClass().add(unit.isAvailable() ? "status-ready" : "status-spent");
             inspector.getChildren().add(status);
@@ -908,6 +1020,9 @@ public class GameView {
             if (inputLocked && (event.getCode() == KeyCode.SPACE || event.getCode() == KeyCode.ENTER)) {
                 speedUp();
                 event.consume();
+            } else if (event.getCode() == KeyCode.TAB) {
+                nextDeployCategory();
+                event.consume();
             }
         };
         EventHandler<KeyEvent> keyForwarder = event -> keyHandler.accept(event);
@@ -1000,8 +1115,11 @@ public class GameView {
             int hp = Math.max(0, base.getHealthPoints());
             baseHealth.setProgress((double) hp / base.getMaxHealthPoints());
             baseHealthText.setText("Base  " + hp + " HP");
-            int count = player.getPlayerDeck().getUnits().size() - 1; // without the base
-            units.setText(count == 1 ? "1 unit" : count + " units");
+            int buildings = (int) player.getPlayerDeck().getUnits().values().stream()
+                    .filter(unit -> unit instanceof Infrastructure).count() - 1; // without the base
+            int count = player.getPlayerDeck().getUnits().size() - 1 - buildings;
+            units.setText((count == 1 ? "1 unit" : count + " units")
+                    + (buildings == 0 ? "" : buildings == 1 ? ", 1 building" : ", " + buildings + " buildings"));
             getStyleClass().remove(activeStyle);
             if (active) {
                 getStyleClass().add(activeStyle);

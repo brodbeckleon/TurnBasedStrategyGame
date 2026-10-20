@@ -5,6 +5,7 @@ import game.events.GameEvent.UnitAttacked;
 import game.events.GameEvent.UnitDamaged;
 import game.events.GameEvent.UnitDeployed;
 import game.events.GameEvent.UnitDestroyed;
+import game.events.GameEvent.UnitHealed;
 import game.events.GameEvent.UnitMoved;
 import javafx.animation.Interpolator;
 import javafx.animation.Transition;
@@ -54,6 +55,10 @@ public final class AnimationDirector {
     private static final double HIT_SHAKE_PX = 2;
     private static final double HEALTH_TWEEN_MS = 250;
     private static final double DAMAGE_NUMBER_MS = 700;
+    private static final double HEAL_MS = 450;
+    private static final double HEAL_GLOW = 0.35;
+    private static final double HEAL_SPARK_FRAME_MS = 70;
+    private static final Color HEAL_TEXT = Color.rgb(120, 245, 150);
     private static final double DAMAGE_NUMBER_RISE_PX = 18;
     /** Keeps the number and its outline inside the board. */
     private static final double DAMAGE_NUMBER_MARGIN = 5;
@@ -115,6 +120,7 @@ public final class AnimationDirector {
                 case UnitAttacked e -> attack(schedule, cursor, e);
                 case UnitDamaged e -> damage(schedule, cursor, e);
                 case UnitDestroyed e -> destroy(schedule, cursor, e);
+                case UnitHealed e -> heal(schedule, cursor, e);
             };
         }
         return schedule;
@@ -251,11 +257,40 @@ public final class AnimationDirector {
         return end;
     }
 
+    /** The supporter leans towards its friend, who glows green while its health bar fills up. */
+    private double heal(Schedule schedule, double startMs, UnitHealed event) {
+        UnitNode supporter = ghost(event.supporterId(), event.playerId(), event.supporterName(), event.from());
+        UnitNode target = ghost(event.targetId(), event.playerId(), event.targetName(), event.pos());
+        Point2D direction = Cells.center(event.pos()).subtract(Cells.center(event.from())).normalize();
+        schedule.add(startMs, LUNGE_MS, Interpolator.LINEAR, f -> {
+            double push = LUNGE_PX * Math.sin(Math.PI * f);
+            supporter.setTranslateX(direction.getX() * push);
+            supporter.setTranslateY(direction.getY() * push);
+        });
+        double healStart = startMs + LUNGE_MS / 2;
+        double before = healthRatio(event.hpBefore(), event.maxHp());
+        double after = healthRatio(event.hpAfter(), event.maxHp());
+        target.setHealthRatio(before);
+        ColorAdjust tint = target.tint();
+        schedule.add(healStart, HEAL_MS, Interpolator.EASE_BOTH, f -> {
+            target.setHealthRatio(before + (after - before) * f);
+            tint.setBrightness(HEAL_GLOW * Math.sin(Math.PI * f));
+        });
+        effects.frames(schedule, healStart, HEAL_SPARK_FRAME_MS, sprites.spark(), Cells.center(event.pos()), 0.8, Point2D.ZERO);
+        floatingNumber(schedule, healStart, "+" + event.amount(), HEAL_TEXT, event.pos());
+        return healStart + HEAL_MS;
+    }
+
     private void damageNumber(Schedule schedule, double startMs, UnitDamaged event) {
         boolean harmless = event.damage() == 0;
-        Text number = new Text(harmless ? "0" : "-" + event.damage());
+        floatingNumber(schedule, startMs, harmless ? "0" : "-" + event.damage(),
+                harmless ? Color.LIGHTGRAY : Color.WHITE, event.pos());
+    }
+
+    private void floatingNumber(Schedule schedule, double startMs, String text, Color fill, Point cell) {
+        Text number = new Text(text);
         number.setFont(Font.font("System", FontWeight.BOLD, 14));
-        number.setFill(harmless ? Color.LIGHTGRAY : Color.WHITE);
+        number.setFill(fill);
         number.setStroke(Color.rgb(20, 16, 28));
         number.setStrokeWidth(3);
         number.setStrokeType(StrokeType.OUTSIDE);
@@ -264,7 +299,7 @@ public final class AnimationDirector {
         textLayer.getChildren().add(number);
 
         // The number starts just above the health bar at the top of the cell, so the bar can be seen while it drains.
-        Point2D center = Cells.center(event.pos());
+        Point2D center = Cells.center(cell);
         double x = clamp(center.getX() - number.getLayoutBounds().getWidth() / 2, DAMAGE_NUMBER_MARGIN,
                 boardWidth - number.getLayoutBounds().getWidth() - DAMAGE_NUMBER_MARGIN);
         double y = Math.max(center.getY() - Cells.SIZE / 2.0 - 4, DAMAGE_NUMBER_RISE_PX + 14);

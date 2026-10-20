@@ -1,14 +1,26 @@
 package game.units.infrastructures;
 
-import game.interfaces.militaryBranches.AirForce;
-import game.interfaces.militaryBranches.Navy;
+import game.interfaces.Spotter;
 import game.units.Infrastructure;
+import game.units.Unit;
 
 import java.awt.*;
 
-public class Radarstation extends Infrastructure implements AirForce, Navy {
-    public final int radarRange = 4;
-    public Radarstation(int playerID, String name, Point position, int resourceCost, int healthPoints) {
-        super(playerID, name, position, resourceCost, healthPoints);
+/** Deploys nothing, but spots for every friendly unit around it. */
+public class Radarstation extends Infrastructure implements Spotter {
+    private final int radarRange = 4;
+
+    public Radarstation(int playerID, Point position) {
+        super(playerID, "Radar Station", position, 4, 1200, 50, 0);
+    }
+
+    @Override
+    public boolean canDeploy(Unit unit) {
+        return false;
+    }
+
+    @Override
+    public int getSpottingRange() {
+        return radarRange;
     }
 }

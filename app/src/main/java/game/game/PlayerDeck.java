@@ -2,11 +2,14 @@ package game.game;
 
 import game.tools.CircleGenerator;
 import game.units.Base;
+import game.units.Infrastructure;
 import game.units.Unit;
 
 import java.awt.Point;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class PlayerDeck {
     private final int playerID; // Store player ID for convenience
@@ -66,11 +69,7 @@ public class PlayerDeck {
 
 
         for (Point coordinate : coordinatesInRange) {
-            //checks if Base is in Range
-            if (getBase().getPosition().equals(coordinate)) {
-                targetIDs.add(getBase().getBaseID());
-            }
-            //checks if a Unit is in Range
+            //checks if a Unit (or the Base, which is one of the units) is in Range
             for (int unitID : units.keySet()) {
                 if (getUnit(unitID).getPosition().equals(coordinate)) {
                     targetIDs.add(unitID);
@@ -78,6 +77,16 @@ public class PlayerDeck {
             }
         }
         return targetIDs;
+    }
+
+    /** The player's standing buildings, the base first, then in the order they were built. */
+    public List<Infrastructure> getBuildings() {
+        return units.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue)
+                .filter(unit -> unit instanceof Infrastructure && unit.getHealthPoints() > 0)
+                .map(unit -> (Infrastructure) unit)
+                .toList();
     }
 
     public void setUnitsAvailable() {
