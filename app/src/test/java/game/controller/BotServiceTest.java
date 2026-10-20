@@ -111,8 +111,7 @@ class BotServiceTest {
 
         List<List<GameEvent>> steps = runSteps(bot);
 
-        assertEquals(1, steps.size());
-        assertInstanceOf(UnitDeployed.class, steps.get(0).get(0));
+        assertEquals(1, steps.stream().filter(step -> step.get(0) instanceof UnitDeployed).count());
     }
 
     @Test
@@ -193,6 +192,7 @@ class BotServiceTest {
                     }
                     case UnitDestroyed e -> destroyed.add(e.unitId());
                     case GameEvent.UnitHealed e -> health.put(e.targetId(), e.hpAfter());
+                    case GameEvent.BaseUpgraded e -> health.put(e.unitId(), e.hpAfter());
                 }
             }
         }
@@ -252,7 +252,6 @@ class BotServiceTest {
         bot.performTurn();
 
         assertFalse(game.findUnitById(attacker).isAvailable(), "the unit acted");
-        assertEquals(1, game.getPlayerTwo().getPlayerDeck().getUnits().values().stream()
-                .filter(u -> u.getUnitName().equals("Type 90") && u != game.findUnitById(attacker)).count(), "and a unit was bought");
+        assertEquals(3, game.getPlayerTwo().getPlayerDeck().getUnits().size(), "the base, the attacker and a bought unit");
     }
 }

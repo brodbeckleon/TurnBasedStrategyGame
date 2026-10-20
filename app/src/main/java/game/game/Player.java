@@ -16,7 +16,11 @@ public class Player {
     }
 
     public void addResourcePoints() {
-        resourcePoints += 2;
+        addResourcePoints(2);
+    }
+
+    public void addResourcePoints(int amount) {
+        resourcePoints += amount;
     }
 
     public void removeResourcePoints(int resourceCost) {

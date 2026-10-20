@@ -14,11 +14,17 @@ public final class Fixtures {
     private Fixtures() {
     }
 
-    /** A fresh game whose whole battlefield is plain terrain. */
+    /** A fresh game whose whole battlefield is plain terrain, without base ruins. */
     public static Game plainGame() {
         Game game = new Game();
         game.getBattlefield().getGeography().replaceAll((point, terrain) -> TerrainEnum.PLAIN);
+        game.getBattlefield().getBaseSites().clear();
         return game;
+    }
+
+    /** Puts base ruins on the battlefield. */
+    public static void addBaseSite(Game game, Point point) {
+        game.getBattlefield().getBaseSites().add(point);
     }
 
     public static void setTerrain(Game game, Point point, TerrainEnum terrain) {

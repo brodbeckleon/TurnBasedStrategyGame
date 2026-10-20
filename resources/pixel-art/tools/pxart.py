@@ -2,7 +2,7 @@
 
 A sprite is a Python file that defines
     NAME = "Type 90"                 # exact in-game unit name -> file name  images/units/playerN/<NAME>.png
-    KIND = "ground" | "air" | "sea"  # decides which validation rules apply
+    KIND = "ground" | "air" | "sea" | "neutral"  # decides which validation rules apply ("neutral": ownerless map object, no team colour)
     def draw(c): ...                 # c is a Canvas (32x32); draw facing RIGHT
 
 Coordinates: x grows right, y grows down, 0-based, inclusive end points. Colours are single-character palette keys (see PALETTE).
@@ -203,11 +203,13 @@ def validate(c, kind):
     if kind in ('ground', 'sea') and top < 5: warn.append(f'topmost pixel at y={top}: rows 0-4 are covered by the HP bar - keep detail below y=5')
     if kind == 'air' and top < 5: warn.append(f'topmost pixel at y={top}: rows 0-4 are covered by the HP bar - keep the aircraft below y=5')
     bot = max(ys)
-    if kind == 'ground' and not (26 <= bot <= 30): warn.append(f'lowest opaque pixel at y={bot}: ground vehicles should rest on y=27..29 (wheels/tracks), shadow on y=28..30')
+    if kind in ('ground', 'neutral') and not (26 <= bot <= 30): warn.append(f'lowest opaque pixel at y={bot}: ground vehicles should rest on y=27..29 (wheels/tracks), shadow on y=28..30')
     if kind == 'sea' and not (24 <= bot <= 30): warn.append(f'lowest opaque pixel at y={bot}: ships should sit with the waterline around y=25..29')
     team = sum(1 for p in opaque if c.g[p[1]][p[0]] in TEAM_KEYS)
-    if team < 6: err.append(f'only {team} team-colour pixels (t/T/u) - need at least 6 so the owner is readable at 1:1')
-    if team > 90: warn.append(f'{team} team-colour pixels - team colour should be an accent, not the main paint')
+    if kind == 'neutral':
+        if team: err.append(f'{team} team-colour pixels (t/T/u) - neutral sprites belong to nobody and must not use team colour')
+    elif team < 6: err.append(f'only {team} team-colour pixels (t/T/u) - need at least 6 so the owner is readable at 1:1')
+    elif team > 90: warn.append(f'{team} team-colour pixels - team colour should be an accent, not the main paint')
     if not any(c.g[y][x] == 'k' for y in range(c.h) for x in range(c.w)): err.append("no outline pixels: call c.outline('k') (or draw an outline)")
     comps = components(c)
     if len(comps) > 1:
@@ -258,7 +260,7 @@ def preview(c, name, kind, out_png, label=''):
     for cx, cy, spx, frac, col in cells:
         ox, oy = x + cx * 96, ctx_y + cy * 96
         blit(sh, upscale(spx, 3), ox, oy)
-        hp_bar(ox, oy, frac, col)
+        if kind != 'neutral': hp_bar(ox, oy, frac, col)            # neutral map objects have no HP bar
     # tiny 1:1 strip under the context block
     tiny_y = ctx_y + 2 * 96 + 8
     blit(sh, p1, x, tiny_y); blit(sh, p2, x + 40, tiny_y)

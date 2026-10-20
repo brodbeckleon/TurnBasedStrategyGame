@@ -1,6 +1,7 @@
 package game.controller;
 
 import game.events.GameEvent;
+import game.game.Command;
 import game.game.Player;
 import game.game.UnitFactory;
 import game.game.commands.*;
@@ -10,11 +11,13 @@ import game.enums.UnitEnum;
 import game.tools.CircleGenerator;
 import game.units.AssaultClass;
 import game.units.Infrastructure;
+import game.units.MilitaryBase;
 import game.units.SupportClass;
 import game.units.Unit;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.Ship;
 import game.units.infrastructures.NavyBase;
+import game.units.supportClasses.ArmoredRecoveryVehicle;
 import game.view.BoardHighlights;
 import game.view.DeployOption;
 import game.view.GameView;
@@ -53,6 +56,7 @@ public class GameController {
     private final MoveCommand moveCommand;
     private final AttackCommand attackCommand;
     private final HealCommand healCommand;
+    private final UpgradeCommand upgradeCommand;
     private final BotService botService;
     private final UnitFactory unitFactory = new UnitFactory();
     private final CircleGenerator circleGenerator = new CircleGenerator();
@@ -73,7 +77,9 @@ public class GameController {
         this.moveCommand = new MoveCommand(model);
         this.attackCommand = new AttackCommand(model);
         this.healCommand = new HealCommand(model);
-        this.botService = new BotService(model, addCommand, moveCommand, attackCommand, healCommand);
+        this.upgradeCommand = new UpgradeCommand(model);
+        this.botService = new BotService(model, addCommand, moveCommand, attackCommand, healCommand, upgradeCommand,
+                new java.util.Random());
         this.deployOptions = buildDeployOptions();
 
         attachHandlers();
@@ -130,12 +136,12 @@ public class GameController {
             case "Type 99 SPH" -> "Self-propelled howitzer: shoots very far and wrecks buildings. Deploys at your base or an army base.";
             case "Type 87", "Type 81 (C)", "Type 93" -> "Anti-air: double damage against aircraft. Deploys at your base or an army base.";
             case "Armored Ambulance" -> "Heals an adjacent friendly unit by 300 HP instead of acting. Deploys at your base or an army base.";
-            case "Armored Recovery Vehicle" -> "Repairs an adjacent friendly building (your base too) by 600 HP. Deploys at your base or an army base.";
+            case "Armored Recovery Vehicle" -> "Builds new bases on base ruins it stands next to, and repairs an adjacent friendly building (your base too) by 600 HP. Deploys at your base or an army base.";
             case "Armored Reconnaissance Vehicle" -> "Unarmed scout: friendly units within 3 tiles shoot 1 tile further. Deploys at your base or an army base.";
             case "Yamato" -> "Battleship with a huge punch. Deploys on the water around a naval base.";
-            case "Army Base" -> "Forward base: deploys army units around it, and more buildings can be built near it.";
-            case "Air Base" -> "Airfield: required to deploy aircraft, which deploy around it.";
-            case "Naval Base" -> "Harbour: required to deploy ships. Must be built on open ground next to water.";
+            case "Army Base" -> "Forward base: +2 RP per round, deploys army units around it, and a Radar Station can be built near it. Built on base ruins by a Recovery Vehicle.";
+            case "Air Base" -> "Airfield: +2 RP per round, required to deploy aircraft. Built on base ruins by a Recovery Vehicle.";
+            case "Naval Base" -> "Harbour: +2 RP per round, required to deploy ships. Built on base ruins next to water by a Recovery Vehicle.";
             case "Radar Station" -> "Friendly units within 4 tiles shoot 1 tile further.";
             default -> unit instanceof Aircraft
                     ? "Flies over any terrain; ground units only deal half damage to it. Deploys at an air base."
@@ -150,6 +156,7 @@ public class GameController {
         view.getGrid().setOnMouseClicked(this::handleGridClick);
         view.setDeployOptions(deployOptions, this::prepareAddUnit);
         view.setKeyHandler(this::handleKey);
+        view.setOnUpgrade(this::upgradeSelected);
     }
 
     private boolean canAct() {
@@ -160,6 +167,7 @@ public class GameController {
         if (!canAct()) return;
         switch (event.getCode()) {
             case E -> endTurn();
+            case U -> upgradeSelected();
             case ESCAPE -> cancel();
             default -> {
                 String key = event.getText();
@@ -311,6 +319,8 @@ public class GameController {
                         + " was destroyed!";
                 case GameEvent.UnitHealed e -> owner(e.playerId()) + " " + e.supporterName() + " restored "
                         + e.amount() + " HP to " + e.targetName() + ".";
+                case GameEvent.BaseUpgraded e -> owner(e.playerId()) + " " + (e.unitName().equals("Base") ? "base" : e.unitName())
+                        + " was upgraded to level " + e.level() + ".";
             };
             if (line != null) {
                 view.logInfo(line);
@@ -331,7 +341,7 @@ public class GameController {
     private void unlockInput() {
         animating = false;
         view.setInputLocked(false);
-        refreshStatus();
+        refresh(); // the highlights were hidden while locked; a selection that survived the action shows again
     }
 
     /** Runs the action and releases the input lock if it fails, so the game can never soft-lock. */
@@ -341,6 +351,19 @@ public class GameController {
         } catch (RuntimeException | Error e) {
             unlockInput();
             throw e;
+        }
+    }
+
+    /** Upgrades the selected base (button in the inspector, or U). */
+    private void upgradeSelected() {
+        if (!canAct() || currentState != ControllerState.UNIT_SELECTED
+                || !(model.findUnitById(selectedUnitId) instanceof MilitaryBase)) {
+            return;
+        }
+        CommandResult result = upgradeCommand.execute(model.getCurrentPlayer(), selectedUnitId);
+        logResult(result);
+        if (!playPlayerAction(result)) {
+            refresh();
         }
     }
 
@@ -524,7 +547,13 @@ public class GameController {
         Unit unit = unitFactory.createUnit(model.getCurrentPlayer().getPlayerID(), type, PROBE_POSITION);
         boolean hasBuilding = model.getCurrentPlayer().getPlayerDeck().getBuildings().stream()
                 .anyMatch(building -> unit instanceof Infrastructure ? building.getConstructionRadius() > 0 : building.canDeploy(unit));
-        if (unit instanceof NavyBase) return "needs open ground next to water near your base or an army base.";
+        if (Command.isSiteBuilding(unit)) {
+            boolean hasVehicle = model.getCurrentPlayer().getPlayerDeck().getUnits().values().stream()
+                    .anyMatch(own -> own instanceof ArmoredRecoveryVehicle && own.isAvailable());
+            if (!hasVehicle) return "needs a ready Armored Recovery Vehicle next to free base ruins.";
+            return unit instanceof NavyBase ? "move your Recovery Vehicle next to free base ruins by the water."
+                    : "move your Recovery Vehicle next to free base ruins.";
+        }
         if (unit instanceof Infrastructure) return "no free open ground near your base or an army base.";
         if (!hasBuilding && unit instanceof Aircraft) return "build an Air Base first.";
         if (!hasBuilding && unit instanceof Ship) return "build a Naval Base first.";
@@ -583,8 +612,19 @@ public class GameController {
             }
             case UNIT_SELECTED -> {
                 Unit selected = model.findUnitById(selectedUnitId);
+                if (selected instanceof MilitaryBase base) {
+                    return base.canUpgrade()
+                            ? "Press U (or Upgrade in the inspector) to raise this base to level " + (base.getLevel() + 1)
+                              + " for " + base.getUpgradeCost() + " RP.  Esc to deselect."
+                            : "This base is fully upgraded.  Esc to deselect.";
+                }
                 if (selected == null || !selected.isAvailable()) {
                     return "This unit cannot act right now.  Select another unit or press E to end your turn.";
+                }
+                if (selected instanceof ArmoredRecoveryVehicle
+                        && !addCommand.findDeployablePositions(model.getCurrentPlayer(),
+                        unitFactory.createUnit(1, UnitEnum.ARMYBASE, PROBE_POSITION)).isEmpty()) {
+                    return "Next to base ruins: pick a base in the Build tab to build it here, or move on.  Esc to deselect.";
                 }
                 if (selected instanceof SupportClass support && support.getSupportPoints() > 0) {
                     return "Blue tiles: move.  Green brackets: " + (support.canSupport(model.getCurrentPlayer().getPlayerDeck().getBase())

@@ -1,6 +1,7 @@
 package game.view.anim;
 
 import game.events.GameEvent;
+import game.events.GameEvent.BaseUpgraded;
 import game.events.GameEvent.UnitAttacked;
 import game.events.GameEvent.UnitDamaged;
 import game.events.GameEvent.UnitDeployed;
@@ -59,6 +60,8 @@ public final class AnimationDirector {
     private static final double HEAL_GLOW = 0.35;
     private static final double HEAL_SPARK_FRAME_MS = 70;
     private static final Color HEAL_TEXT = Color.rgb(120, 245, 150);
+    private static final Color UPGRADE_TEXT = Color.rgb(255, 214, 90);
+    private static final double UPGRADE_HOP_PX = 4;
     private static final double DAMAGE_NUMBER_RISE_PX = 18;
     /** Keeps the number and its outline inside the board. */
     private static final double DAMAGE_NUMBER_MARGIN = 5;
@@ -121,6 +124,7 @@ public final class AnimationDirector {
                 case UnitDamaged e -> damage(schedule, cursor, e);
                 case UnitDestroyed e -> destroy(schedule, cursor, e);
                 case UnitHealed e -> heal(schedule, cursor, e);
+                case BaseUpgraded e -> upgrade(schedule, cursor, e);
             };
         }
         return schedule;
@@ -279,6 +283,23 @@ public final class AnimationDirector {
         effects.frames(schedule, healStart, HEAL_SPARK_FRAME_MS, sprites.spark(), Cells.center(event.pos()), 0.8, Point2D.ZERO);
         floatingNumber(schedule, healStart, "+" + event.amount(), HEAL_TEXT, event.pos());
         return healStart + HEAL_MS;
+    }
+
+    /** The base flashes gold and bounces once, its health bar grows to the new maximum and the level floats up. */
+    private double upgrade(Schedule schedule, double startMs, BaseUpgraded event) {
+        UnitNode base = ghost(event.unitId(), event.playerId(), event.unitName(), event.pos());
+        double before = healthRatio(event.hpBefore(), event.maxHpBefore());
+        double after = healthRatio(event.hpAfter(), event.maxHpAfter());
+        base.setHealthRatio(before);
+        ColorAdjust tint = base.tint();
+        schedule.add(startMs, HEAL_MS, Interpolator.EASE_BOTH, f -> {
+            base.setHealthRatio(before + (after - before) * f);
+            tint.setBrightness(HEAL_GLOW * Math.sin(Math.PI * f));
+            base.setTranslateY(-UPGRADE_HOP_PX * Math.sin(Math.PI * f));
+        });
+        effects.frames(schedule, startMs, HEAL_SPARK_FRAME_MS, sprites.spark(), Cells.center(event.pos()), 1.2, Point2D.ZERO);
+        floatingNumber(schedule, startMs, "LEVEL " + event.level(), UPGRADE_TEXT, event.pos());
+        return startMs + HEAL_MS;
     }
 
     private void damageNumber(Schedule schedule, double startMs, UnitDamaged event) {

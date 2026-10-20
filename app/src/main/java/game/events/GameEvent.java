@@ -51,4 +51,12 @@ public sealed interface GameEvent {
             pos = new Point(pos);
         }
     }
+
+    /** A base was upgraded to a new level; its health grew with its maximum. */
+    record BaseUpgraded(int playerId, int unitId, String unitName, Point pos, int level,
+                        int hpBefore, int maxHpBefore, int hpAfter, int maxHpAfter) implements GameEvent {
+        public BaseUpgraded {
+            pos = new Point(pos);
+        }
+    }
 }

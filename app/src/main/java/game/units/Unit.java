@@ -14,7 +14,7 @@ public abstract class Unit {
     private Point position;
     private final int resourceCost;
     private int healthPoints;
-    private final int maxHealthPoints;
+    private int maxHealthPoints;
 
     public Unit (int playerID, String name, Point position, int resourceCost, int healthPoints) {
         this.playerID = playerID;
@@ -69,6 +69,12 @@ public abstract class Unit {
 
     public int getMaxHealthPoints() {
         return maxHealthPoints;
+    }
+
+    /** Raises the maximum health and the current health by the same amount (an upgraded building). */
+    protected void increaseMaxHealthPoints(int amount) {
+        maxHealthPoints += amount;
+        healthPoints += amount;
     }
 
     public boolean isAvailable() {
