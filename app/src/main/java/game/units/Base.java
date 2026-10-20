@@ -10,7 +10,7 @@ public class Base extends MilitaryBase {
 
     public Base(int playerID, int baseID, Point position) {
         // Call the Infrastructure constructor with fixed values for a Base
-        super(playerID, "Base", position, 0, 10000, 200, 3, 2);
+        super(playerID, "Base", position, 0, 5000, 30, 3, 2);
 
         this.baseID = baseID;
     }

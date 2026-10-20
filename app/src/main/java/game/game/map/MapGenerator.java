@@ -5,12 +5,15 @@ import game.tools.CircleGenerator;
 import game.tools.PerlinNoise;
 
 import java.awt.*;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
@@ -38,7 +41,39 @@ public class MapGenerator {
             }
         }
         generatePlainAroundBase();
+        connectBases();
         return map;
+    }
+
+    /**
+     * Makes sure ground units can drive from one base to the other: if water or mountains cut the map in two,
+     * the fewest tiles needed to join them are turned into open ground (a land bridge or a pass).
+     */
+    private void connectBases() {
+        Point start = new Point(0, 0);
+        Point goal = new Point(width - 1, height - 1);
+        // 0-1 breadth-first search: open ground is free to cross, every other tile costs one conversion
+        Map<Point, Integer> cost = new HashMap<>();
+        Map<Point, Point> previous = new HashMap<>();
+        Deque<Point> queue = new ArrayDeque<>();
+        cost.put(start, 0);
+        queue.add(start);
+        while (!queue.isEmpty()) {
+            Point point = queue.poll();
+            for (Point next : neighbours(point)) {
+                if (!map.containsKey(next)) continue;
+                int step = map.get(next) == TerrainEnum.PLAIN ? 0 : 1;
+                int nextCost = cost.get(point) + step;
+                if (nextCost < cost.getOrDefault(next, Integer.MAX_VALUE)) {
+                    cost.put(next, nextCost);
+                    previous.put(next, point);
+                    if (step == 0) queue.addFirst(next); else queue.addLast(next);
+                }
+            }
+        }
+        for (Point point = goal; point != null; point = previous.get(point)) {
+            map.put(point, TerrainEnum.PLAIN);
+        }
     }
 
     private void generatePlainAroundBase() {
@@ -51,11 +86,12 @@ public class MapGenerator {
                 iterator.remove();
             }
         }
-        ArrayList<Point> baseTwoPlainCircle = circleGenerator.getCoordinatesInRange(new Point(width,height), 4);
+        // the second base sits in the opposite corner, so its clearing mirrors the first one exactly
+        ArrayList<Point> baseTwoPlainCircle = circleGenerator.getCoordinatesInRange(new Point(width - 1, height - 1), 4);
         iterator = baseTwoPlainCircle.iterator();
         while (iterator.hasNext()) {
             Point point = iterator.next();
-            if (point.x > width || point.y > height) {
+            if (point.x >= width || point.y >= height) {
                 iterator.remove();
             }
         }

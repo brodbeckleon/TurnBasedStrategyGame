@@ -174,9 +174,10 @@ class BuildingsAndSupportTest {
         CommandResult result = heal.execute(player, ambulance, tankId);
 
         assertTrue(result.wasSuccessful());
+        int max = tank.getMaxHealthPoints();
         assertEquals(List.of(new UnitHealed(1, ambulance, "Armored Ambulance", new Point(5, 5), tankId, "Type 90",
-                new Point(6, 5), 100, 500, 600, 600)), result.getEvents());
-        assertEquals(600, tank.getHealthPoints());
+                new Point(6, 5), 100, max - 100, max, max)), result.getEvents());
+        assertEquals(max, tank.getHealthPoints());
         assertFalse(game.findUnitById(ambulance).isAvailable());
     }
 
@@ -208,7 +209,7 @@ class BuildingsAndSupportTest {
         CommandResult result = heal.execute(player, recovery, base.getBaseID());
 
         assertTrue(result.wasSuccessful(), result.getMessage());
-        assertEquals(8600, base.getHealthPoints());
+        assertEquals(base.getMaxHealthPoints() - 2000 + 600, base.getHealthPoints());
     }
 
     @Test
@@ -236,8 +237,8 @@ class BuildingsAndSupportTest {
         UnitDamaged flak = assertInstanceOf(UnitDamaged.class, attack.execute(player, antiAir, jet).getEvents().get(1));
         UnitDamaged shell = assertInstanceOf(UnitDamaged.class, attack.execute(player, tank, otherJet).getEvents().get(1));
 
-        assertEquals(700, flak.damage());
-        assertEquals(300, shell.damage());
+        assertEquals(2 * new TypeEightyOneC(1, new Point()).getDamage(), flak.damage());
+        assertEquals(Math.round(new TypeTen(1, new Point()).getDamage() * 0.75), shell.damage());
     }
 
     @Test
@@ -245,12 +246,13 @@ class BuildingsAndSupportTest {
         int tank = Fixtures.place(game, 1, new TypeTen(1, new Point(5, 5)));
         Radarstation radar = new Radarstation(2, new Point(7, 5));
         int radarId = Fixtures.place(game, 2, radar);
-        radar.setHealthPoints(-100);
+        radar.setHealthPoints(-(radar.getMaxHealthPoints() - 100));
 
         var events = attack.execute(player, tank, radarId).getEvents();
 
         UnitDamaged damaged = assertInstanceOf(UnitDamaged.class, events.get(1));
-        assertEquals(600 * 2 - 50, damaged.damage(), "tanks deal double damage to buildings, minus the armour");
+        assertEquals(Math.round(new TypeTen(1, new Point()).getDamage() * 1.5 * (100 - radar.getArmorValue()) / 100.0),
+                damaged.damage(), "tanks deal one and a half times their damage to buildings, minus the armour percentage");
         UnitDestroyed destroyed = assertInstanceOf(UnitDestroyed.class, events.get(2));
         assertFalse(destroyed.isBase());
         assertNull(game.findUnitById(radarId));

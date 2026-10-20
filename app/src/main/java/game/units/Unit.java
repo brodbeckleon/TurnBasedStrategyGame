@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 public abstract class Unit {
     private final int playerID; // Added playerID
     private boolean isAvailable = true;
+    private boolean hasMoved = false;
     private final String name;
     private Point position;
     private final int resourceCost;
@@ -83,6 +84,15 @@ public abstract class Unit {
 
     public void setIsAvailable(boolean available) {
         this.isAvailable = available;
+    }
+
+    /** True once the unit has moved this turn; it may then only act, if it can act after moving at all. */
+    public boolean hasMoved() {
+        return hasMoved;
+    }
+
+    public void setHasMoved(boolean hasMoved) {
+        this.hasMoved = hasMoved;
     }
 
     /**

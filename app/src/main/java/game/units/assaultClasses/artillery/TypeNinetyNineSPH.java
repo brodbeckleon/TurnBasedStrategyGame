@@ -6,6 +6,6 @@ import java.awt.*;
 
 public class TypeNinetyNineSPH extends SelfPropelledArtillery {
     public TypeNinetyNineSPH(int playerID, Point position) {
-        super(playerID, "Type 99 SPH", position, 6, 300, 7, 2, 500);
+        super(playerID, "Type 99 SPH", position, 5, 350, 6, 2, 400);
     }
 }

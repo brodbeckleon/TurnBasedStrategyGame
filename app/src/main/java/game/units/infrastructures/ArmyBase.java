@@ -10,7 +10,7 @@ import java.awt.*;
 /** A forward base: army units deploy around it, and further buildings can be built from it. */
 public class ArmyBase extends MilitaryBase implements Army {
     public ArmyBase(int playerID, Point position) {
-        super(playerID, "Army Base", position, 10, 2500, 150, 2, 2);
+        super(playerID, "Army Base", position, 10, 2500, 25, 2, 2);
     }
 
     @Override

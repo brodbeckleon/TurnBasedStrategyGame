@@ -4,6 +4,7 @@ import game.events.GameEvent;
 import game.game.Command;
 import game.game.Player;
 import game.model.Game;
+import game.interfaces.ActsAfterMoving;
 import game.units.Unit;
 
 import java.awt.*;
@@ -17,7 +18,7 @@ public class MoveCommand extends Command {
     public CommandResult execute(Player player, int unitID, Point position) {
         Unit unit = player.getPlayerDeck().getUnit(unitID);
 
-        if (!unit.isAvailable()) {
+        if (!unit.isAvailable() || unit.hasMoved()) {
             return new CommandResult(false, "This unit is not available for moving.");
         }
         if (!checkIfPositionIsFree(position)) {
@@ -32,7 +33,11 @@ public class MoveCommand extends Command {
 
         Point from = unit.getPosition();
         player.getPlayerDeck().moveUnit(unitID, position);
-        unit.setIsAvailable(false);
+        unit.setHasMoved(true);
+        // light and medium units may still act this turn; everything else is done
+        if (!(unit instanceof ActsAfterMoving)) {
+            unit.setIsAvailable(false);
+        }
 
         GameEvent moved = new GameEvent.UnitMoved(player.getPlayerID(), unitID, unit.getUnitName(), from, position);
         return new CommandResult(true, "unit with ID: " + unitID + " moved to position: " + position.x + ", " + position.y, List.of(moved));

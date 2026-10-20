@@ -10,7 +10,7 @@ import java.awt.*;
 public abstract class MilitaryBase extends Infrastructure {
     public static final int MAX_LEVEL = 3;
     private static final int[] UPGRADE_COSTS = {0, 6, 10}; // indexed by the current level
-    private static final int ARMOR_PER_LEVEL = 50;
+    private static final int ARMOR_PER_LEVEL = 10; // percentage points
     private static final double HEALTH_PER_LEVEL = 0.25; // share of the level 1 health
 
     private final int baseHealthPoints;

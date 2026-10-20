@@ -873,13 +873,13 @@ public class GameView {
             addStat(stats, column++, "SPOT", spotter.getSpottingRange());
         }
         if (unit instanceof AssaultTank tank) {
-            addStat(stats, column++, "ARM", tank.getArmorValue());
+            addStat(stats, column++, "ARM %", tank.getArmorValue());
         } else if (unit instanceof Infrastructure building) {
             if (building instanceof MilitaryBase base) {
                 addStat(stats, column++, "LV", base.getLevel());
                 addStat(stats, column++, "RP/RND", base.getIncome());
             }
-            addStat(stats, column++, "ARM", building.getArmorValue());
+            addStat(stats, column++, "ARM %", building.getArmorValue());
             if (building.getDeploymentRadius() > 0) {
                 addStat(stats, column++, "DEPLOY", building.getDeploymentRadius());
             }
@@ -906,7 +906,10 @@ public class GameView {
         }
 
         if (!(unit instanceof Infrastructure) && model.getCurrentPlayer().getPlayerID() == unit.getPlayerID()) {
-            Label status = new Label(unit.isAvailable() ? "Ready to act" : "Already acted this turn");
+            String text = !unit.isAvailable() ? "Already acted this turn"
+                    : unit.hasMoved() ? "Moved, can still act" : "Ready to act"
+                    + (unit instanceof game.interfaces.ActsAfterMoving ? " (can move, then act)" : " (move or act)");
+            Label status = new Label(text);
             status.getStyleClass().add(unit.isAvailable() ? "status-ready" : "status-spent");
             inspector.getChildren().add(status);
         }

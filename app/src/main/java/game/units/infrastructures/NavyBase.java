@@ -10,7 +10,7 @@ import java.awt.*;
 /** A harbour on the shore: the only place ships can be deployed, onto the water around it. */
 public class NavyBase extends MilitaryBase implements Navy {
     public NavyBase(int playerID, Point position) {
-        super(playerID, "Naval Base", position, 12, 2000, 100, 2, 2);
+        super(playerID, "Naval Base", position, 12, 2000, 20, 2, 2);
     }
 
     @Override

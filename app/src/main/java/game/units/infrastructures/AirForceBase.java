@@ -10,7 +10,7 @@ import java.awt.*;
 /** An airfield: the only place aircraft can be deployed. */
 public class AirForceBase extends MilitaryBase implements AirForce {
     public AirForceBase(int playerID, Point position) {
-        super(playerID, "Air Base", position, 12, 2000, 100, 2, 2);
+        super(playerID, "Air Base", position, 12, 2000, 20, 2, 2);
     }
 
     @Override
