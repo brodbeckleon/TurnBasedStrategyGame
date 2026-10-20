@@ -93,6 +93,7 @@ public class PlayerDeck {
         for (Unit unit : units.values()) {
             // The base's isAvailable() is overridden to always be false, so this is safe
             unit.setIsAvailable(true);
+            unit.setHasMoved(false);
         }
     }
 

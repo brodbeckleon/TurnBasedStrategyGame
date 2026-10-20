@@ -1,10 +1,11 @@
 package game.units;
 
+import game.interfaces.ActsAfterMoving;
 import game.interfaces.MovableUnit;
 
 import java.awt.*;
 
-public abstract class SupportClass extends Unit implements MovableUnit {
+public abstract class SupportClass extends Unit implements MovableUnit, ActsAfterMoving {
     private final int movingRange;
     private final int supportRange;
 

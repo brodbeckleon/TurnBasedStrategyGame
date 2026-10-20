@@ -114,6 +114,7 @@ class EconomyTest {
     @Test
     void basesProduceIncomeUpToTheCap() {
         Player bot = game.getPlayerTwo();
+        int botStart = bot.getResourcePoints();
         assertEquals(2, game.getIncome(player), "the headquarters alone");
 
         Fixtures.place(game, 1, new ArmyBase(1, new Point(6, 6)));
@@ -126,7 +127,7 @@ class EconomyTest {
         while (player.getResourcePoints() < 19) player.addResourcePoints(1);
         game.switchTurn();
         assertEquals(20, player.getResourcePoints(), "capped at the maximum");
-        assertEquals(6 + 2, bot.getResourcePoints(), "the bot earned only its own income, once");
+        assertEquals(botStart + 2, bot.getResourcePoints(), "the bot earned only its own income, once");
     }
 
     @Test
@@ -137,10 +138,12 @@ class EconomyTest {
         CommandResult first = upgrade.execute(player, hq.getBaseID());
 
         assertTrue(first.wasSuccessful());
-        assertEquals(List.of(new BaseUpgraded(1, hq.getBaseID(), "Base", new Point(0, 0), 2, 10000, 10000, 12500, 12500)),
+        int hp = new Base(1, 1, new Point()).getMaxHealthPoints();
+        int raised = hp + hp / 4;
+        assertEquals(List.of(new BaseUpgraded(1, hq.getBaseID(), "Base", new Point(0, 0), 2, hp, hp, raised, raised)),
                 first.getEvents());
         assertEquals(3, hq.getIncome());
-        assertEquals(250, hq.getArmorValue());
+        assertEquals(new Base(1, 1, new Point()).getArmorValue() + 10, hq.getArmorValue());
         assertEquals(20 - 6, player.getResourcePoints());
 
         assertTrue(upgrade.execute(player, hq.getBaseID()).wasSuccessful());

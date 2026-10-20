@@ -60,3 +60,12 @@ tasks.named<Test>("test") {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
 }
+
+// Bot-vs-bot balance tournaments: gradle balanceLab --args="<mirror games> [specialist games] [ablation games]"
+tasks.register<JavaExec>("balanceLab") {
+    group = "verification"
+    description = "Plays bot-vs-bot games and prints balance statistics."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("game.balance.BalanceLab")
+    args = listOf("200")
+}

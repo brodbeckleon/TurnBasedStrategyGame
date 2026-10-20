@@ -14,7 +14,9 @@ import game.units.Infrastructure;
 import game.units.MilitaryBase;
 import game.units.SupportClass;
 import game.units.Unit;
+import game.interfaces.ActsAfterMoving;
 import game.units.assaultClasses.Aircraft;
+import game.units.assaultClasses.AssaultTank;
 import game.units.assaultClasses.Ship;
 import game.units.infrastructures.NavyBase;
 import game.units.supportClasses.ArmoredRecoveryVehicle;
@@ -120,33 +122,44 @@ public class GameController {
         if (unit instanceof SupportClass support && support.getSupportPoints() > 0) {
             stats.append("  +").append(support.getSupportPoints()).append(" HP");
         }
-        if (unit instanceof Infrastructure building) {
-            stats.append("  ARM ").append(building.getArmorValue());
+        if (unit instanceof AssaultTank tank) {
+            stats.append("  ARM ").append(tank.getArmorValue()).append('%');
+        } else if (unit instanceof Infrastructure building) {
+            stats.append("  ARM ").append(building.getArmorValue()).append('%');
         }
         return stats.toString();
     }
 
     /** One or two sentences on what the unit does and where it can be deployed. */
     private static String describe(Unit unit) {
-        return switch (unit.getUnitName()) {
-            case "Type 10" -> "Modern main battle tank: hard-hitting, long range. Deploys at your base or an army base.";
-            case "Type 90" -> "Heavily armoured main battle tank. Deploys at your base or an army base.";
-            case "Type 16" -> "Wheeled tank destroyer: fast and cheap, lightly armoured. Deploys at your base or an army base.";
-            case "Type 89" -> "Infantry fighting vehicle: tough and cheap, but can't get through tank armour. Deploys at your base or an army base.";
-            case "Type 99 SPH" -> "Self-propelled howitzer: shoots very far and wrecks buildings. Deploys at your base or an army base.";
-            case "Type 87", "Type 81 (C)", "Type 93" -> "Anti-air: double damage against aircraft. Deploys at your base or an army base.";
-            case "Armored Ambulance" -> "Heals an adjacent friendly unit by 300 HP instead of acting. Deploys at your base or an army base.";
-            case "Armored Recovery Vehicle" -> "Builds new bases on base ruins it stands next to, and repairs an adjacent friendly building (your base too) by 600 HP. Deploys at your base or an army base.";
-            case "Armored Reconnaissance Vehicle" -> "Unarmed scout: friendly units within 3 tiles shoot 1 tile further. Deploys at your base or an army base.";
-            case "Yamato" -> "Battleship with a huge punch. Deploys on the water around a naval base.";
+        String text = switch (unit.getUnitName()) {
+            case "Type 10" -> "Medium main battle tank: hard-hitting and quick.";
+            case "Type 90" -> "Heavy main battle tank: the toughest armour, an anchor for your line.";
+            case "Type 16" -> "Wheeled tank destroyer: fast and cheap, lightly armoured.";
+            case "Type 89" -> "Infantry fighting vehicle: tough and cheap.";
+            case "Type 99 SPH" -> "Self-propelled howitzer: shoots very far and wrecks buildings, but is fragile.";
+            case "Type 87", "Type 81 (C)" -> "Heavy anti-air: double damage to aircraft, half to ground targets. Fires at every enemy aircraft that attacks within its range.";
+            case "Type 93" -> "Light anti-air: double damage to aircraft, half to ground targets. Fires at every enemy aircraft that attacks within its range.";
+            case "Armored Ambulance" -> "Heals an adjacent friendly unit by 300 HP.";
+            case "Armored Recovery Vehicle" -> "Builds new bases on base ruins it stands next to, and repairs an adjacent friendly building (your base too) by 600 HP.";
+            case "Armored Reconnaissance Vehicle" -> "Unarmed scout: friendly units within 3 tiles shoot 1 tile further.";
+            case "Yamato" -> "Battleship with a huge punch and a thick hull.";
             case "Army Base" -> "Forward base: +2 RP per round, deploys army units around it, and a Radar Station can be built near it. Built on base ruins by a Recovery Vehicle.";
             case "Air Base" -> "Airfield: +2 RP per round, required to deploy aircraft. Built on base ruins by a Recovery Vehicle.";
             case "Naval Base" -> "Harbour: +2 RP per round, required to deploy ships. Built on base ruins next to water by a Recovery Vehicle.";
             case "Radar Station" -> "Friendly units within 4 tiles shoot 1 tile further.";
-            default -> unit instanceof Aircraft
-                    ? "Flies over any terrain; ground units only deal half damage to it. Deploys at an air base."
-                    : "";
+            default -> unit instanceof Aircraft ? "Flies over any terrain; ground fire only deals three quarters of its damage to it." : "";
         };
+        if (unit instanceof Infrastructure) {
+            return text;
+        }
+        String orders = unit instanceof AssaultClass
+                ? unit instanceof ActsAfterMoving ? " Can move and attack in the same turn." : " Moves or attacks each turn, not both."
+                : "";
+        String where = unit instanceof Aircraft ? " Deploys at an air base."
+                : unit instanceof Ship ? " Deploys on the water around a naval base."
+                : " Deploys at your base or an army base.";
+        return text + orders + where;
     }
 
     private void attachHandlers() {
@@ -458,7 +471,10 @@ public class GameController {
             } else if (clickedUnit == null && highlights.moveTiles().contains(clickedPoint)) {
                 CommandResult result = moveCommand.execute(currentPlayer, selectedUnitId, clickedPoint);
                 logResult(result);
-                resetSelection();
+                // a unit that can still act stays selected, so its targets show right after the move
+                if (!result.wasSuccessful() || !selectedUnit.isAvailable() || !canStillAct(selectedUnitId, selectedUnit)) {
+                    resetSelection();
+                }
                 animated = playPlayerAction(result);
             } else if (clickedUnit == null) {
                 resetSelection(); // a click on an unreachable tile just drops the selection
@@ -506,7 +522,7 @@ public class GameController {
         }
 
         Set<Point> moves = new HashSet<>();
-        if (selected instanceof MovableUnit) {
+        if (selected instanceof MovableUnit && !selected.hasMoved()) {
             for (Point point : selected.getPossibleMoves(model.getBattlefield().getSize())) {
                 if (moveCommand.checkIfPositionIsFree(point) && moveCommand.checkIfTerrainIsDeployable(selected, point)) {
                     moves.add(point);
@@ -582,13 +598,28 @@ public class GameController {
 
     /** True when no unit can act any more and no unit can be bought: all that is left is ending the turn. */
     private boolean nothingLeftToDo() {
-        for (Unit unit : model.getCurrentPlayer().getPlayerDeck().getUnits().values()) {
-            if (unit instanceof MovableUnit && unit.isAvailable()) {
+        for (Map.Entry<Integer, Unit> entry : model.getCurrentPlayer().getPlayerDeck().getUnits().entrySet()) {
+            Unit unit = entry.getValue();
+            if (unit instanceof MovableUnit && unit.isAvailable() && (!unit.hasMoved() || canStillAct(entry.getKey(), unit))) {
                 return false;
             }
         }
         int resources = model.getCurrentPlayer().getResourcePoints();
         return deployOptions.stream().noneMatch(option -> option.cost() <= resources && !deployTiles(option.type()).isEmpty());
+    }
+
+    /** True if the unit has something to do from where it stands: a target to shoot, heal or build on. */
+    private boolean canStillAct(int unitId, Unit unit) {
+        Player player = model.getCurrentPlayer();
+        if (unit instanceof AssaultClass assault && !model.getOpponent().getPlayerDeck()
+                .getUnitIDsInRange(unit.getPosition(), model.getShootingRange(assault)).isEmpty()) {
+            return true;
+        }
+        if (!healCommand.findTargets(player, unitId).isEmpty()) {
+            return true;
+        }
+        return unit instanceof ArmoredRecoveryVehicle && model.getBattlefield().getBaseSites().stream()
+                .anyMatch(site -> addCommand.isFreeSite(site) && Command.isNextTo(unit.getPosition(), site));
     }
 
     private String hint() {
@@ -620,6 +651,10 @@ public class GameController {
                 }
                 if (selected == null || !selected.isAvailable()) {
                     return "This unit cannot act right now.  Select another unit or press E to end your turn.";
+                }
+                if (selected.hasMoved()) {
+                    return "Moved: " + (selected instanceof AssaultClass ? "red brackets to attack" : "act from here")
+                            + ", or Esc if this unit is done.";
                 }
                 if (selected instanceof ArmoredRecoveryVehicle
                         && !addCommand.findDeployablePositions(model.getCurrentPlayer(),

@@ -18,6 +18,7 @@ import java.util.Map;
 public class Game {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
     private final int maxResourcePoints = 20;
+    private static final int SECOND_PLAYER_BONUS = 2;
     private boolean isPlayerOneTurn = true;
     private boolean gameOver = false;
     private int winnerId = 0;
@@ -31,6 +32,8 @@ public class Game {
         battlefield = new Battlefield(circleGenerator, 16, 16, true);
         playerOne = new Player(circleGenerator, 1, new Point(0, 0));
         playerTwo = new Player(circleGenerator, 2, new Point(15, 15)); // Adjusted for 0-based index
+        // moving first is an advantage; the second player makes up for it with a few more resources to start with
+        playerTwo.addResourcePoints(SECOND_PLAYER_BONUS);
     }
 
     public Player getCurrentPlayer() {

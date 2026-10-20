@@ -6,6 +6,6 @@ import java.awt.*;
 
 public class Yamato extends Ship {
     public Yamato(int playerID, Point position) {
-        super(playerID, "Yamato", position, 8, 5000, 5, 1, 1500);
+        super(playerID, "Yamato", position, 9, 2500, 6, 2, 1000);
     }
 }
