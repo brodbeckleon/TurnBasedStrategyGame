@@ -8,7 +8,7 @@ import java.awt.*;
 /** A Type 01 LMAT team: fragile, but its missiles go through tank armour. */
 public class AntiTankTeam extends Infantry implements TankHunter {
     public AntiTankTeam(int playerID, Point position) {
-        super(playerID, "Anti-Tank Team", position, 3, 250, 3, 2, 300);
+        super(playerID, "Anti-Tank Team", position, 3, 300, 3, 2, 300);
     }
 
     @Override

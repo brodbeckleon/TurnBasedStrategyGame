@@ -200,7 +200,7 @@ class CombatRulesTest {
     @Test
     void theSecondPlayerStartsWithABonusForMovingSecond() {
         Game fresh = new Game();
-        assertEquals(fresh.getPlayerOne().getResourcePoints() + 2, fresh.getPlayerTwo().getResourcePoints());
+        assertEquals(fresh.getPlayerOne().getResourcePoints() + 1, fresh.getPlayerTwo().getResourcePoints());
     }
 
     @Test

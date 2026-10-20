@@ -6,10 +6,10 @@ import game.units.Infrastructure;
 import game.units.Unit;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.Helicopter;
-import game.units.assaultClasses.Infantry;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.assaultClasses.Ship;
 import game.units.assaultClasses.Submarine;
+import game.units.assaultClasses.aircraft.FThirtyFive;
 import game.units.assaultClasses.ships.Kongo;
 import game.units.infrastructures.Radarstation;
 import game.units.supportClasses.ArmoredReconaissanceVehicle;
@@ -20,12 +20,13 @@ import java.util.Set;
 
 /**
  * Fog of war: what each side can see. Every unit and building sees the tiles around it; enemy units outside are
- * hidden. Buildings never hide (their positions are known), and submarines only show up right next to an enemy unit
- * or within a destroyer's sonar.
+ * hidden. Buildings never hide (their positions are known), submarines only show up right next to an enemy unit
+ * or within a destroyer's sonar, and the F-35 stealth fighter only within two tiles of one.
  */
 public final class Vision {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
     private static final int SONAR_RANGE = 4;
+    private static final int STEALTH_RANGE = 2;
 
     private Vision() {
     }
@@ -37,7 +38,7 @@ public final class Vision {
         if (unit instanceof Submarine) return 2;
         if (unit instanceof Helicopter) return 3;
         if (unit instanceof Aircraft || unit instanceof Ship) return 4;
-        if (unit instanceof Infantry || unit instanceof SelfPropelledArtillery) return 2;
+        if (unit instanceof SelfPropelledArtillery) return 2;
         return 3;
     }
 
@@ -63,6 +64,13 @@ public final class Vision {
                 if (distance < 1.5 || (own instanceof Kongo && distance <= SONAR_RANGE + 0.4)) {
                     return true;
                 }
+            }
+            return false;
+        }
+        if (unit instanceof FThirtyFive) {
+            // a stealth fighter only shows up close by
+            for (Unit own : viewer.getPlayerDeck().getUnits().values()) {
+                if (own.getPosition().distance(unit.getPosition()) <= STEALTH_RANGE + 0.4) return true;
             }
             return false;
         }

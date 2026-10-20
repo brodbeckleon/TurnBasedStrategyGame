@@ -6,6 +6,6 @@ import java.awt.*;
 
 public class RifleSquad extends Infantry {
     public RifleSquad(int playerID, Point position) {
-        super(playerID, "Infantry", position, 2, 350, 2, 3, 250);
+        super(playerID, "Infantry", position, 2, 450, 2, 3, 300);
     }
 }

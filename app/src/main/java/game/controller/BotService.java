@@ -3,6 +3,7 @@ package game.controller;
 import game.events.GameEvent;
 import game.game.Command;
 import game.game.Movement;
+import game.enums.TerrainEnum;
 import game.game.Player;
 import game.game.UnitFactory;
 import game.game.commands.AddCommand;
@@ -67,6 +68,7 @@ public class BotService {
     private static final double ESCORT_DISTANCE = 2;
     private static final double REPEAT_PENALTY = 0.35;
     private static final double SAVE_FOR_BETTER = 1.3;
+    private static final double FLEET_REACH = 7;
     private static final double COUNTER_WEIGHT = 0.6;
     private static final double MIN_CAUTION = 0.3;
     private static final double MAX_CAUTION = 1.5;
@@ -469,8 +471,31 @@ public class BotService {
     private UnitEnum chooseBaseType(Player botPlayer, Point site) {
         List<Unit> own = List.copyOf(botPlayer.getPlayerDeck().getUnits().values());
         if (count(own, AirForceBase.class) == 0) return UnitEnum.AIRFORCEBASE;
-        if (count(own, NavyBase.class) == 0 && addCommand.bordersWater(site)) return UnitEnum.NAVYBASE;
+        if (count(own, NavyBase.class) == 0 && addCommand.bordersWater(site) && waterReachesEnemy(site)) return UnitEnum.NAVYBASE;
         return UnitEnum.ARMYBASE;
+    }
+
+    /**
+     * True if the water next to the point is part of a sea that comes close to the enemy base, so ships launched
+     * there can join the fight (a fleet in a land-locked lake is wasted).
+     */
+    private boolean waterReachesEnemy(Point shore) {
+        Point enemyBase = enemy().getPlayerDeck().getBase().getPosition();
+        java.util.Set<Point> seen = new java.util.HashSet<>();
+        Deque<Point> queue = new ArrayDeque<>();
+        for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+            Point next = new Point(shore.x + d[0], shore.y + d[1]);
+            if (model.getBattlefield().getGeographyOfPoint(next) == TerrainEnum.WATER && seen.add(next)) queue.add(next);
+        }
+        while (!queue.isEmpty()) {
+            Point water = queue.poll();
+            if (water.distance(enemyBase) <= FLEET_REACH) return true;
+            for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}) {
+                Point next = new Point(water.x + d[0], water.y + d[1]);
+                if (model.getBattlefield().getGeographyOfPoint(next) == TerrainEnum.WATER && seen.add(next)) queue.add(next);
+            }
+        }
+        return false;
     }
 
     // --- Tile choice ---
@@ -634,11 +659,12 @@ public class BotService {
             case TYPETEN -> 2 + 0.6 * army.enemyTanks + defence;
             case TYPENINETY -> 2 + 0.5 * army.enemyTanks + 1.5 * defence;
             case TYPESIXTEEN -> 1.5 + 0.4 * army.enemySoft;
-            case TYPEEIGHTYNINE -> 1 + 0.5 * army.enemySoft;
+            case TYPEEIGHTYNINE -> 1.5 + 0.4 * army.enemySoft;
             // artillery needs a front line to hide behind
             case TYPENINETYNINESPH -> army.combat - army.artillery < 3 ? 0 : army.artillery * 5 < army.combat ? 2 + defence : 0;
             case TYPEEIGHTYONEC, TYPENINETYTHREE, TYPEEIGHTYSEVEN -> {
-                double base = army.enemyAircraft > army.antiAir ? 3 + army.enemyAircraft - army.antiAir
+                // one anti-air unit covers about two aircraft
+                double base = army.enemyAircraft > 2 * army.antiAir ? 3 + army.enemyAircraft - 2 * army.antiAir
                         : army.antiAir == 0 && army.combat >= 4 ? 0.8 : 0;
                 yield base == 0 ? 0 : base + (type == UnitEnum.TYPEEIGHTYONEC ? 0.3 : 0);
             }
@@ -649,10 +675,10 @@ public class BotService {
             case FFOUREJKAI -> airHeavy ? 0.4 : 1.3 + 0.3 * army.enemySoft;
             case FFIFTEEN -> airHeavy ? 0.5 : 1.8 + 0.5 * army.enemyAircraft;
             case FTWO -> airHeavy ? 0.6 : 2 + 0.3 * army.enemyTanks;
-            case FTHIRTYFIVE -> airHeavy ? 0.7 : 2.2;
+            case FTHIRTYFIVE -> airHeavy ? 0.5 : 1.8;
             case ATEN -> airHeavy ? 0.6 : 1.5 + 0.6 * army.enemyTanks;
-            case YAMATO -> 2.5;
-            case KONGO -> 2 + 0.5 * army.enemyAircraft + army.enemySubmarines;
+            case YAMATO -> army.usefulFleet ? 2.5 : 0;
+            case KONGO -> army.usefulFleet ? 2 + 0.5 * army.enemyAircraft + army.enemySubmarines : 0;
             case SORYU -> army.enemyShips > 0 ? 2 + army.enemyShips : 0; // only worth it against a fleet
             // filler: a few riflemen help, a horde of them does not
             case INFANTRY -> army.infantry * 3 > army.combat ? 0.2 : 0.8 + 0.15 * army.enemySoft;
@@ -668,7 +694,7 @@ public class BotService {
     private final class Army {
         final long combat, antiAir, artillery, infantry, aircraft, ambulances, recon, recovery, radar;
         final long enemyAircraft, enemyTanks, enemySoft, enemyShips, enemySubmarines;
-        final boolean claimableSite, hqDamaged;
+        final boolean claimableSite, hqDamaged, usefulFleet;
         private final List<Unit> own;
 
         Army(Player botPlayer) {
@@ -692,6 +718,8 @@ public class BotService {
             claimableSite = model.getBattlefield().getBaseSites().stream()
                     .anyMatch(site -> addCommand.isFreeSite(site) && !isThreatened(site));
             hqDamaged = healthRatio(botPlayer.getPlayerDeck().getBase()) < 0.7;
+            usefulFleet = botPlayer.getPlayerDeck().getBuildings().stream()
+                    .anyMatch(building -> building instanceof NavyBase && waterReachesEnemy(building.getPosition()));
         }
 
         long owned(String unitName) {

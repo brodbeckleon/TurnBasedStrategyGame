@@ -8,7 +8,7 @@ import java.awt.*;
 public class TypeTen extends AssaultTank implements ActsAfterMoving {
 
     public TypeTen(int playerID, Point position) {
-        super(playerID, "Type 10", position, 6, 500, 35, 4, 3, 450);
+        super(playerID, "Type 10", position, 6, 500, 35, 4, 3, 425);
     }
 
 }
