@@ -241,7 +241,16 @@ public class GameView {
         controlPanel.setPadding(new Insets(14));
         controlPanel.setPrefWidth(SIDE_PANEL_WIDTH);
         controlPanel.setMinWidth(SIDE_PANEL_WIDTH);
-        root.setRight(controlPanel);
+        // In a small window the panel scrolls instead of growing past the window: otherwise every change of its
+        // height (the inspector while hovering) would stretch the whole layout and make the board jump.
+        ScrollPane sideScroll = new ScrollPane(controlPanel);
+        sideScroll.getStyleClass().add("side-scroll");
+        sideScroll.setFitToWidth(true);
+        sideScroll.setFitToHeight(true);
+        sideScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        sideScroll.setFocusTraversable(false);
+        sideScroll.setMinHeight(0);
+        root.setRight(sideScroll);
 
         director = new AnimationDirector(effectsLayer, board, gridWidth * CELL_SIZE, gridHeight * CELL_SIZE,
                 this::liftUnit, new EffectSprites());
