@@ -1,5 +1,6 @@
 package game.controller;
 
+import game.enums.TerrainEnum;
 import game.events.GameEvent;
 import game.events.GameEvent.UnitAttacked;
 import game.events.GameEvent.UnitDamaged;
@@ -17,6 +18,8 @@ import game.units.Unit;
 import game.units.assaultClasses.AssaultTanks.TypeNinety;
 import game.units.assaultClasses.AssaultTanks.TypeTen;
 import game.units.assaultClasses.ships.Yamato;
+import game.units.infrastructures.NavyBase;
+import game.units.transports.Osumi;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -253,5 +256,44 @@ class BotServiceTest {
 
         assertFalse(game.findUnitById(attacker).isAvailable(), "the unit acted");
         assertEquals(3, game.getPlayerTwo().getPlayerDeck().getUnits().size(), "the base, the attacker and a bought unit");
+    }
+
+    @Test
+    void aStrandedTankIsFerriedAcrossTheWaterByAnAmphibiousShip() {
+        // a strait from x = 5 to x = 9: the bot's tank cannot reach the enemy base at (0, 0) over land
+        for (int x = 5; x <= 9; x++) {
+            for (int y = 0; y < 16; y++) Fixtures.setTerrain(game, new Point(x, y), TerrainEnum.WATER);
+        }
+        TypeNinety tank = new TypeNinety(2, new Point(10, 8));
+        Fixtures.place(game, 2, tank);
+        var ship = new Osumi(2, new Point(7, 8));
+        Fixtures.place(game, 2, ship);
+
+        boolean boarded = false;
+        for (int turn = 0; turn < 6 && tank.getPosition().x >= 5; turn++) {
+            runSteps(bot);
+            boarded |= game.getHostOf(tank) == ship;
+            game.switchTurn();
+            game.switchTurn();
+        }
+
+        assertTrue(boarded, "the tank went aboard");
+        assertTrue(tank.getPosition().x <= 4, "and ashore on the far side, at " + tank.getPosition());
+    }
+
+    @Test
+    void anArmyCutOffByTheSeaBuysAShipToCrossIt() {
+        for (int x = 5; x <= 9; x++) {
+            for (int y = 0; y < 16; y++) Fixtures.setTerrain(game, new Point(x, y), TerrainEnum.WATER);
+        }
+        Fixtures.place(game, 2, new NavyBase(2, new Point(10, 3)));
+        for (int i = 0; i < 3; i++) Fixtures.place(game, 2, new TypeNinety(2, new Point(11 + i, 10)));
+        game.getPlayerTwo().addResourcePoints(20);
+
+        List<List<GameEvent>> steps = runSteps(bot);
+
+        assertTrue(steps.stream().flatMap(List::stream)
+                .anyMatch(event -> event instanceof UnitDeployed deployed && deployed.unitName().equals("Osumi")),
+                "it bought an amphibious ship");
     }
 }
