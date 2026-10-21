@@ -62,6 +62,25 @@ class CommandEventsTest {
     }
 
     @Test
+    void aNewUnitWaitsForTheNextTurnBeforeItActs() {
+        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPETEN.name(), new Point(1, 1)).wasSuccessful());
+        var unit = game.getUnitAt(new Point(1, 1));
+        int unitId = game.getUnitID(unit);
+
+        assertFalse(unit.isAvailable());
+        assertFalse(new MoveCommand(game).execute(game.getPlayerOne(), unitId, new Point(2, 2)).wasSuccessful());
+
+        game.switchTurn();
+        game.switchTurn();
+        assertTrue(unit.isAvailable(), "ready on its owner's next turn");
+    }
+
+    @Test
+    void movingAnUnknownUnitFailsInsteadOfCrashing() {
+        assertFalse(new MoveCommand(game).execute(game.getPlayerOne(), 9999, new Point(2, 2)).wasSuccessful());
+    }
+
+    @Test
     void failedAddsEmitNothing() {
         assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(9, 9)).getEvents().isEmpty(),
                 "outside the deployment radius");

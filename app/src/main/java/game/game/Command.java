@@ -65,12 +65,27 @@ public class Command {
         }
         for (Infrastructure building : player.getPlayerDeck().getBuildings()) {
             for (Point point : circleGenerator.getCoordinatesInRange(building.getPosition(), deployRadius(building, unit))) {
-                if (checkIfPositionIsFree(point) && checkIfTerrainIsDeployable(unit, point)) {
+                if (looksFree(player, point) && checkIfTerrainIsDeployable(unit, point)) {
                     positions.add(point);
                 }
             }
         }
         return positions;
+    }
+
+    /**
+     * True if the tile looks free to the player: nothing stands there, or only an enemy hidden from it in the fog
+     * (so the deploy tiles never give a hidden enemy away).
+     */
+    public boolean looksFree(Player player, Point position) {
+        if (checkIfPositionIsFree(position)) return true;
+        return isHiddenEnemy(player, position);
+    }
+
+    /** True if an enemy the player cannot see stands on the tile. */
+    public boolean isHiddenEnemy(Player player, Point position) {
+        Unit other = gameModel.getUnitAt(position);
+        return other != null && other.getPlayerID() != player.getPlayerID() && !gameModel.isVisibleTo(player, other);
     }
 
     /** Bases other than the headquarters can only be built on base ruins. */

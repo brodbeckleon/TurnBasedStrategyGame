@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -114,35 +115,53 @@ public class MapGenerator {
      * coast when the map has one, so naval bases are possible.
      */
     public Set<Point> generateBaseSites(HashMap<Point, TerrainEnum> map) {
+        Set<Point> sites = pickSites(map, candidateSites(map, true));
+        if (sites.isEmpty()) {
+            // no pair where both sides are good land: take pairs with one good side, the other is cleared below
+            sites = pickSites(map, candidateSites(map, false));
+        }
+        sites.forEach(site -> map.put(site, TerrainEnum.PLAIN)); // ruins in a forest stand in a clearing
+        for (Point site : sites) {
+            connectToHq(map, site);
+        }
+        return sites;
+    }
+
+    /** Up to SITE_PAIRS well spaced pairs from the candidates, the first on the coast if possible. */
+    private Set<Point> pickSites(HashMap<Point, TerrainEnum> map, List<Point> candidates) {
+        Collections.shuffle(candidates, random);
+        Set<Point> sites = new LinkedHashSet<>();
+        for (Point candidate : candidates) {
+            if (isCoastal(map, candidate) && isCoastal(map, mirror(candidate)) && addPair(sites, candidate)) break;
+        }
+        for (Point candidate : candidates) {
+            if (sites.size() >= SITE_PAIRS * 2) break;
+            addPair(sites, candidate);
+        }
+        return sites;
+    }
+
+    /** Sites on the first player's half whose pair is far enough from both headquarters. */
+    private List<Point> candidateSites(HashMap<Point, TerrainEnum> map, boolean bothSidesGood) {
         List<Point> candidates = new ArrayList<>();
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 Point point = new Point(x, y);
                 Point mirror = mirror(point);
-                if (x + y < width - 1 && isGoodSite(map, point) && isGoodSite(map, mirror)
+                boolean good = bothSidesGood ? isGoodSite(map, point) && isGoodSite(map, mirror)
+                        : isGoodSite(map, point) || isGoodSite(map, mirror);
+                if (x + y < width - 1 && good
                         && point.distance(0, 0) >= MIN_SITE_DISTANCE_FROM_HQ
                         && point.distance(width - 1, height - 1) >= MIN_SITE_DISTANCE_FROM_HQ) {
                     candidates.add(point);
                 }
             }
         }
-        Collections.shuffle(candidates, random);
-
-        Set<Point> sites = new LinkedHashSet<>();
-        candidates.stream()
-                .filter(candidate -> isCoastal(map, candidate) && isCoastal(map, mirror(candidate)))
-                .findFirst()
-                .ifPresent(candidate -> addPair(sites, candidate));
-        for (Point candidate : candidates) {
-            if (sites.size() >= SITE_PAIRS * 2) break;
-            addPair(sites, candidate);
-        }
-        sites.forEach(site -> map.put(site, TerrainEnum.PLAIN)); // ruins in a forest stand in a clearing
-        return sites;
+        return candidates;
     }
 
-    /** Adds the site and its mirror image, unless that would crowd the sites already chosen. */
-    private void addPair(Set<Point> sites, Point site) {
+    /** Adds the site and its mirror image, unless that would crowd the sites already chosen; true if added. */
+    private boolean addPair(Set<Point> sites, Point site) {
         Point mirror = mirror(site);
         boolean spaced = site.distance(mirror) >= MIN_SITE_SPACING && sites.stream()
                 .allMatch(other -> other.distance(site) >= MIN_SITE_SPACING && other.distance(mirror) >= MIN_SITE_SPACING);
@@ -150,6 +169,7 @@ public class MapGenerator {
             sites.add(site);
             sites.add(mirror);
         }
+        return spaced;
     }
 
     private Point mirror(Point point) {
@@ -164,6 +184,77 @@ public class MapGenerator {
             if (isLand(map.get(neighbour))) open++;
         }
         return open >= 2;
+    }
+
+    /**
+     * Makes sure a recovery vehicle can drive from the headquarters to a tile next to the ruins: ruins on an
+     * island or behind mountains get the fewest tiles needed turned into open ground, as connectBases does.
+     */
+    private void connectToHq(HashMap<Point, TerrainEnum> map, Point site) {
+        Set<Point> reachable = reachableLand(map);
+        if (aroundSite(site).stream().anyMatch(reachable::contains)) return;
+        // 0-1 breadth-first search from the ruins to the land the headquarters reaches
+        Map<Point, Integer> cost = new HashMap<>();
+        Map<Point, Point> previous = new HashMap<>();
+        Deque<Point> queue = new ArrayDeque<>();
+        cost.put(site, 0);
+        queue.add(site);
+        Point end = null;
+        while (!queue.isEmpty()) {
+            Point point = queue.poll();
+            if (reachable.contains(point)) {
+                end = point;
+                break;
+            }
+            for (Point next : neighbours(point)) {
+                if (!map.containsKey(next)) continue;
+                int nextCost = cost.get(point) + (isLand(map.get(next)) ? 0 : 1);
+                if (nextCost < cost.getOrDefault(next, Integer.MAX_VALUE)) {
+                    cost.put(next, nextCost);
+                    previous.put(next, point);
+                    if (isLand(map.get(next))) queue.addFirst(next); else queue.addLast(next);
+                }
+            }
+        }
+        for (Point point = end; point != null; point = previous.get(point)) {
+            if (!isLand(map.get(point))) {
+                map.put(point, TerrainEnum.PLAIN);
+            }
+        }
+    }
+
+    private static List<Point> aroundSite(Point site) {
+        List<Point> around = new ArrayList<>();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                if (dx != 0 || dy != 0) around.add(new Point(site.x + dx, site.y + dy));
+            }
+        }
+        return around;
+    }
+
+    /**
+     * The land a vehicle can drive to from the first headquarters, stepping to any of the eight tiles around it
+     * as units do (connectBases joins the second headquarters to it).
+     */
+    private Set<Point> reachableLand(HashMap<Point, TerrainEnum> map) {
+        Set<Point> reached = new HashSet<>();
+        Deque<Point> queue = new ArrayDeque<>();
+        Point start = new Point(0, 0);
+        reached.add(start);
+        queue.add(start);
+        while (!queue.isEmpty()) {
+            Point point = queue.poll();
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    Point next = new Point(point.x + dx, point.y + dy);
+                    if (isLand(map.get(next)) && reached.add(next)) {
+                        queue.add(next);
+                    }
+                }
+            }
+        }
+        return reached;
     }
 
     /** Ground that vehicles can drive over. */

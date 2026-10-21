@@ -121,9 +121,7 @@ public class GameView {
     private Runnable onRestart;
     private Runnable onUpgrade = () -> { };
     private Function<Point, AttackPreview> attackPreview = cell -> null;
-    private Runnable onUndo = () -> { };
     private java.util.function.IntConsumer onPickReady = id -> { };
-    private int undoableUnitId = -1;
     private final FlowPane readyStrip = new FlowPane(4, 4);
     private final Label readyTitle = sectionTitle("READY");
 
@@ -297,8 +295,8 @@ public class GameView {
 
     private Image loadImage(String path) {
         if (imageCache.containsKey(path)) return imageCache.get(path);
-        try {
-            Image image = new Image(Objects.requireNonNull(getClass().getResourceAsStream(path)));
+        try (java.io.InputStream stream = Objects.requireNonNull(getClass().getResourceAsStream(path))) {
+            Image image = new Image(stream);
             imageCache.put(path, image);
             return image;
         } catch (Exception e) {
@@ -932,14 +930,6 @@ public class GameView {
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
 
         boolean selected = model.findUnitById(highlights.selectedUnitId()) == unit;
-        if (undoableUnitId != -1 && model.findUnitById(undoableUnitId) == unit && !inputLocked) {
-            Button undo = new Button("Undo move  [Z]");
-            undo.getStyleClass().add("upgrade-button");
-            undo.setMaxWidth(Double.MAX_VALUE);
-            undo.setFocusTraversable(false);
-            undo.setOnAction(event -> onUndo.run());
-            inspector.getChildren().add(undo);
-        }
         if (unit instanceof MilitaryBase base && unit.getPlayerID() == 1 && selected && unit.getHealthPoints() > 0) {
             Button upgrade = new Button(base.canUpgrade()
                     ? "Upgrade to level " + (base.getLevel() + 1) + "  ·  " + base.getUpgradeCost() + " RP  [U]"
@@ -1067,16 +1057,6 @@ public class GameView {
         }
     }
 
-    /** The unit whose last move can be taken back, or -1; its inspector shows an Undo button. */
-    public void setUndoableUnit(int unitId) {
-        undoableUnitId = unitId;
-        refreshInspector();
-    }
-
-    public void setOnUndo(Runnable onUndo) {
-        this.onUndo = onUndo;
-    }
-
     public void setOnPickReady(java.util.function.IntConsumer onPickReady) {
         this.onPickReady = onPickReady;
     }
@@ -1163,6 +1143,7 @@ public class GameView {
         inputLocked = locked;
         fastForward = false;
         skipTurnButton.setDisable(locked || gameOver);
+        fogBox.setDisable(locked); // switching the fog in the middle of the enemy turn would change what the bot sees
         refreshDeployButtons();
         refreshHover();
     }
@@ -1236,6 +1217,10 @@ public class GameView {
             drawn.setVisible(false);
             healthRatio = drawn.getHealthRatio();
             kind = drawn.getKind();
+        } else if (model != null && model.findUnitById(unitId) instanceof Unit unit) {
+            // not drawn (it comes out of the fog, or was just deployed): take what it is from the model
+            healthRatio = Math.max(0, (double) unit.getHealthPoints() / unit.getMaxHealthPoints());
+            kind = UnitKind.of(unit);
         }
         UnitNode ghost = createUnitNode(playerId, unitName, healthRatio, kind);
         ghost.setVisible(ghost.hasArt());
@@ -1335,17 +1320,23 @@ public class GameView {
         }
 
         private void update(Game model, Player player, boolean active) {
+            // under fog of war the enemy's purse and its hidden units stay secret
+            boolean hidden = model.isFogOfWar() && player != model.getPlayerOne();
             int rp = player.getResourcePoints();
-            resources.setProgress(Math.min(1, (double) rp / model.getMaxResourcePoints()));
-            resourcesText.setText("RP " + rp + " / " + model.getMaxResourcePoints() + "  (+" + model.getIncome(player) + "/round)");
+            resources.setProgress(hidden ? 0 : Math.min(1, (double) rp / model.getMaxResourcePoints()));
+            resourcesText.setText(hidden ? "RP ?  (hidden by the fog)"
+                    : "RP " + rp + " / " + model.getMaxResourcePoints() + "  (+" + model.getIncome(player) + "/round)");
             Base base = player.getPlayerDeck().getBase();
             int hp = Math.max(0, base.getHealthPoints());
             baseHealth.setProgress((double) hp / base.getMaxHealthPoints());
             baseHealthText.setText("Base  " + hp + " HP");
             int buildings = (int) player.getPlayerDeck().getUnits().values().stream()
                     .filter(unit -> unit instanceof Infrastructure).count() - 1; // without the base
-            int count = player.getPlayerDeck().getUnits().size() - 1 - buildings;
-            units.setText((count == 1 ? "1 unit" : count + " units")
+            int count = hidden
+                    ? (int) model.getVisibleEnemies(model.getPlayerOne()).stream()
+                            .filter(unit -> !(unit instanceof Infrastructure)).count()
+                    : player.getPlayerDeck().getUnits().size() - 1 - buildings;
+            units.setText((count == 1 ? "1 unit" : count + " units") + (hidden ? " in sight" : "")
                     + (buildings == 0 ? "" : buildings == 1 ? ", 1 building" : ", " + buildings + " buildings"));
             getStyleClass().remove(activeStyle);
             if (active) {

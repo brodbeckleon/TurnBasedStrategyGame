@@ -116,7 +116,7 @@ public class Game {
     /** The tiles the viewer can see: all of them without fog of war. */
     public Set<Point> getVisibleTiles(Player viewer) {
         if (!fogOfWar) {
-            return battlefield.getGeography().keySet();
+            return Set.copyOf(battlefield.getGeography().keySet());
         }
         return Vision.visibleTiles(this, viewer);
     }

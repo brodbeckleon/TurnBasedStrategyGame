@@ -29,7 +29,7 @@ public class HealCommand extends Command {
             return new CommandResult(false, "This unit is not available for healing.");
         }
         Unit target = player.getPlayerDeck().getUnit(targetID);
-        if (target == null || target == supporter) {
+        if (target == null || target == supporter || target.getHealthPoints() <= 0) {
             return new CommandResult(false, "Pick another one of your own units.");
         }
         if (!support.canSupport(target)) {

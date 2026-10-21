@@ -165,10 +165,14 @@ public class AttackCommand extends Command {
                         .contains(attacker.getPosition())) {
             counter = (int) Math.round(predictDamage(defender, attacker) * (double) targetHpAfter / target.getMaxHealthPoints());
         }
+        // only the anti-air the attacker can see: the forecast must not give away what hides in the fog
         int flak = 0;
         if (attacker instanceof Aircraft) {
             for (int interceptorID : findInterceptors(defenderPlayer, attacker, targetID)) {
-                flak += counterDamage((AssaultClass) defenderPlayer.getPlayerDeck().getUnit(interceptorID), attacker);
+                Unit interceptor = defenderPlayer.getPlayerDeck().getUnit(interceptorID);
+                if (getGameModel().isVisibleTo(attackerPlayer, interceptor)) {
+                    flak += counterDamage((AssaultClass) interceptor, attacker);
+                }
             }
         }
         return new AttackPreview(damage, Math.max(0, targetHpAfter), destroys, counter, flak,
