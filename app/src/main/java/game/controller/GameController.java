@@ -15,7 +15,10 @@ import game.units.AssaultClass;
 import game.units.Infrastructure;
 import game.units.MilitaryBase;
 import game.units.SupportClass;
+import game.units.TransportShip;
 import game.units.Unit;
+import game.units.transports.Osumi;
+import game.interfaces.militaryBranches.Navy;
 import game.interfaces.ActsAfterMoving;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.Helicopter;
@@ -63,7 +66,7 @@ public class GameController {
     private final AttackCommand attackCommand;
     private final HealCommand healCommand;
     private final UpgradeCommand upgradeCommand;
-    private final BotService botService;
+    private final Map<Integer, BotService> bots = new java.util.HashMap<>(); // one per enemy, by player id
     private final UnitFactory unitFactory = new UnitFactory();
     private final CircleGenerator circleGenerator = new CircleGenerator();
     private final List<DeployOption> deployOptions;
@@ -87,8 +90,12 @@ public class GameController {
         this.attackCommand = new AttackCommand(model);
         this.healCommand = new HealCommand(model);
         this.upgradeCommand = new UpgradeCommand(model);
-        this.botService = new BotService(model, addCommand, moveCommand, attackCommand, healCommand, upgradeCommand,
-                new java.util.Random());
+        for (Player player : model.getPlayers()) {
+            if (player != model.getPlayerOne()) {
+                bots.put(player.getPlayerID(), new BotService(model, addCommand, moveCommand, attackCommand, healCommand,
+                        upgradeCommand, new java.util.Random(), player.getPlayerID()));
+            }
+        }
         this.deployOptions = buildDeployOptions();
 
         attachHandlers();
@@ -112,7 +119,7 @@ public class GameController {
         if (unit instanceof SupportClass) return DeployOption.Category.SUPPORT;
         if (unit instanceof Infantry) return DeployOption.Category.INFANTRY;
         if (unit instanceof Aircraft) return DeployOption.Category.AIR;
-        if (unit instanceof Ship) return DeployOption.Category.NAVY;
+        if (unit instanceof Ship || unit instanceof TransportShip) return DeployOption.Category.NAVY;
         return DeployOption.Category.ARMY;
     }
 
@@ -154,12 +161,14 @@ public class GameController {
             case "Yamato" -> "Battleship with a huge punch and a thick hull.";
             case "Kongo" -> "Aegis destroyer: double damage to aircraft, covers the fleet from air attacks, and hunts submarines.";
             case "Soryu" -> "Submarine: torpedoes deal double damage to ships. Attacks only ships; only ships and aircraft can attack it.";
+            case "Izumo" -> "Aircraft carrier, a mobile air base: aircraft are deployed onto its deck and can land on it. Unarmed.";
+            case "Osumi" -> "Amphibious assault ship: carries one ground unit across the water (drive onto it, then off at another shore). Docked at the coast it deploys infantry and light vehicles. Unarmed.";
             case "Infantry" -> "Cheap riflemen. Cross forests freely and the only ground unit that can climb mountains (good cover).";
             case "Anti-Tank Team" -> "Type 01 LMAT team: fragile, but deals double damage to tanks. Moves like infantry.";
             case "AH-64D" -> "Apache attack helicopter: 1.5x damage to tanks. Flies anywhere, but flies low: ground fire hits it at full strength.";
-            case "Army Base" -> "Forward base: +2 RP per round, deploys army units around it, and a Radar Station can be built near it. Built on base ruins by a Recovery Vehicle.";
-            case "Air Base" -> "Airfield: +2 RP per round, required to deploy aircraft. Built on base ruins by a Recovery Vehicle.";
-            case "Naval Base" -> "Harbour: +2 RP per round, required to deploy ships. Built on base ruins next to water by a Recovery Vehicle.";
+            case "Army Base" -> "Forward base: +2 RP per round, deploys army units on top of it, and a Radar Station can be built near it. Built on base ruins by a Recovery Vehicle.";
+            case "Air Base" -> "Airfield: +2 RP per round, deploys aircraft on top of it (so does a carrier at sea). Built on base ruins by a Recovery Vehicle.";
+            case "Naval Base" -> "Harbour: +2 RP per round, launches ships onto the water next to it. Built on base ruins next to water by a Recovery Vehicle.";
             case "Radar Station" -> "Friendly units within 4 tiles shoot 1 tile further.";
             default -> unit instanceof Aircraft ? "Flies over any terrain; ground fire only deals three quarters of its damage to it." : "";
         };
@@ -169,10 +178,11 @@ public class GameController {
         String orders = unit instanceof AssaultClass
                 ? unit instanceof ActsAfterMoving ? " Can move and attack in the same turn." : " Moves or attacks each turn, not both."
                 : "";
-        String where = unit instanceof Helicopter ? " Deploys at your base, an army base or an air base."
-                : unit instanceof Aircraft ? " Deploys at an air base."
-                : unit instanceof Ship ? " Deploys on the water around a naval base."
-                : " Deploys at your base or an army base.";
+        String where = unit instanceof Helicopter ? " Deploys on top of your base, an army base, an air base or a carrier."
+                : unit instanceof Aircraft ? " Deploys on top of an air base or a carrier."
+                : unit instanceof Navy ? " Launched onto the water next to a naval base."
+                : Osumi.isLight(unit) ? " Deploys on top of your base, an army base or a docked Osumi."
+                : " Deploys on top of your base or an army base.";
         return text + orders + where;
     }
 
@@ -185,10 +195,10 @@ public class GameController {
         view.setKeyHandler(this::handleKey);
         view.setOnUpgrade(this::upgradeSelected);
         view.setAttackPreview(this::attackPreview);
-        botService.setDifficulty(difficulty);
+        bots.values().forEach(bot -> bot.setDifficulty(difficulty));
         view.setDifficulty(difficulty, level -> {
             difficulty = level;
-            botService.setDifficulty(level);
+            bots.values().forEach(bot -> bot.setDifficulty(level));
             view.logInfo("Bot difficulty: " + level + ".");
         });
         view.setOnPickReady(this::selectUnit);
@@ -230,15 +240,19 @@ public class GameController {
         refresh();
     }
 
+    /** Passes the turn to the next player still in the game; a bot then plays its turn. */
     private void endTurn() {
         resetSelection(); // Deselect unit when turn ends
+        if (model.isPlayerOneTurn()) {
+            enemyTurn.clear(); // the summary covers all enemy turns until the player's next one
+        }
         model.switchTurn();
         if (model.isPlayerOneTurn()) {
             round++;
             view.setRound(round);
             view.logInfo("— Round " + round + ": your turn —");
         } else {
-            view.logInfo("— Enemy turn —");
+            view.logInfo("— " + model.getPlayerName(model.getCurrentPlayer().getPlayerID()) + " turn —");
         }
         refresh();
 
@@ -254,7 +268,8 @@ public class GameController {
             lockInput(); // block the player while the bot "thinks" and acts
 
             if (view.isAnimationsEnabled()) {
-                view.showBanner("ENEMY TURN", () -> guardedBot(this::beginBotTurn));
+                String name = model.getPlayerName(model.getCurrentPlayer().getPlayerID()).toUpperCase();
+                view.showBanner(name + " TURN", () -> guardedBot(this::beginBotTurn));
             } else {
                 PauseTransition pause = new PauseTransition(Duration.seconds(BOT_THINK_SECONDS));
                 pause.setOnFinished(event -> guardedBot(this::beginBotTurn));
@@ -263,15 +278,18 @@ public class GameController {
         }
     }
 
+    private BotService currentBot() {
+        return bots.get(model.getCurrentPlayer().getPlayerID());
+    }
+
     private void beginBotTurn() {
-        enemyTurn.clear();
-        botService.startTurn();
+        currentBot().startTurn();
         botStep();
     }
 
     private void botStep() {
         Sight before = sight();
-        Optional<List<GameEvent>> step = botService.performNextStep();
+        Optional<List<GameEvent>> step = currentBot().performNextStep();
         if (step.isEmpty()) {
             finishBotTurn();
             return;
@@ -287,8 +305,16 @@ public class GameController {
     }
 
     private Sight sight() {
-        return new Sight(new java.util.HashMap<>(model.getPlayerTwo().getPlayerDeck().getUnits()),
-                model.getVisibleTiles(model.getPlayerOne()));
+        return new Sight(enemyUnits(), model.getVisibleTiles(model.getPlayerOne()));
+    }
+
+    /** Every unit of every enemy, by id. */
+    private Map<Integer, Unit> enemyUnits() {
+        Map<Integer, Unit> units = new java.util.HashMap<>();
+        for (Player player : model.getPlayers()) {
+            if (player != model.getPlayerOne()) units.putAll(player.getPlayerDeck().getUnits());
+        }
+        return units;
     }
 
     /**
@@ -301,7 +327,7 @@ public class GameController {
             return events;
         }
         Map<Integer, Unit> enemies = new java.util.HashMap<>(before.enemies());
-        enemies.putAll(model.getPlayerTwo().getPlayerDeck().getUnits());
+        enemies.putAll(enemyUnits());
         Set<Point> seen = new HashSet<>(before.tiles());
         seen.addAll(model.getVisibleTiles(model.getPlayerOne()));
         java.util.function.BiPredicate<Integer, Point> sees = (id, pos) -> {
@@ -355,7 +381,7 @@ public class GameController {
     }
 
     private void afterBotStep() {
-        model.checkWinCondition();
+        checkWinCondition();
         if (model.isGameOver()) {
             unlockInput();
             view.showWinner(model.getWinnerId());
@@ -372,11 +398,14 @@ public class GameController {
         }
     }
 
+    /** Ends the bot's turn: the next bot takes over, or the player gets a summary of what it saw. */
     private void finishBotTurn() {
-        String summary = summarizeEnemyTurn();
-        view.logInfo("Enemy turn: " + summary);
         endTurn();
-        view.showBanner("YOUR TURN", summary, this::unlockInput);
+        if (model.isPlayerOneTurn()) {
+            String summary = summarizeEnemyTurn();
+            view.logInfo((bots.size() == 1 ? "Enemy turn: " : "Enemy turns: ") + summary);
+            view.showBanner("YOUR TURN", summary, this::unlockInput);
+        }
     }
 
     /** One line on what the player saw of the enemy's turn: attacks, losses on both sides, new enemy units. */
@@ -386,13 +415,13 @@ public class GameController {
         int enemyLosses = 0;
         for (GameEvent event : enemyTurn) {
             switch (event) {
-                case GameEvent.UnitAttacked e -> { if (e.playerId() == 2) attacks++; }
+                case GameEvent.UnitAttacked e -> { if (e.playerId() != 1) attacks++; }
                 case GameEvent.UnitDeployed e -> spotted++;
                 case GameEvent.UnitMoved e -> moves++;
                 case GameEvent.UnitDamaged e -> { if (e.isBase() && e.ownerId() == 1) hqDamage += e.damage(); }
                 case GameEvent.UnitDestroyed e -> {
                     if (e.ownerId() == 1 && !e.isBase()) yourLosses.add(e.unitName());
-                    else if (e.ownerId() == 2) enemyLosses++;
+                    else if (e.ownerId() != 1) enemyLosses++;
                 }
                 default -> { }
             }
@@ -471,7 +500,7 @@ public class GameController {
 
     private void finishPlayerAction() {
         unlockInput();
-        model.checkWinCondition();
+        checkWinCondition();
         if (model.isGameOver()) {
             view.showWinner(model.getWinnerId());
             refreshStatus();
@@ -511,8 +540,16 @@ public class GameController {
         }
     }
 
-    private static String owner(int playerId) {
-        return playerId == 1 ? "Your" : "Enemy";
+    private String owner(int playerId) {
+        return playerId == 1 ? "Your" : model.getPlayerName(playerId) + (bots.size() == 1 ? "" : "'s");
+    }
+
+    /** Knocks out the players whose base has fallen and says so in the log. */
+    private void checkWinCondition() {
+        for (Player out : model.checkWinCondition()) {
+            view.logInfo(out == model.getPlayerOne() ? "Your base has fallen!"
+                    : model.getPlayerName(out.getPlayerID()) + "'s base has fallen: it is out of the game!");
+        }
     }
 
     private void lockInput() {
@@ -657,22 +694,32 @@ public class GameController {
             if (selectedUnit == null) {
                 resetSelection();
             } else if (clickedUnit != null && model.getUnitID(clickedUnit) == selectedUnitId) {
-                resetSelection();
+                // a second click on a unit on top of a building or ship picks the one underneath
+                Unit host = model.getHostOf(clickedUnit);
+                if (host != null && model.isUnitOwnedByCurrentPlayer(model.getUnitID(host))) {
+                    selectedUnitId = model.getUnitID(host);
+                } else {
+                    resetSelection();
+                }
+            } else if (clickedUnit != null && model.getHostOf(clickedUnit) == selectedUnit) {
+                resetSelection(); // the third click on the tile drops the selection
             } else if (clickedUnit != null && !model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
                 CommandResult result = attackCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
-                        logResult(result);
+                logResult(result);
                 if (result.wasSuccessful()) {
                     resetSelection();
                 }
                 animated = playPlayerAction(result);
             } else if (clickedUnit != null && highlights.supportTargets().contains(clickedPoint)) {
                 CommandResult result = healCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
-                        logResult(result);
+                logResult(result);
                 if (result.wasSuccessful()) {
                     resetSelection();
                 }
                 animated = playPlayerAction(result);
-            } else if (clickedUnit == null && highlights.moveTiles().contains(clickedPoint)) {
+            } else if (highlights.moveTiles().contains(clickedPoint)
+                    && (clickedUnit == null || model.canStandOn(selectedUnit, clickedPoint))) {
+                // an empty tile, or one of the player's buildings or ships with room on top
                 CommandResult result = moveCommand.execute(currentPlayer, selectedUnitId, clickedPoint);
                 logResult(result);
                 // a unit that can still act stays selected, so its targets show right after the move
@@ -690,7 +737,7 @@ public class GameController {
             return;
         }
         refresh();
-        model.checkWinCondition();
+        checkWinCondition();
         if (model.isGameOver()) {
             view.showWinner(model.getWinnerId());
             refreshStatus();
@@ -763,7 +810,9 @@ public class GameController {
         }
         Unit unit = unitFactory.createUnit(model.getCurrentPlayer().getPlayerID(), type, PROBE_POSITION);
         boolean hasBuilding = model.getCurrentPlayer().getPlayerDeck().getBuildings().stream()
-                .anyMatch(building -> unit instanceof Infrastructure ? building.getConstructionRadius() > 0 : building.canDeploy(unit));
+                .anyMatch(building -> unit instanceof Infrastructure ? building.getConstructionRadius() > 0 : building.canDeploy(unit))
+                || model.getCurrentPlayer().getPlayerDeck().getUnits().values().stream()
+                .anyMatch(own -> own instanceof TransportShip ship && ship.canDeploy(unit, true));
         if (Command.isSiteBuilding(unit)) {
             boolean hasVehicle = model.getCurrentPlayer().getPlayerDeck().getUnits().values().stream()
                     .anyMatch(own -> own instanceof ArmoredRecoveryVehicle && own.isAvailable());
@@ -772,9 +821,11 @@ public class GameController {
                     : "move your Recovery Vehicle next to free base ruins.";
         }
         if (unit instanceof Infrastructure) return "no free open ground near your base or an army base.";
-        if (!hasBuilding && unit instanceof Aircraft) return "build an Air Base first.";
-        if (!hasBuilding && unit instanceof Ship) return "build a Naval Base first.";
-        return "no free tile to deploy it on.";
+        if (!hasBuilding && unit instanceof Aircraft) return "build an Air Base or launch a carrier first.";
+        if (!hasBuilding && unit instanceof Navy) return "build a Naval Base first.";
+        if (unit instanceof Navy) return "the water around your naval base is taken.";
+        return "a unit stands on top of every building that deploys it: move it off first"
+                + (Osumi.isLight(unit) ? " (or dock an Osumi at the coast)." : ".");
     }
 
     /** The reasons of every type that cannot be deployed right now, for the deploy panel. */

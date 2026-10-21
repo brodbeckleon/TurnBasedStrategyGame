@@ -36,6 +36,9 @@ import game.units.infrastructures.Radarstation;
 import game.units.supportClasses.ArmoredAmbulanceVehicle;
 import game.units.supportClasses.ArmoredReconaissanceVehicle;
 import game.units.supportClasses.ArmoredRecoveryVehicle;
+import game.units.TransportShip;
+import game.units.transports.Izumo;
+import game.units.transports.Osumi;
 
 import java.awt.Point;
 import java.util.ArrayDeque;
@@ -128,7 +131,7 @@ public class BotService {
     }
 
     private Player me() {
-        return playerId == 1 ? model.getPlayerOne() : model.getPlayerTwo();
+        return model.getPlayer(playerId);
     }
 
     /** The enemies the bot can see: it plays by the fog of war like the player. */
@@ -138,13 +141,22 @@ public class BotService {
 
     private List<Map.Entry<Integer, Unit>> visibleEnemyEntries() {
         java.util.Set<Unit> visible = new java.util.HashSet<>(visibleEnemies());
-        return enemy().getPlayerDeck().getUnits().entrySet().stream()
+        return model.getEnemies(me()).stream()
+                .flatMap(enemy -> enemy.getPlayerDeck().getUnits().entrySet().stream())
                 .filter(entry -> visible.contains(entry.getValue()))
                 .toList();
     }
 
-    private Player enemy() {
-        return playerId == 1 ? model.getPlayerTwo() : model.getPlayerOne();
+    /**
+     * The headquarters the bot marches on: in a free-for-all the nearest enemy base still standing (bases never
+     * hide, so this is no cheating).
+     */
+    private Point enemyBase() {
+        Point home = me().getPlayerDeck().getBase().getPosition();
+        return model.getEnemies(me()).stream()
+                .map(enemy -> enemy.getPlayerDeck().getBase().getPosition())
+                .min(Comparator.comparingDouble(base -> base.distance(home)))
+                .orElse(home);
     }
 
     /**
@@ -246,6 +258,9 @@ public class BotService {
     // --- Unit actions ---
 
     private List<GameEvent> performActionForUnit(Unit unit, int unitId, Player botPlayer) {
+        if (unit instanceof TransportShip ship) {
+            return sail(ship, unitId, botPlayer);
+        }
         if (unit instanceof ArmoredRecoveryVehicle recovery) {
             return recover(recovery, unitId, botPlayer);
         }
@@ -369,7 +384,7 @@ public class BotService {
     private Point goalFor(AssaultClass unit) {
         Point position = unit.getPosition();
         List<Unit> enemies = visibleEnemies();
-        Point enemyBase = enemy().getPlayerDeck().getBase().getPosition();
+        Point enemyBase = enemyBase();
 
         if (unit instanceof SelfPropelledAntiAir) {
             // anti-air covers the army; enemy aircraft that come close are shot by its strike planning
@@ -411,7 +426,7 @@ public class BotService {
 
     /** A scout keeps a couple of tiles behind the unit closest to the enemy base, so its spotting covers it. */
     private List<GameEvent> escort(SupportClass scout, int unitId, Player botPlayer) {
-        Point enemyBase = enemy().getPlayerDeck().getBase().getPosition();
+        Point enemyBase = enemyBase();
         Optional<Unit> spearhead = botPlayer.getPlayerDeck().getUnits().values().stream()
                 .filter(friend -> friend instanceof AssaultClass)
                 .min(Comparator.comparingDouble(friend -> friend.getPosition().distance(enemyBase)));
@@ -421,6 +436,18 @@ public class BotService {
         Point goal = spearhead.get().getPosition();
         Point best = bestTile(scout, null, tile -> -2 * Math.abs(tile.distance(goal) - ESCORT_DISTANCE));
         return moveTo(botPlayer, unitId, scout, best);
+    }
+
+    /**
+     * A carrier or amphibious ship heads for the enemy coast, keeping out of harm's way: new units are deployed
+     * onto its deck there (the purchase picks the spot closest to the enemy), and they go ashore from it.
+     */
+    private List<GameEvent> sail(TransportShip ship, int unitId, Player botPlayer) {
+        Point enemyBase = enemyBase();
+        double standOff = ship instanceof Osumi ? 1.5 : 5;
+        Point best = bestTile(ship, null, tile -> -Math.abs(tile.distance(enemyBase) - standOff)
+                + (ship instanceof Osumi && addCommand.isDocked(tile) ? 1 : 0));
+        return moveTo(botPlayer, unitId, ship, best);
     }
 
     /**
@@ -467,9 +494,14 @@ public class BotService {
                 .min(Comparator.comparingDouble(site -> site.distance(recovery.getPosition()) + 0.5 * site.distance(home)));
     }
 
-    /** First an air base (it unlocks aircraft), a naval base on the coast, otherwise an army base. */
+    /**
+     * First an air base (it unlocks aircraft), a naval base on the coast, otherwise an army base. On island maps
+     * the harbour comes first: without ships the army never leaves home.
+     */
     private UnitEnum chooseBaseType(Player botPlayer, Point site) {
         List<Unit> own = List.copyOf(botPlayer.getPlayerDeck().getUnits().values());
+        boolean islands = !model.getBattlefield().getType().landBridges();
+        if (islands && count(own, NavyBase.class) == 0 && addCommand.bordersWater(site)) return UnitEnum.NAVYBASE;
         if (count(own, AirForceBase.class) == 0) return UnitEnum.AIRFORCEBASE;
         if (count(own, NavyBase.class) == 0 && addCommand.bordersWater(site) && waterReachesEnemy(site)) return UnitEnum.NAVYBASE;
         return UnitEnum.ARMYBASE;
@@ -480,7 +512,7 @@ public class BotService {
      * there can join the fight (a fleet in a land-locked lake is wasted).
      */
     private boolean waterReachesEnemy(Point shore) {
-        Point enemyBase = enemy().getPlayerDeck().getBase().getPosition();
+        Point enemyBase = enemyBase();
         java.util.Set<Point> seen = new java.util.HashSet<>();
         Deque<Point> queue = new ArrayDeque<>();
         for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
@@ -680,6 +712,9 @@ public class BotService {
             case YAMATO -> army.usefulFleet ? 2.5 : 0;
             case KONGO -> army.usefulFleet ? 2 + 0.5 * army.enemyAircraft + army.enemySubmarines : 0;
             case SORYU -> army.enemyShips > 0 ? 2 + army.enemyShips : 0; // only worth it against a fleet
+            // a carrier brings the air force within reach of a distant enemy; the amphibious ship lands troops
+            case IZUMO -> army.usefulFleet && army.carriers == 0 && army.combat >= 3 ? 1.8 : 0;
+            case OSUMI -> army.usefulFleet && army.amphibious == 0 && army.combat >= 3 ? 1.2 : 0;
             // filler: a few riflemen help, a horde of them does not
             case INFANTRY -> army.infantry * 3 > army.combat ? 0.2 : 0.8 + 0.15 * army.enemySoft;
             case ANTITANKTEAM -> 0.8 + 0.7 * army.enemyTanks;
@@ -692,7 +727,7 @@ public class BotService {
 
     /** What both sides field, counted once per purchase decision. */
     private final class Army {
-        final long combat, antiAir, artillery, infantry, aircraft, ambulances, recon, recovery, radar;
+        final long combat, antiAir, artillery, infantry, aircraft, ambulances, recon, recovery, radar, carriers, amphibious;
         final long enemyAircraft, enemyTanks, enemySoft, enemyShips, enemySubmarines;
         final boolean claimableSite, hqDamaged, usefulFleet;
         private final List<Unit> own;
@@ -709,6 +744,8 @@ public class BotService {
             recon = count(own, ArmoredReconaissanceVehicle.class);
             recovery = count(own, ArmoredRecoveryVehicle.class);
             radar = count(own, Radarstation.class);
+            carriers = count(own, Izumo.class);
+            amphibious = count(own, Osumi.class);
             enemyAircraft = count(enemy, Aircraft.class);
             enemyTanks = count(enemy, AssaultTank.class);
             enemyShips = count(enemy, Ship.class);
@@ -760,7 +797,7 @@ public class BotService {
         Unit unit = unitFactory.createUnit(botPlayer.getPlayerID(), type, new Point());
         Point goal = unit instanceof Infrastructure
                 ? botPlayer.getPlayerDeck().getBase().getPosition()
-                : enemy().getPlayerDeck().getBase().getPosition();
+                : enemyBase();
         return addCommand.findDeployablePositions(botPlayer, unit).stream()
                 .min(Comparator.comparingDouble(p -> p.distance(goal)));
     }

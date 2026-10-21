@@ -1,6 +1,7 @@
 package game.game;
 
 import game.enums.TerrainEnum;
+import game.interfaces.Host;
 import game.interfaces.MovableUnit;
 import game.interfaces.mobilityType.ByAir;
 import game.interfaces.mobilityType.ByFoot;
@@ -23,7 +24,8 @@ import java.util.Set;
  * How units get around: every step to a neighbouring tile (diagonals included) costs movement points depending on
  * the terrain and how the unit travels. Vehicles need roads or open ground (forest costs them double), infantry
  * crosses forest freely and climbs mountains slowly, ships stay on water and aircraft fly anywhere. Enemy ground and
- * sea units block the way; friends can be passed but not stopped on.
+ * sea units block the way; friends can be passed but not stopped on, except to board one of the owner's buildings or
+ * ships that can take the unit on top (a ground unit boarding a ship at sea ends its move there).
  */
 public final class Movement {
     public static final int IMPASSABLE = Integer.MAX_VALUE;
@@ -64,7 +66,7 @@ public final class Movement {
             return destinations;
         }
         Point start = unit.getPosition();
-        Player owner = unit.getPlayerID() == 1 ? game.getPlayerOne() : game.getPlayerTwo();
+        Player owner = game.getOwner(unit);
         Set<Point> seen = game.isFogOfWar() ? Vision.visibleTiles(game, owner) : Set.of();
         Map<Point, Integer> spent = new HashMap<>();
         Map<Point, Point> previous = new HashMap<>();
@@ -73,9 +75,15 @@ public final class Movement {
         queue.add(start);
         while (!queue.isEmpty()) {
             Point point = queue.poll();
+            if (!point.equals(start) && cost(unit, game.getBattlefield().getGeographyOfPoint(point)) == IMPASSABLE) {
+                continue; // it boarded a ship there: that is as far as it goes
+            }
             for (int[] step : STEPS) {
                 Point next = new Point(point.x + step[0], point.y + step[1]);
                 int cost = cost(unit, game.getBattlefield().getGeographyOfPoint(next));
+                if (cost == IMPASSABLE && canBoard(game, unit, next)) {
+                    cost = 1;
+                }
                 if (cost == IMPASSABLE || blocks(game, unit, next, owner, seen)) continue;
                 int total = spent.get(point) + cost;
                 if (total <= movable.getMovingRange() && total < spent.getOrDefault(next, IMPASSABLE)) {
@@ -87,11 +95,17 @@ public final class Movement {
             }
         }
         for (Point point : spent.keySet()) {
-            if (!point.equals(start) && (game.isPositionFree(point) || isHiddenEnemy(game, unit, point, owner, seen))) {
+            if (!point.equals(start) && (game.canStandOn(unit, point) || isHiddenEnemy(game, unit, point, owner, seen))) {
                 destinations.put(point, path(previous, start, point));
             }
         }
         return destinations;
+    }
+
+    /** True if one of the owner's ships with room for the unit lies there, so the unit can board it. */
+    private static boolean canBoard(Game game, Unit unit, Point point) {
+        return game.getUnitsAt(point).size() == 1 && game.getUnitAt(point) instanceof Host host
+                && host.canHost(unit) && game.canStandOn(unit, point);
     }
 
     /** The cheapest way from the unit's tile to the destination, or an empty list if it cannot get there. */
@@ -112,7 +126,7 @@ public final class Movement {
 
     /** True if an enemy the mover's side cannot see stands on the tile. */
     public static boolean isHiddenEnemy(Game game, Unit mover, Point point) {
-        Player owner = mover.getPlayerID() == 1 ? game.getPlayerOne() : game.getPlayerTwo();
+        Player owner = game.getOwner(mover);
         return isHiddenEnemy(game, mover, point, owner, game.isFogOfWar() ? Vision.visibleTiles(game, owner) : Set.of());
     }
 

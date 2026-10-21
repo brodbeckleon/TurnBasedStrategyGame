@@ -4,7 +4,7 @@ import java.awt.*;
 
 /**
  * A base: produces resource points every round and can be upgraded twice. Each level adds income, health and
- * armour; the last one also widens the area units deploy in. Apart from the headquarters, bases can only be built
+ * armour. Apart from the headquarters, bases can only be built
  * on base ruins by a recovery vehicle.
  */
 public abstract class MilitaryBase extends Infrastructure {
@@ -51,9 +51,4 @@ public abstract class MilitaryBase extends Infrastructure {
         setArmorValue(getArmorValue() + ARMOR_PER_LEVEL);
     }
 
-    @Override
-    public int getDeploymentRadius() {
-        int radius = super.getDeploymentRadius();
-        return level == MAX_LEVEL && radius > 0 ? radius + 1 : radius;
-    }
 }

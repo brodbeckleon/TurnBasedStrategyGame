@@ -78,7 +78,11 @@ class BuildingsAndSupportTest {
             CommandResult result = add.execute(player, type.name(), position);
 
             assertTrue(result.wasSuccessful(), type + ": " + result.getMessage());
-            assertEquals(type, typeOf(game.getUnitAt(position)));
+            Unit deployed = game.getUnitAt(position);
+            assertEquals(type, typeOf(deployed));
+            if (!(deployed instanceof Infrastructure)) {
+                player.getPlayerDeck().removeUnit(game.getUnitID(deployed)); // make room on top of its building
+            }
         }
     }
 
@@ -109,9 +113,11 @@ class BuildingsAndSupportTest {
 
         Fixtures.place(game, 1, new AirForceBase(1, new Point(4, 4)));
 
-        assertFalse(add.execute(player, UnitEnum.FFIFTEEN.name(), new Point(1, 1)).wasSuccessful(),
+        assertFalse(add.execute(player, UnitEnum.FFIFTEEN.name(), new Point(0, 0)).wasSuccessful(),
                 "the base itself does not deploy aircraft");
-        assertTrue(add.execute(player, UnitEnum.FFIFTEEN.name(), new Point(5, 5)).wasSuccessful());
+        assertFalse(add.execute(player, UnitEnum.FFIFTEEN.name(), new Point(5, 5)).wasSuccessful(),
+                "not next to the air base: on top of it");
+        assertTrue(add.execute(player, UnitEnum.FFIFTEEN.name(), new Point(4, 4)).wasSuccessful());
     }
 
     @Test
@@ -150,7 +156,8 @@ class BuildingsAndSupportTest {
 
         assertTrue(add.execute(player, UnitEnum.ARMYBASE.name(), new Point(7, 0)).wasSuccessful());
 
-        assertTrue(add.execute(player, UnitEnum.TYPENINETY.name(), new Point(8, 0)).wasSuccessful());
+        assertFalse(add.execute(player, UnitEnum.TYPENINETY.name(), new Point(8, 0)).wasSuccessful(), "next to it");
+        assertTrue(add.execute(player, UnitEnum.TYPENINETY.name(), new Point(7, 0)).wasSuccessful(), "on top of it");
         assertTrue(deployable(UnitEnum.RADARSTATION).contains(new Point(10, 0)), "within 3 tiles of the army base");
         assertFalse(deployable(UnitEnum.RADARSTATION).contains(new Point(11, 0)));
     }

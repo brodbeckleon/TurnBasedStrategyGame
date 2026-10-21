@@ -7,7 +7,7 @@ import game.units.Unit;
 
 import java.awt.*;
 
-/** A forward base: army units deploy around it, and further buildings can be built from it. */
+/** A forward base: army units are deployed on top of it, and further buildings can be built from it. */
 public class ArmyBase extends MilitaryBase implements Army {
     public ArmyBase(int playerID, Point position) {
         super(playerID, "Army Base", position, 10, 2500, 25, 2, 2);

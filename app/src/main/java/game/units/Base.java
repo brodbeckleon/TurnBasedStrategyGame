@@ -4,7 +4,7 @@ import game.interfaces.militaryBranches.Army;
 
 import java.awt.Point;
 
-/** The headquarters: losing it loses the game. Army units deploy around it and new buildings are built near it. */
+/** The headquarters: losing it loses the game. Army units are deployed on top of it and new buildings are built near it. */
 public class Base extends MilitaryBase {
     private final int baseID;
 

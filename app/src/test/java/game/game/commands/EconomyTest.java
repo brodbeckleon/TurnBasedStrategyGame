@@ -148,7 +148,6 @@ class EconomyTest {
 
         assertTrue(upgrade.execute(player, hq.getBaseID()).wasSuccessful());
         assertEquals(3, hq.getLevel());
-        assertEquals(4, hq.getDeploymentRadius(), "the last level widens the deployment area");
         assertEquals(4, player.getResourcePoints());
         assertFalse(upgrade.execute(player, hq.getBaseID()).wasSuccessful(), "already at the highest level");
     }

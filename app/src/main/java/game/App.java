@@ -2,7 +2,9 @@ package game;
 
 import game.controller.GameController;
 import game.model.Game;
+import game.model.GameSettings;
 import game.view.GameView;
+import game.view.MainMenu;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
@@ -26,16 +28,22 @@ public class App extends Application {
         primaryStage.setMinHeight(600);
         primaryStage.setScene(scene);
 
-        // 2. Initialize the Model, View and Controller
-        newGame();
+        // 2. The main menu sets up the game
+        showMenu(GameSettings.standard());
         primaryStage.show();
     }
 
+    /** The start screen, with the settings of the last game picked. */
+    private void showMenu(GameSettings settings) {
+        scene.setRoot(new MainMenu(settings, this::newGame).getRoot());
+    }
+
     /** Starts a fresh game in the window; the game over screen calls it again for a rematch. */
-    private void newGame() {
-        Game model = new Game();
+    private void newGame(GameSettings settings) {
+        Game model = new Game(settings);
         GameView view = new GameView(model.getBattlefield().getSize().x, model.getBattlefield().getSize().y);
-        view.setOnRestart(this::newGame);
+        view.setOnRestart(() -> newGame(settings));
+        view.setOnMainMenu(() -> showMenu(settings));
         new GameController(model, view);
         scene.setRoot(view.getRoot());
     }

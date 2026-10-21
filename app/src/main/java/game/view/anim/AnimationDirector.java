@@ -118,10 +118,23 @@ public final class AnimationDirector {
     public Transition direct(List<GameEvent> events) {
         Schedule schedule = new Schedule();
         double cursor = 0;
+        UnitMoved lastMove = null;
+        double lastMoveStart = 0;
         for (GameEvent event : events) {
+            if (event instanceof UnitMoved e && lastMove != null && e.path().equals(lastMove.path())) {
+                // a unit on the deck of a ship sails along with it, at the same time
+                cursor = Math.max(cursor, move(schedule, lastMoveStart, e, true));
+                continue;
+            }
+            if (event instanceof UnitMoved e) {
+                lastMove = e;
+                lastMoveStart = cursor;
+            } else {
+                lastMove = null;
+            }
             cursor = switch (event) {
                 case UnitDeployed e -> deploy(schedule, cursor, e);
-                case UnitMoved e -> move(schedule, cursor, e);
+                case UnitMoved e -> move(schedule, cursor, e, false);
                 case UnitAttacked e -> attack(schedule, cursor, e);
                 case UnitDamaged e -> damage(schedule, cursor, e);
                 case UnitDestroyed e -> destroy(schedule, cursor, e);
@@ -202,7 +215,7 @@ public final class AnimationDirector {
         return startMs + DEPLOY_MS;
     }
 
-    private double move(Schedule schedule, double startMs, UnitMoved event) {
+    private double move(Schedule schedule, double startMs, UnitMoved event, boolean onDeck) {
         UnitNode ghost = ghost(event.unitId(), event.playerId(), event.unitName(), event.from());
         // the unit follows its path tile by tile (around water, mountains and enemies)
         List<Point> path = event.path().size() >= 2 ? event.path() : List.of(event.from(), event.to());
@@ -225,7 +238,7 @@ public final class AnimationDirector {
             ghost.setTranslateX(at.getX());
             ghost.setTranslateY(at.getY());
         });
-        if (ghost.getKind() == UnitKind.GROUND) {
+        if (ghost.getKind() == UnitKind.GROUND && !onDeck) {
             dust(schedule, startMs, event.from());
         }
         return startMs + duration;

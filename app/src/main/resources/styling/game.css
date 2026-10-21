@@ -56,6 +56,9 @@
 
 .turn-p1 { -fx-text-fill: #79a8ff; }
 .turn-p2 { -fx-text-fill: #ff7b72; }
+.turn-p3 { -fx-text-fill: #6fdc8c; }
+.turn-p4 { -fx-text-fill: #f2c94c; }
+.turn-p5 { -fx-text-fill: #c58cff; }
 
 .muted {
     -fx-text-fill: #8d97ab;
@@ -72,6 +75,9 @@
 
 .player-card.active-p1 { -fx-border-color: #4c8dff; -fx-border-width: 2; -fx-padding: 9; }
 .player-card.active-p2 { -fx-border-color: #ff5a5a; -fx-border-width: 2; -fx-padding: 9; }
+.player-card.active-p3 { -fx-border-color: #3fbf68; -fx-border-width: 2; -fx-padding: 9; }
+.player-card.active-p4 { -fx-border-color: #e0b02c; -fx-border-width: 2; -fx-padding: 9; }
+.player-card.active-p5 { -fx-border-color: #a56cf0; -fx-border-width: 2; -fx-padding: 9; }
 
 .player-name {
     -fx-font-weight: bold;
@@ -80,6 +86,9 @@
 
 .owner-p1 { -fx-text-fill: #79a8ff; }
 .owner-p2 { -fx-text-fill: #ff7b72; }
+.owner-p3 { -fx-text-fill: #6fdc8c; }
+.owner-p4 { -fx-text-fill: #f2c94c; }
+.owner-p5 { -fx-text-fill: #c58cff; }
 
 .stat-text {
     -fx-text-fill: #b7c0d2;
@@ -301,3 +310,26 @@
     -fx-cursor: hand;
 }
 .ready-unit:hover { -fx-background-color: #2b3550; -fx-border-color: #4a587a; }
+
+/* Main menu */
+.menu-root {
+    -fx-background-color: #141922;
+}
+
+.menu-scroll,
+.menu-scroll > .viewport {
+    -fx-background-color: #141922;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.menu-title {
+    -fx-text-fill: #f5b942;
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+}
+
+.menu-option {
+    -fx-font-size: 13px;
+    -fx-padding: 7 14 7 14;
+}

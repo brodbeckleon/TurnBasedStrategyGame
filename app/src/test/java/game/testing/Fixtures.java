@@ -34,7 +34,7 @@ public final class Fixtures {
 
     /** Puts a unit into the deck of the given player and returns the unit id the model assigned. */
     public static int place(Game game, int playerId, Unit unit) {
-        var player = playerId == 1 ? game.getPlayerOne() : game.getPlayerTwo();
+        var player = game.getPlayer(playerId);
         player.getPlayerDeck().addUnit(unit);
         return game.getUnitID(unit);
     }

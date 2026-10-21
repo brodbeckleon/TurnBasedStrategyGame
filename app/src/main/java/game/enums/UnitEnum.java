@@ -35,6 +35,8 @@ public enum UnitEnum {
     YAMATO,                 //Yamato
     KONGO,                  //Kongo-class destroyer
     SORYU,                  //Soryu-class submarine
+    IZUMO,                  //Izumo-class aircraft carrier
+    OSUMI,                  //Osumi-class amphibious assault ship
 //Infrastructure
     ARMYBASE,               //Army Base
     AIRFORCEBASE,           //Air Base

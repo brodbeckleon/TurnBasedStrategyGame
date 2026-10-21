@@ -3,6 +3,7 @@ package game.game;
 import game.model.Game;
 import game.tools.CircleGenerator;
 import game.units.Infrastructure;
+import game.units.TransportShip;
 import game.units.Unit;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.Helicopter;
@@ -37,7 +38,7 @@ public final class Vision {
         if (unit instanceof ArmoredReconaissanceVehicle) return 5;
         if (unit instanceof Submarine) return 2;
         if (unit instanceof Helicopter) return 3;
-        if (unit instanceof Aircraft || unit instanceof Ship) return 4;
+        if (unit instanceof Aircraft || unit instanceof Ship || unit instanceof TransportShip) return 4;
         if (unit instanceof SelfPropelledArtillery) return 2;
         return 3;
     }
