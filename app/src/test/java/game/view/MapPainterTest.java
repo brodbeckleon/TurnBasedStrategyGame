@@ -55,4 +55,17 @@ class MapPainterTest {
         long edge = Arrays.stream(fog, 8 * 64 + 28, 8 * 64 + 36).filter(argb -> argb != 0).count();
         assertTrue(edge > 0 && edge < 8, "the edge between them is dithered");
     }
+
+    @Test
+    void everyHeadquartersAndRuinsStandInAYardOfEarth() {
+        Set<Integer> yard = Set.of(0xffa08a63, 0xffb39c72, 0xff8a7553, 0xff7d6a4a, 0xff665540);
+        Battlefield field = new Battlefield(new CircleGenerator(), 16, 16, MapType.CONTINENTS, 4);
+        int[] pixels = MapPainter.paint(field, 5);
+        java.util.List<Point> places = new java.util.ArrayList<>(field.getBasePositions());
+        places.addAll(field.getBaseSites());
+        for (Point place : places) {
+            int x = place.x * 16 + 8, y = place.y * 16 + 4;
+            assertTrue(yard.contains(pixels[y * 16 * 16 + x]), "a yard at " + place);
+        }
+    }
 }

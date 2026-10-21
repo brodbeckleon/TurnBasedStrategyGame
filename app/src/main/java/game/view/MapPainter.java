@@ -23,7 +23,7 @@ public final class MapPainter {
     /** Pixels per tile. */
     public static final int TILE = 16;
 
-    private static final int GRASS = 0, WATER = 1, FOREST = 2, MOUNTAIN = 3;
+    private static final int GRASS = 0, WATER = 1, FOREST = 2, MOUNTAIN = 3, BUILT = 4; // BUILT: roads and yards
 
     // the palette of the terrain tiles and unit sprites
     private static final int GRASS_BASE = 0xff3abe41, GRASS_LIGHT = 0xff3fc445, GRASS_DARK = 0xff36b53e;
@@ -33,6 +33,10 @@ public final class MapPainter {
     private static final int SEA = 0xff1e7cb8, SEA_DEEP = 0xff1c77b2, SEA_LIGHT = 0xff5aaee4, SEA_SHADOW = 0xff165c88;
     private static final int SURF = 0xffffffff, SPARKLE = 0xff3b93d0;
     private static final int FLOWER_A = 0xfff2e86d, FLOWER_B = 0xffffffff;
+    // packed earth and gravel of the yards around the bases, the tracks between them and the wooden jetties
+    private static final int YARD = 0xffa08a63, YARD_LIGHT = 0xffb39c72, YARD_DARK = 0xff8a7553, YARD_EDGE = 0xff7d6a4a;
+    private static final int YARD_SHADOW = 0xff665540, TRACK = 0xffa8916a, TRACK_EDGE = 0xff86714f;
+    private static final int PLANK = 0xff8a6a44, PLANK_DARK = 0xff5e4630, PLANK_LIGHT = 0xffa7835a;
 
     private static final String[] PINE = {
             "...oo...",
@@ -118,6 +122,7 @@ public final class MapPainter {
         MapPainter painter = new MapPainter(battlefield, seed);
         painter.shape();
         painter.colour();
+        painter.settle();
         painter.decorate();
         return painter.pixels;
     }
@@ -276,6 +281,176 @@ public final class MapPainter {
                 }
             }
         }
+    }
+
+    // --- Yards, tracks and jetties: the bases belong to the land ---
+
+    /**
+     * Every headquarters and every set of base ruins stands in a yard of packed earth, so the buildings sit in
+     * the landscape instead of on top of it. Dirt tracks join neighbouring yards across open ground (only over
+     * plains, so they never suggest a way through woods or mountains), and ruins by the water get a jetty.
+     */
+    private void settle() {
+        List<Point> places = new ArrayList<>(battlefield.getBasePositions());
+        for (Point site : battlefield.getBaseSites()) {
+            if (!places.contains(site)) places.add(site);
+        }
+        for (List<Point> road : roads(places)) {
+            track(road);
+        }
+        for (Point place : places) {
+            if (battlefield.getBaseSites().contains(place)) {
+                jetty(place);
+            }
+            yard(place);
+        }
+    }
+
+    /** A rounded yard of earth around the tile, a darker rim, a dithered edge and the building's shadow. */
+    private void yard(Point tile) {
+        int cx = tile.x * TILE + TILE / 2, cy = tile.y * TILE + TILE / 2 + 1;
+        double rx = 10.5, ry = 8.5;
+        for (int py = cy - 11; py <= cy + 11; py++) {
+            for (int px = cx - 13; px <= cx + 13; px++) {
+                if (!inside(px, py) || kind[py * width + px] == WATER) continue;
+                double dx = (px - cx) / rx, dy = (py - cy) / ry;
+                double r = Math.sqrt(dx * dx + dy * dy) + 0.08 * wobble(px, py, 4, 7);
+                int i = py * width + px;
+                if (r < 0.86) {
+                    int roll = hash(px, py, 61) % 11;
+                    pixels[i] = roll == 0 ? YARD_LIGHT : roll == 1 ? YARD_DARK : YARD;
+                } else if (r < 1) {
+                    pixels[i] = YARD_EDGE;
+                } else if (r < 1.14 && (px + py) % 2 == 0) {
+                    pixels[i] = YARD_EDGE; // blends into the grass
+                } else {
+                    continue;
+                }
+                kind[i] = BUILT;
+            }
+        }
+        // the shadow the building casts to the lower right, peeking out under its sprite
+        for (int py = cy + 5; py <= cy + 7; py++) {
+            for (int px = cx - 6; px <= cx + 9; px++) {
+                if (inside(px, py) && kind[py * width + px] == BUILT) pixels[py * width + px] = YARD_SHADOW;
+            }
+        }
+    }
+
+    /** A wooden jetty from ruins by the water out to the sea, so a harbour there reaches the water. */
+    private void jetty(Point site) {
+        int[][] directions = {{0, 1}, {1, 0}, {-1, 0}, {0, -1}};
+        for (int[] d : directions) {
+            Point next = new Point(site.x + d[0], site.y + d[1]);
+            if (battlefield.getGeographyOfPoint(next) != TerrainEnum.WATER) continue;
+            int cx = site.x * TILE + TILE / 2, cy = site.y * TILE + TILE / 2;
+            for (int step = 4; step <= TILE - 4; step++) { // stops short of the middle of the water tile
+                for (int side = -2; side <= 2; side++) {
+                    int px = cx + d[0] * step + (d[0] == 0 ? side : 0);
+                    int py = cy + d[1] * step + (d[1] == 0 ? side : 0);
+                    if (!inside(px, py)) continue;
+                    int i = py * width + px;
+                    if (kind[i] == WATER) {
+                        boolean rim = Math.abs(side) == 2;
+                        boolean seam = (d[0] == 0 ? py : px) % 3 == 0;
+                        pixels[i] = rim ? PLANK_DARK : seam ? PLANK_LIGHT : PLANK;
+                        kind[i] = BUILT;
+                    } else if (kind[i] != BUILT || pixels[i] == YARD_EDGE) {
+                        // on land up to the shore the jetty is a strip of trodden earth
+                        pixels[i] = Math.abs(side) == 2 ? TRACK_EDGE : TRACK;
+                        kind[i] = BUILT;
+                    }
+                }
+            }
+            return;
+        }
+    }
+
+    /** A dirt track along the tiles, three pixels wide with darker verges, around water. */
+    private void track(List<Point> road) {
+        for (int k = 1; k < road.size(); k++) {
+            Point a = road.get(k - 1), b = road.get(k);
+            double ax = a.x * TILE + TILE / 2.0, ay = a.y * TILE + TILE / 2.0;
+            double bx = b.x * TILE + TILE / 2.0, by = b.y * TILE + TILE / 2.0;
+            int steps = (int) Math.ceil(Math.max(Math.abs(bx - ax), Math.abs(by - ay)));
+            for (int t = 0; t <= steps; t++) {
+                double f = steps == 0 ? 0 : (double) t / steps;
+                int x = (int) Math.round(ax + (bx - ax) * f + 1.2 * wobble((int) ax + t, (int) ay, 9, 8));
+                int y = (int) Math.round(ay + (by - ay) * f + 1.2 * wobble((int) ax, (int) ay + t, 9, 9));
+                for (int dy = -2; dy <= 2; dy++) {
+                    for (int dx = -2; dx <= 2; dx++) {
+                        int px = x + dx, py = y + dy;
+                        if (!inside(px, py) || kind[py * width + px] == WATER) continue;
+                        int i = py * width + px;
+                        boolean core = Math.abs(dx) <= 1 && Math.abs(dy) <= 1;
+                        if (core) {
+                            pixels[i] = hash(px, py, 62) % 9 == 0 ? YARD_DARK : TRACK;
+                        } else if (kind[i] != BUILT) {
+                            pixels[i] = TRACK_EDGE;
+                        }
+                        kind[i] = BUILT;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The tracks between the yards: every yard is joined to its nearest neighbour it can reach over plains (and
+     * the groups to each other), like a spanning tree, so the network stays sparse.
+     */
+    private List<List<Point>> roads(List<Point> places) {
+        List<List<Point>> roads = new ArrayList<>();
+        List<Point> joined = new ArrayList<>();
+        if (places.isEmpty()) return roads;
+        joined.add(places.get(0));
+        List<Point> waiting = new ArrayList<>(places.subList(1, places.size()));
+        while (!waiting.isEmpty()) {
+            List<Point> best = null;
+            Point bestPlace = null;
+            for (Point place : waiting) {
+                List<Point> path = plainPath(place, joined);
+                if (path != null && (best == null || path.size() < best.size())) {
+                    best = path;
+                    bestPlace = place;
+                }
+            }
+            if (best == null) {
+                // the rest cannot be reached over plains from here: start a new group
+                joined.add(waiting.remove(0));
+                continue;
+            }
+            if (best.size() <= MAX_ROAD_TILES) roads.add(best);
+            joined.add(bestPlace);
+            waiting.remove(bestPlace);
+        }
+        return roads;
+    }
+
+    private static final int MAX_ROAD_TILES = 12;
+
+    /** The shortest way over plains (four directions) from the tile to one of the targets, or null. */
+    private List<Point> plainPath(Point start, List<Point> targets) {
+        java.util.Map<Point, Point> previous = new java.util.HashMap<>();
+        Deque<Point> queue = new ArrayDeque<>(List.of(start));
+        previous.put(start, start);
+        while (!queue.isEmpty()) {
+            Point point = queue.poll();
+            if (!point.equals(start) && targets.contains(point)) {
+                List<Point> path = new ArrayList<>();
+                for (Point p = point; !p.equals(start); p = previous.get(p)) path.add(p);
+                path.add(start);
+                return path;
+            }
+            for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                Point next = new Point(point.x + d[0], point.y + d[1]);
+                if (previous.containsKey(next)) continue;
+                if (battlefield.getGeographyOfPoint(next) != TerrainEnum.PLAIN) continue;
+                previous.put(next, point);
+                queue.add(next);
+            }
+        }
+        return null;
     }
 
     // --- Grass tufts, flowers, trees and mountains ---
