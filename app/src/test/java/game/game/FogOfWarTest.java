@@ -19,6 +19,7 @@ import game.units.assaultClasses.aircraft.FTwo;
 import game.units.assaultClasses.artillery.TypeNinetyNineSPH;
 import game.units.assaultClasses.ships.Kongo;
 import game.units.assaultClasses.ships.Soryu;
+import game.units.infrastructures.AirForceBase;
 import game.units.infrastructures.ArmyBase;
 import game.units.supportClasses.ArmoredReconaissanceVehicle;
 import org.junit.jupiter.api.BeforeEach;
@@ -146,6 +147,44 @@ class FogOfWarTest {
 
         assertTrue(result.wasSuccessful());
         assertFalse(result.getMessage().startsWith("Ambush!"), "a visible aircraft would not block it either");
+        assertEquals(new Point(5, 5), tank.getPosition());
+    }
+
+    @Test
+    void aHiddenStealthFighterOnItsAirBaseLeavesTheBaseInSightAndOpenToAttack() {
+        int tank = Fixtures.place(game, 1, new TypeTen(1, new Point(5, 5))); // three tiles off: too far to spot the jet
+        int base = Fixtures.place(game, 2, new AirForceBase(2, new Point(8, 5)));
+        FThirtyFive stealth = new FThirtyFive(2, new Point(8, 5));
+        Fixtures.place(game, 2, stealth);
+        assertFalse(game.isVisibleTo(player, stealth));
+
+        assertEquals(base, game.getUnitID(game.getUnitSeenAt(new Point(8, 5), player)), "the base, not empty ruins");
+        assertTrue(attack.findTargets(player, tank).contains(base), "a jet nobody sees shields nothing");
+        assertTrue(attack.execute(player, tank, base).wasSuccessful());
+    }
+
+    @Test
+    void aSpottedStealthFighterOnItsAirBaseStillTakesTheAttackFirst() {
+        int tank = Fixtures.place(game, 1, new TypeTen(1, new Point(6, 5)));
+        int base = Fixtures.place(game, 2, new AirForceBase(2, new Point(8, 5)));
+        FThirtyFive stealth = new FThirtyFive(2, new Point(8, 5));
+        int jet = Fixtures.place(game, 2, stealth);
+
+        assertSame(stealth, game.getUnitSeenAt(new Point(8, 5), player));
+        assertTrue(attack.findTargets(player, tank).contains(jet));
+        assertFalse(attack.findTargets(player, tank).contains(base));
+    }
+
+    @Test
+    void anAircraftOnAnEnemyBaseNeitherOpensTheWayNorHidesTheBase() {
+        MoveCommand move = new MoveCommand(game);
+        TypeTen tank = new TypeTen(1, new Point(5, 5));
+        int id = Fixtures.place(game, 1, tank);
+        Fixtures.place(game, 2, new AirForceBase(2, new Point(8, 5)));
+        Fixtures.place(game, 2, new FThirtyFive(2, new Point(8, 5)));
+
+        assertFalse(Movement.path(game, tank, new Point(9, 5)).contains(new Point(8, 5)), "the base bars the way");
+        assertFalse(move.execute(player, id, new Point(8, 5)).wasSuccessful(), "no ambush on a base in plain sight");
         assertEquals(new Point(5, 5), tank.getPosition());
     }
 

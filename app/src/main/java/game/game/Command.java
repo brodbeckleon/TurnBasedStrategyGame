@@ -143,10 +143,11 @@ public class Command {
         return isHiddenEnemy(player, position);
     }
 
-    /** True if an enemy the player cannot see stands on the tile. */
+    /** True if an enemy stands on the tile and the player sees nothing there (not even a building under it). */
     public boolean isHiddenEnemy(Player player, Point position) {
         Unit other = gameModel.getUnitAt(position);
-        return other != null && other.getPlayerID() != player.getPlayerID() && !gameModel.isVisibleTo(player, other);
+        return other != null && other.getPlayerID() != player.getPlayerID()
+                && gameModel.getUnitSeenAt(position, player) == null;
     }
 
     /** Bases other than the headquarters can only be built on base ruins. */

@@ -17,6 +17,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Model: Represents the core game logic and state.
@@ -243,6 +244,19 @@ public class Game {
             }
         }
         return there.isEmpty() ? null : there.get(0);
+    }
+
+    /** The unit the viewer sees on the tile: the one on top, or the building or ship under it if that one hides. */
+    public Unit getUnitSeenAt(Point point, Player viewer) {
+        return getUnitSeenAt(point, unit -> isVisibleTo(viewer, unit));
+    }
+
+    /** The unit on the tile that passes the visibility test, preferring the one on top; null if none does. */
+    public Unit getUnitSeenAt(Point point, Predicate<Unit> seen) {
+        Unit top = getUnitAt(point);
+        if (top == null || seen.test(top)) return top;
+        Unit host = getHostOf(top); // e.g. a stealth fighter on its air base: the base is still in plain sight
+        return host != null && seen.test(host) ? host : null;
     }
 
     /** The building or ship the unit stands on top of, or null. */
