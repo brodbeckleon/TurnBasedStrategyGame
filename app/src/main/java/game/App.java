@@ -5,6 +5,7 @@ import game.model.Game;
 import game.model.GameSettings;
 import game.view.GameView;
 import game.view.MainMenu;
+import game.view.PixelFonts;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
@@ -19,6 +20,7 @@ public class App extends Application {
 
     @Override
     public void start(Stage primaryStage) {
+        PixelFonts.load();
         // 1. Set up the main stage (window); the game itself is put in by newGame()
         scene = new Scene(new javafx.scene.layout.Pane(), 1180, 780);
         scene.getStylesheets().add(getClass().getResource("/styling/progress.css").toExternalForm());
@@ -42,9 +44,15 @@ public class App extends Application {
     private void newGame(GameSettings settings) {
         Game model = new Game(settings);
         GameView view = new GameView(model.getBattlefield().getSize().x, model.getBattlefield().getSize().y);
-        view.setOnRestart(() -> newGame(settings));
-        view.setOnMainMenu(() -> showMenu(settings));
-        new GameController(model, view);
+        GameController controller = new GameController(model, view);
+        view.setOnRestart(() -> {
+            controller.stop();
+            newGame(settings);
+        });
+        view.setOnMainMenu(() -> {
+            controller.stop();
+            showMenu(settings);
+        });
         scene.setRoot(view.getRoot());
     }
 

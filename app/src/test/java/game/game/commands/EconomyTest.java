@@ -112,7 +112,7 @@ class EconomyTest {
     }
 
     @Test
-    void basesProduceIncomeUpToTheCap() {
+    void basesProduceIncomeWithoutALimit() {
         Player bot = game.getPlayerTwo();
         int botStart = bot.getResourcePoints();
         assertEquals(2, game.getIncome(player), "the headquarters alone");
@@ -124,9 +124,9 @@ class EconomyTest {
         assertEquals(before + 4, player.getResourcePoints());
 
         game.switchTurn();
-        while (player.getResourcePoints() < 19) player.addResourcePoints(1);
+        while (player.getResourcePoints() < 40) player.addResourcePoints(1);
         game.switchTurn();
-        assertEquals(20, player.getResourcePoints(), "capped at the maximum");
+        assertEquals(44, player.getResourcePoints(), "no cap: savings keep growing");
         assertEquals(botStart + 2, bot.getResourcePoints(), "the bot earned only its own income, once");
     }
 

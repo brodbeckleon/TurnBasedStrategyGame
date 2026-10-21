@@ -18,6 +18,7 @@ import game.units.MilitaryBase;
 import game.units.SupportClass;
 import game.units.TransportShip;
 import game.units.Unit;
+import game.units.infrastructures.NavyBase;
 import game.units.assaultClasses.AssaultTank;
 import game.view.anim.AnimationDirector;
 import game.view.anim.Cells;
@@ -35,6 +36,8 @@ import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.image.PixelFormat;
+import javafx.scene.image.WritableImage;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
@@ -66,13 +69,18 @@ public class GameView {
     private static final Color RANGE_HATCH = Color.rgb(255, 70, 70, 0.32);
     private static final Color TARGET_COLOR = Color.rgb(255, 70, 60);
     private static final Color SUPPORT_COLOR = Color.rgb(90, 235, 130);
-    private static final Color FOG_COLOR = Color.rgb(12, 16, 30, 0.45);
+    private static final int FOG_ARGB = 0x8c0c101e; // a dark blue veil, a little over half opaque
     private static final Color DEPLOY_FILL = Color.rgb(60, 230, 120, 0.42);
     private static final Color DEPLOY_EDGE = Color.rgb(170, 255, 190, 0.9);
     private static final Color SELECTION_COLOR = Color.rgb(255, 245, 170);
 
     private final BorderPane root;
     private final GridPane grid;
+    private final ImageView terrainView = new ImageView();
+    private final ImageView fogView = new ImageView(); // above the units: what is in the fog stays dim
+    private Set<Point> foggedTiles = Set.of();
+    private Battlefield paintedField;
+    private Set<Point> paintedHarbours = Set.of();
     private final StackPane board;
     private final StackPane boardArea;
     private final Pane boardHolder;
@@ -87,7 +95,7 @@ public class GameView {
     private final List<PlayerCard> cards = new ArrayList<>();
     private Runnable onMainMenu;
     private final VBox deployBox;
-    private final HBox deployTabs;
+    private final GridPane deployTabs; // three tabs per row, so the pixel font stays readable
     private final GridPane deployCards;
     private final VBox inspector;
     private final TextArea infoArea;
@@ -134,6 +142,7 @@ public class GameView {
         this.gridWidth = width;
         this.gridHeight = height;
 
+        PixelFonts.load();
         root = new BorderPane();
         root.getStyleClass().add("game-root");
         grid = new GridPane();
@@ -145,7 +154,7 @@ public class GameView {
             grid.getRowConstraints().add(new RowConstraints(CELL_SIZE));
         }
 
-        // Grid lines and the hover frame sit above the tiles and never take part in layout or clicks.
+        // The hover frame sits above the tiles and never takes part in layout or clicks.
         markerLayer = new Pane();
         markerLayer.setManaged(false);
         markerLayer.setMouseTransparent(true);
@@ -155,14 +164,23 @@ public class GameView {
         hoverFrame.setStrokeWidth(1);
         hoverFrame.setStrokeType(StrokeType.INSIDE);
         hoverFrame.setVisible(false);
-        markerLayer.getChildren().addAll(createGridLines(), hoverFrame);
+        markerLayer.getChildren().add(hoverFrame);
 
         // Animations are drawn on a transparent layer above the grid that never takes part in layout or clicks.
         effectsLayer = new Pane();
         effectsLayer.setManaged(false);
         effectsLayer.setMouseTransparent(true);
         effectsLayer.setClip(new Rectangle(gridWidth * CELL_SIZE, gridHeight * CELL_SIZE));
-        board = new StackPane(grid, markerLayer, effectsLayer);
+        // the terrain is one painted picture under the cells, so it flows from tile to tile without seams
+        terrainView.setFitWidth(gridWidth * CELL_SIZE);
+        terrainView.setFitHeight(gridHeight * CELL_SIZE);
+        terrainView.setSmooth(false);
+        terrainView.setMouseTransparent(true);
+        fogView.setFitWidth(gridWidth * CELL_SIZE);
+        fogView.setFitHeight(gridHeight * CELL_SIZE);
+        fogView.setSmooth(false);
+        fogView.setMouseTransparent(true);
+        board = new StackPane(terrainView, grid, fogView, markerLayer, effectsLayer);
         board.setAlignment(Pos.TOP_LEFT);
         board.getStyleClass().add("board");
         board.getTransforms().add(boardScale);
@@ -193,7 +211,14 @@ public class GameView {
         roundLabel.getStyleClass().add("round-label");
         turnLabel = new Label();
         turnLabel.getStyleClass().add("turn-label");
-        VBox header = new VBox(2, roundLabel, turnLabel);
+        Button menuButton = new Button("Menu");
+        menuButton.getStyleClass().add("small-button");
+        menuButton.setFocusTraversable(false);
+        menuButton.setOnAction(event -> confirmLeave());
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        HBox header = new HBox(new VBox(2, roundLabel, turnLabel), headerSpacer, menuButton);
+        header.setAlignment(Pos.TOP_LEFT);
 
         playerCards.setHgap(8);
         playerCards.setVgap(8);
@@ -213,7 +238,14 @@ public class GameView {
         fogBox = new CheckBox("Fog of war");
         fogBox.setFocusTraversable(false);
 
-        deployTabs = new HBox(4);
+        deployTabs = new GridPane();
+        deployTabs.setHgap(4);
+        deployTabs.setVgap(4);
+        for (int i = 0; i < 3; i++) {
+            ColumnConstraints third = new ColumnConstraints();
+            third.setPercentWidth(100 / 3.0);
+            deployTabs.getColumnConstraints().add(third);
+        }
         deployCards = new GridPane();
         deployCards.setHgap(6);
         deployCards.setVgap(6);
@@ -271,19 +303,6 @@ public class GameView {
         Label label = new Label(text);
         label.getStyleClass().add("section-title");
         return label;
-    }
-
-    private Path createGridLines() {
-        Path lines = new Path();
-        for (int x = 1; x < gridWidth; x++) {
-            lines.getElements().addAll(new MoveTo(x * CELL_SIZE, 0), new LineTo(x * CELL_SIZE, gridHeight * CELL_SIZE));
-        }
-        for (int y = 1; y < gridHeight; y++) {
-            lines.getElements().addAll(new MoveTo(0, y * CELL_SIZE), new LineTo(gridWidth * CELL_SIZE, y * CELL_SIZE));
-        }
-        lines.setStroke(Color.rgb(0, 0, 0, 0.16));
-        lines.setStrokeWidth(1);
-        return lines;
     }
 
     /** Scales the board to the largest size that fits, in whole screen pixels per cell so the pixel art stays crisp. */
@@ -386,6 +405,19 @@ public class GameView {
     }
 
     private void drawTerrain(Battlefield battlefield) {
+        // repainted when a harbour is built (it gets a canal to the sea) or one is destroyed
+        Set<Point> harbours = new HashSet<>();
+        for (Player player : model.getPlayers()) {
+            for (Unit unit : player.getPlayerDeck().getBuildings()) {
+                if (unit instanceof NavyBase) harbours.add(unit.getPosition());
+            }
+        }
+        if (paintedField != battlefield || !harbours.equals(paintedHarbours)) {
+            paintedField = battlefield;
+            paintedHarbours = harbours;
+            terrainView.setImage(paint(battlefield, harbours));
+        }
+        drawFog(battlefield);
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
                 Point pos = new Point(x, y);
@@ -393,36 +425,39 @@ public class GameView {
                 if (cellPane == null) continue;
 
                 cellPane.getChildren().clear();
-
-                Image terrainImage = loadImage(getTerrainImagePath(battlefield, pos));
-                if (terrainImage != null) {
-                    ImageView terrainView = new ImageView(terrainImage);
-                    terrainView.setFitWidth(CELL_SIZE);
-                    terrainView.setFitHeight(CELL_SIZE);
-                    terrainView.setSmooth(false);
-                    cellPane.getChildren().add(terrainView);
-                }
-                if (battlefield.getGeographyOfPoint(pos) == TerrainEnum.FOREST) {
-                    Image trees = loadImage("/images/terrain/FOREST.png");
-                    if (trees != null) {
-                        ImageView treeView = new ImageView(trees);
-                        treeView.setFitWidth(CELL_SIZE);
-                        treeView.setFitHeight(CELL_SIZE);
-                        treeView.setSmooth(false);
-                        cellPane.getChildren().add(treeView);
-                    }
-                }
-                if (model.isFogOfWar() && !visibleTiles.contains(pos)) {
-                    Rectangle fog = new Rectangle(CELL_SIZE, CELL_SIZE, FOG_COLOR);
-                    fog.setMouseTransparent(true);
-                    fog.setViewOrder(-1); // above the units drawn in this cell later
-                    cellPane.getChildren().add(fog);
-                }
                 if (battlefield.isBaseSite(pos) && model.getUnitAt(pos) == null) {
                     cellPane.getChildren().add(createRuins());
                 }
             }
         }
+    }
+
+    /** The fog of war as one veil over the board, redrawn only when what the player sees changes. */
+    private void drawFog(Battlefield battlefield) {
+        Set<Point> fogged = new HashSet<>();
+        if (model.isFogOfWar()) {
+            for (Point point : battlefield.getGeography().keySet()) {
+                if (!visibleTiles.contains(point)) fogged.add(point);
+            }
+        }
+        if (fogged.equals(foggedTiles) && fogView.getImage() != null) return;
+        foggedTiles = fogged;
+        int width = battlefield.getSize().x * MapPainter.TILE;
+        int height = battlefield.getSize().y * MapPainter.TILE;
+        WritableImage image = new WritableImage(width, height);
+        image.getPixelWriter().setPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(),
+                MapPainter.paintFog(battlefield.getSize(), fogged::contains, FOG_ARGB), 0, width);
+        fogView.setImage(image);
+    }
+
+    /** The whole battlefield painted as one pixel-art picture, with canals at the harbours. */
+    private static Image paint(Battlefield battlefield, Set<Point> harbours) {
+        int width = battlefield.getSize().x * MapPainter.TILE;
+        int height = battlefield.getSize().y * MapPainter.TILE;
+        WritableImage image = new WritableImage(width, height);
+        image.getPixelWriter().setPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(),
+                MapPainter.paint(battlefield, System.identityHashCode(battlefield), harbours), 0, width);
+        return image;
     }
 
     /** Base ruins, a neutral sprite; the burnt-out headquarters sprite stands in if it is missing. */
@@ -442,85 +477,6 @@ public class GameView {
         view.setMouseTransparent(true);
         return view;
     }
-
-    private String getTerrainImagePath(Battlefield battlefield, Point pos) {
-        StringBuilder path = new StringBuilder("/images/terrain/");
-
-        // a forest is grass with trees drawn on top (see drawTerrain)
-        TerrainEnum centerTerrain = battlefield.getGeographyOfPoint(pos);
-        if (centerTerrain == TerrainEnum.FOREST) centerTerrain = TerrainEnum.PLAIN;
-        path.append(centerTerrain);
-
-        if (!isInsideBattlefield(battlefield, pos)) {
-            return path.append(".png").toString();
-        }
-
-        StringBuilder surrounding = new StringBuilder("_");
-
-        if (centerTerrain == TerrainEnum.MOUNTAIN) {
-            int seed = Objects.hash(pos.x, pos.y);
-            Random rand = new Random(seed);
-            int randomNum = rand.nextInt(5);
-            path.append(surrounding).append(randomNum);
-        }
-
-        if (centerTerrain == TerrainEnum.PLAIN) {
-            Point[] directions = {
-                    new Point(0, -1),
-                    new Point(1, 0),
-                    new Point(0, 1),
-                    new Point(-1, 0)
-            };
-
-            for (Point dir : directions) {
-                Point neighbor = new Point(pos.x + dir.x, pos.y + dir.y);
-                surrounding.append(getTerrainInitial(battlefield, neighbor));
-            }
-
-            String surrStr = surrounding.substring(1);
-            if (surrStr.chars().distinct().count() == 1) {
-                surrounding.append("_");
-                Point[] diagonals = {
-                        new Point(1, -1),
-                        new Point(1, 1),
-                        new Point(-1, 1),
-                        new Point(-1, -1)
-                };
-                for (Point diag : diagonals) {
-                    Point neighbor = new Point(pos.x + diag.x, pos.y + diag.y);
-                    surrounding.append(getTerrainInitial(battlefield, neighbor));
-                }
-            }
-            String s = surrounding.toString();
-
-            if (s.contains("X")) {
-                s = s.replace("X", getTerrainInitial(battlefield, pos));
-            }
-            if (s.contains("M")) {
-                s = s.replace("M", "P");
-            }
-            s = s.replace("F", "P"); // forest is grass underneath
-
-            path.append(s);
-
-
-        }
-
-        path.append(".png");
-        return path.toString();
-    }
-
-    private boolean isInsideBattlefield(Battlefield battlefield, Point pos) {
-        return pos.x >= 0 && pos.x < battlefield.getSize().x &&
-                pos.y >= 0 && pos.y < battlefield.getSize().y;
-    }
-
-    private String getTerrainInitial(Battlefield battlefield, Point pos) {
-        if (!isInsideBattlefield(battlefield, pos)) return "X"; // oder "_"
-        TerrainEnum terrain = battlefield.getGeographyOfPoint(pos);
-        return terrain.toString().substring(0, 1).toUpperCase();
-    }
-
 
     /** One card per player, two side by side. */
     private void buildPlayerCards(Game model) {
@@ -720,9 +676,9 @@ public class GameView {
             tab.setToggleGroup(group);
             tab.setFocusTraversable(false);
             tab.setMaxWidth(Double.MAX_VALUE);
-            HBox.setHgrow(tab, Priority.ALWAYS);
             tab.setOnAction(event -> showDeployCategory(category));
-            deployTabs.getChildren().add(tab);
+            int index = deployTabButtons.size();
+            deployTabs.add(tab, index % 3, index / 3);
             deployTabButtons.put(category, tab);
         }
         showDeployCategory(deployTabButtons.containsKey(deployCategory) ? deployCategory
@@ -895,6 +851,7 @@ public class GameView {
             Label placeholder = new Label("Hover over a tile or unit to see its details.");
             placeholder.getStyleClass().add("muted");
             placeholder.setWrapText(true);
+            placeholder.setMinHeight(Region.USE_PREF_SIZE);
             inspector.getChildren().add(placeholder);
         }
 
@@ -1204,6 +1161,36 @@ public class GameView {
         boardArea.getChildren().add(overlay);
     }
 
+    /** Asks before leaving the game for the main menu (the game is lost); after it is over, just goes. */
+    private void confirmLeave() {
+        if (onMainMenu == null) return;
+        if (gameOver) {
+            onMainMenu.run();
+            return;
+        }
+        Label title = new Label("LEAVE GAME?");
+        title.getStyleClass().addAll("game-over-title", "dialog-title");
+        Label subtitle = new Label("This game will be lost.");
+        subtitle.getStyleClass().add("game-over-subtitle");
+        StackPane overlay = new StackPane();
+        Button leave = new Button("Main menu");
+        leave.getStyleClass().add("end-turn");
+        leave.setOnAction(event -> onMainMenu.run());
+        Button stay = new Button("Keep playing");
+        stay.getStyleClass().add("upgrade-button");
+        stay.setCancelButton(true);
+        stay.setOnAction(event -> boardArea.getChildren().remove(overlay));
+        HBox buttons = new HBox(10, leave, stay);
+        buttons.setAlignment(Pos.CENTER);
+        VBox box = new VBox(12, title, subtitle, buttons);
+        box.setAlignment(Pos.CENTER);
+        box.getStyleClass().add("game-over");
+        box.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+        overlay.getChildren().add(box);
+        overlay.getStyleClass().add("game-over-backdrop");
+        boardArea.getChildren().add(overlay);
+    }
+
     public boolean isAnimationsEnabled() {
         return animationsBox.isSelected();
     }
@@ -1362,7 +1349,6 @@ public class GameView {
     /** A player's resources, base health and army size; the card of the player whose turn it is is highlighted. */
     private static final class PlayerCard extends VBox {
         private final Label units = new Label();
-        private final ProgressBar resources = new ProgressBar();
         private final Label resourcesText = new Label();
         private final ProgressBar baseHealth = new ProgressBar();
         private final Label baseHealthText = new Label();
@@ -1381,24 +1367,23 @@ public class GameView {
             HBox.setHgrow(spacer, Priority.ALWAYS);
             HBox head = new HBox(4, title, spacer, roleLabel);
 
-            resources.getStyleClass().addAll("stat-bar", "rp-bar");
-            resources.setMaxWidth(Double.MAX_VALUE);
             resourcesText.getStyleClass().add("stat-text");
             baseHealth.getStyleClass().addAll("stat-bar", "hp-bar");
             baseHealth.setMaxWidth(Double.MAX_VALUE);
             baseHealthText.getStyleClass().add("stat-text");
             units.getStyleClass().add("stat-text");
+            units.setWrapText(true);
+            units.setMinHeight(Region.USE_PREF_SIZE);
 
-            getChildren().addAll(head, resourcesText, resources, baseHealthText, baseHealth, units);
+            getChildren().addAll(head, resourcesText, baseHealthText, baseHealth, units);
         }
 
         private void update(Game model, Player player, boolean active) {
             // under fog of war the enemy's purse and its hidden units stay secret
             boolean hidden = model.isFogOfWar() && player != model.getPlayerOne();
             int rp = player.getResourcePoints();
-            resources.setProgress(hidden ? 0 : Math.min(1, (double) rp / model.getMaxResourcePoints()));
-            resourcesText.setText(hidden ? "RP ?  (hidden by the fog)"
-                    : "RP " + rp + " / " + model.getMaxResourcePoints() + "  (+" + model.getIncome(player) + "/round)");
+            resourcesText.setText(hidden ? "RP ?"
+                    : "RP " + rp + "  (+" + model.getIncome(player) + "/round)");
             Base base = player.getPlayerDeck().getBase();
             int hp = Math.max(0, base.getHealthPoints());
             baseHealth.setProgress((double) hp / base.getMaxHealthPoints());
@@ -1409,7 +1394,7 @@ public class GameView {
                     ? (int) model.getVisibleEnemies(model.getPlayerOne()).stream()
                             .filter(unit -> unit.getPlayerID() == player.getPlayerID() && !(unit instanceof Infrastructure)).count()
                     : player.getPlayerDeck().getUnits().size() - 1 - buildings;
-            units.setText((count == 1 ? "1 unit" : count + " units") + (hidden ? " in sight" : "")
+            units.setText((count == 1 ? "1 unit" : count + " units") + (hidden ? " seen" : "")
                     + (buildings == 0 ? "" : buildings == 1 ? ", 1 building" : ", " + buildings + " buildings"));
             getStyleClass().remove(activeStyle);
             if (active) {

@@ -296,4 +296,15 @@ class BotServiceTest {
                 .anyMatch(event -> event instanceof UnitDeployed deployed && deployed.unitName().equals("Osumi")),
                 "it bought an amphibious ship");
     }
+
+    @Test
+    void aBotWithSavingsBuysSeveralUnitsInOneTurn() {
+        Fixtures.place(game, 2, new game.units.infrastructures.ArmyBase(2, new Point(12, 12)));
+        Fixtures.place(game, 2, new game.units.infrastructures.AirForceBase(2, new Point(12, 15)));
+        game.getPlayerTwo().addResourcePoints(60);
+
+        long bought = runSteps(bot).stream().flatMap(List::stream).filter(event -> event instanceof UnitDeployed).count();
+
+        assertTrue(bought >= 2, "bought " + bought);
+    }
 }

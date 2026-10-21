@@ -76,6 +76,9 @@ public class BotService {
     private static final double MIN_CAUTION = 0.3;
     private static final double MAX_CAUTION = 1.5;
     private static final double FERRY_BONUS = 6;
+    private static final int MAX_PURCHASES = 4; // units bought per turn at most
+    private static final int RICH = 20; // resource points beyond which the bot upgrades even with little to spare
+    private static final int EXTRA_PURCHASE_BUDGET = 12; // savings needed to buy more than one unit a turn
     private static final double CUT_OFF_GROUND = 0.35; // ground units wanted on an island without a ferry
     private static final double FERRIED_GROUND = 0.75; // ... and with one
 
@@ -95,6 +98,7 @@ public class BotService {
     private boolean upgradePending = false;
     private double boldness = 1;
     private boolean purchasePending = false;
+    private int purchases = 0;
 
     /** A bot that always makes the same choices in the same situation. */
     public BotService(Game model, AddCommand add, MoveCommand move, AttackCommand attack, HealCommand heal) {
@@ -184,6 +188,7 @@ public class BotService {
                 .forEach(entry -> pendingUnitIds.add(entry.getKey()));
         upgradePending = true;
         purchasePending = true;
+        purchases = 0;
         boldness = boldness();
         mapLand();
     }
@@ -250,12 +255,15 @@ public class BotService {
             }
         }
 
+        // with money saved up it buys several units, one step each, as long as it finds something worth it
         if (purchasePending) {
-            purchasePending = false;
-            List<GameEvent> events = purchaseNewUnits(botPlayer);
+            purchases++;
+            purchasePending = purchases < MAX_PURCHASES;
+            List<GameEvent> events = purchaseNewUnits(botPlayer, purchases > 1);
             if (!events.isEmpty()) {
                 return Optional.of(events);
             }
+            purchasePending = false;
         }
         return Optional.empty();
     }
@@ -777,7 +785,7 @@ public class BotService {
     /** Upgrades the cheapest base (the headquarters first) when there is money to spare, or it would be wasted. */
     private List<GameEvent> upgradeBase(Player botPlayer) {
         int rp = botPlayer.getResourcePoints();
-        boolean overflowing = rp + model.getIncome(botPlayer) > model.getMaxResourcePoints();
+        boolean overflowing = rp + model.getIncome(botPlayer) > RICH;
         boolean threatened = isThreatened(botPlayer.getPlayerDeck().getBase().getPosition());
         return botPlayer.getPlayerDeck().getUnits().entrySet().stream()
                 .filter(entry -> entry.getValue() instanceof MilitaryBase base && base.canUpgrade()
@@ -812,9 +820,12 @@ public class BotService {
      * Kauft höchstens eine neue Einheit pro Zug: die, die am besten zur Lage passt, mit etwas Zufall. Unter
      * Beschuss der eigenen Basis wird nicht gespart.
      */
-    private List<GameEvent> purchaseNewUnits(Player botPlayer) {
+    private List<GameEvent> purchaseNewUnits(Player botPlayer, boolean another) {
         boolean threatened = isThreatened(botPlayer.getPlayerDeck().getBase().getPosition());
         int budget = botPlayer.getResourcePoints() - (threatened ? 0 : reserve(botPlayer));
+        if (another && budget < EXTRA_PURCHASE_BUDGET) {
+            return List.of(); // a second unit this turn only out of savings
+        }
         Army army = new Army(botPlayer);
 
         // what next turn's money could buy, without the noise: if that is clearly better, save up for it

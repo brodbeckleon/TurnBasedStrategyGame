@@ -28,7 +28,6 @@ import java.util.function.Predicate;
  */
 public class Game {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
-    private final int maxResourcePoints = 20;
     private final GameSettings settings;
     private int currentIndex = 0;
     private boolean gameOver = false;
@@ -104,11 +103,9 @@ public class Game {
         getCurrentPlayer().getPlayerDeck().setUnitsAvailable();
     }
 
+    /** Resource points have no upper limit: whatever is not spent is saved. */
     private void addResourcePoints(Player player) {
-        int room = maxResourcePoints - player.getResourcePoints();
-        if (room > 0) {
-            player.addResourcePoints(Math.min(getIncome(player), room));
-        }
+        player.addResourcePoints(getIncome(player));
     }
 
     /** What the player's standing bases (headquarters included) produce at the end of each of its turns. */
@@ -120,10 +117,6 @@ public class Game {
             }
         }
         return income;
-    }
-
-    public int getMaxResourcePoints() {
-        return maxResourcePoints;
     }
 
     /**
