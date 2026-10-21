@@ -823,8 +823,7 @@ public class GameView {
         Unit unit = null;
         Point cell = hoveredCell;
         if (cell != null) {
-            unit = model.getUnitAt(cell);
-            if (unit != null && !isShown(unit)) unit = null;
+            unit = model.getUnitSeenAt(cell, this::isShown);
         } else if (highlights.selectedUnitId() != -1) {
             unit = model.findUnitById(highlights.selectedUnitId());
             cell = unit == null ? null : unit.getPosition();
