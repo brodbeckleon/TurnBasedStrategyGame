@@ -5,6 +5,7 @@ import game.game.Command;
 import game.game.Movement;
 import game.game.Player;
 import game.game.UnitFactory;
+import game.game.Vision;
 import game.game.commands.*;
 import game.interfaces.MovableUnit;
 import game.model.Game;
@@ -74,12 +75,8 @@ public class GameController {
     private boolean animating = false; // true while an animation or the bot turn blocks the player's input
     private int round = 1;
     private static Difficulty difficulty = Difficulty.NORMAL; // kept for the next game ("Play again")
-    private UndoableMove lastMove; // the player's last move, while it can still be taken back
     private final List<GameEvent> enemyTurn = new ArrayList<>(); // what the player saw of the enemy's turn
-
-    /** A move that may be taken back: nothing else happened since, and it revealed nothing new. */
-    private record UndoableMove(int unitId, List<Point> path) {
-    }
+    private Sight sightBefore; // what the player saw before its current action
 
     public GameController(Game model, GameView view) {
         this.model = model;
@@ -188,7 +185,6 @@ public class GameController {
         view.setKeyHandler(this::handleKey);
         view.setOnUpgrade(this::upgradeSelected);
         view.setAttackPreview(this::attackPreview);
-        view.setOnUndo(this::undoMove);
         botService.setDifficulty(difficulty);
         view.setDifficulty(difficulty, level -> {
             difficulty = level;
@@ -211,7 +207,6 @@ public class GameController {
         switch (event.getCode()) {
             case E -> endTurn();
             case U -> upgradeSelected();
-            case Z -> undoMove();
             case N -> selectNextReady();
             case ESCAPE -> cancel();
             default -> {
@@ -236,7 +231,6 @@ public class GameController {
     }
 
     private void endTurn() {
-        lastMove = null;
         resetSelection(); // Deselect unit when turn ends
         model.switchTurn();
         if (model.isPlayerOneTurn()) {
@@ -260,10 +254,10 @@ public class GameController {
             lockInput(); // block the player while the bot "thinks" and acts
 
             if (view.isAnimationsEnabled()) {
-                view.showBanner("ENEMY TURN", () -> guarded(this::beginBotTurn));
+                view.showBanner("ENEMY TURN", () -> guardedBot(this::beginBotTurn));
             } else {
                 PauseTransition pause = new PauseTransition(Duration.seconds(BOT_THINK_SECONDS));
-                pause.setOnFinished(event -> guarded(this::beginBotTurn));
+                pause.setOnFinished(event -> guardedBot(this::beginBotTurn));
                 pause.play();
             }
         }
@@ -276,31 +270,88 @@ public class GameController {
     }
 
     private void botStep() {
-        Set<Point> seenBefore = model.getVisibleTiles(model.getPlayerOne());
+        Sight before = sight();
         Optional<List<GameEvent>> step = botService.performNextStep();
         if (step.isEmpty()) {
             finishBotTurn();
             return;
         }
-        // under fog of war the player only sees (and hears about) what happens where its units can see
-        Set<Point> seen = new HashSet<>(seenBefore);
-        seen.addAll(model.getVisibleTiles(model.getPlayerOne()));
-        List<GameEvent> visible = step.get().stream().filter(event -> isSeen(event, seen)).toList();
+        List<GameEvent> visible = seenEvents(step.get(), before);
         enemyTurn.addAll(visible);
         logEvents(visible);
         play(visible, this::afterBotStep);
     }
 
-    private static boolean isSeen(GameEvent event, Set<Point> seen) {
-        return switch (event) {
-            case GameEvent.UnitDeployed e -> seen.contains(e.pos());
-            case GameEvent.UnitMoved e -> e.path().stream().anyMatch(seen::contains);
-            case GameEvent.UnitAttacked e -> seen.contains(e.from()) || seen.contains(e.to());
-            case GameEvent.UnitDamaged e -> seen.contains(e.pos());
-            case GameEvent.UnitDestroyed e -> seen.contains(e.pos());
-            case GameEvent.UnitHealed e -> seen.contains(e.pos());
-            case GameEvent.BaseUpgraded e -> seen.contains(e.pos());
+    /** The enemy units and the tiles player one sees, taken before an action so its events can be filtered. */
+    private record Sight(Map<Integer, Unit> enemies, Set<Point> tiles) {
+    }
+
+    private Sight sight() {
+        return new Sight(new java.util.HashMap<>(model.getPlayerTwo().getPlayerDeck().getUnits()),
+                model.getVisibleTiles(model.getPlayerOne()));
+    }
+
+    /**
+     * What player one sees of the events under fog of war: enemy units only where it could see them (stealth units
+     * and submarines included), a move only along the part of its path in view, and a shot from the fog only by
+     * the damage it does.
+     */
+    private List<GameEvent> seenEvents(List<GameEvent> events, Sight before) {
+        if (!model.isFogOfWar()) {
+            return events;
+        }
+        Map<Integer, Unit> enemies = new java.util.HashMap<>(before.enemies());
+        enemies.putAll(model.getPlayerTwo().getPlayerDeck().getUnits());
+        Set<Point> seen = new HashSet<>(before.tiles());
+        seen.addAll(model.getVisibleTiles(model.getPlayerOne()));
+        java.util.function.BiPredicate<Integer, Point> sees = (id, pos) -> {
+            Unit unit = enemies.get(id);
+            return unit == null ? seen.contains(pos) : Vision.canSee(model.getPlayerOne(), unit, pos, seen);
         };
+        List<GameEvent> visible = new ArrayList<>();
+        for (GameEvent event : events) {
+            switch (event) {
+                case GameEvent.UnitDeployed e -> {
+                    if (e.playerId() == 1 || sees.test(e.unitId(), e.pos())) visible.add(e);
+                }
+                case GameEvent.UnitMoved e -> {
+                    if (e.playerId() == 1) {
+                        visible.add(e);
+                        continue;
+                    }
+                    int first = -1, last = -1;
+                    for (int i = 0; i < e.path().size(); i++) {
+                        if (sees.test(e.unitId(), e.path().get(i))) {
+                            if (first < 0) first = i;
+                            last = i;
+                        }
+                    }
+                    if (last > first) {
+                        List<Point> path = e.path().subList(first, last + 1);
+                        visible.add(new GameEvent.UnitMoved(e.playerId(), e.unitId(), e.unitName(),
+                                path.get(0), path.get(path.size() - 1), path));
+                    }
+                }
+                case GameEvent.UnitAttacked e -> {
+                    if (e.playerId() == 1 ? sees.test(e.targetId(), e.to()) : sees.test(e.attackerId(), e.from())) {
+                        visible.add(e);
+                    }
+                }
+                case GameEvent.UnitDamaged e -> {
+                    if (e.ownerId() == 1 || sees.test(e.unitId(), e.pos())) visible.add(e);
+                }
+                case GameEvent.UnitDestroyed e -> {
+                    if (e.ownerId() == 1 || sees.test(e.unitId(), e.pos())) visible.add(e);
+                }
+                case GameEvent.UnitHealed e -> {
+                    if (e.playerId() == 1 || sees.test(e.targetId(), e.pos())) visible.add(e);
+                }
+                case GameEvent.BaseUpgraded e -> {
+                    if (e.playerId() == 1 || seen.contains(e.pos())) visible.add(e);
+                }
+            }
+        }
+        return visible;
     }
 
     private void afterBotStep() {
@@ -314,10 +365,10 @@ public class GameController {
         // Come back through the event loop so that a long bot turn without animations never recurses deeply.
         if (view.isAnimationsEnabled()) {
             PauseTransition gap = new PauseTransition(Duration.seconds(BOT_STEP_GAP_SECONDS));
-            gap.setOnFinished(event -> guarded(this::botStep));
+            gap.setOnFinished(event -> guardedBot(this::botStep));
             gap.play();
         } else {
-            Platform.runLater(() -> guarded(this::botStep));
+            Platform.runLater(() -> guardedBot(this::botStep));
         }
     }
 
@@ -359,29 +410,12 @@ public class GameController {
         return String.join(", ", parts) + ".";
     }
 
-    /** Takes back the player's last move (Z, or the button in the inspector). */
-    private void undoMove() {
-        if (!canAct() || lastMove == null) return;
-        UndoableMove move = lastMove;
-        lastMove = null;
-        CommandResult result = moveCommand.undo(model.getCurrentPlayer(), move.unitId(), move.path());
-        view.logInfo(result.getMessage());
-        if (result.wasSuccessful()) {
-            resetSelection();
-            selectedUnitId = move.unitId();
-            currentState = ControllerState.UNIT_SELECTED;
-        }
-        if (!playPlayerAction(result)) {
-            refresh();
-        }
-    }
-
     /** The units that can still do something this turn, in a stable order. */
     private List<Integer> readyUnits() {
         List<Integer> ready = new ArrayList<>();
         for (Map.Entry<Integer, Unit> entry : new java.util.TreeMap<>(model.getPlayerOne().getPlayerDeck().getUnits()).entrySet()) {
             Unit unit = entry.getValue();
-            if (unit instanceof MovableUnit && unit.isAvailable() && (!unit.hasMoved() || canStillAct(entry.getKey(), unit))) {
+            if (isReady(entry.getKey(), unit)) {
                 ready.add(entry.getKey());
             }
         }
@@ -429,7 +463,9 @@ public class GameController {
             return false;
         }
         lockInput();
-        play(result.getEvents(), this::finishPlayerAction);
+        // the player's own actions can draw fire from the fog (anti-air): it sees the hits, not the shooters
+        play(sightBefore == null ? result.getEvents() : seenEvents(result.getEvents(), sightBefore),
+                this::finishPlayerAction);
         return true;
     }
 
@@ -491,6 +527,24 @@ public class GameController {
         refresh(); // the highlights were hidden while locked; a selection that survived the action shows again
     }
 
+    /**
+     * Runs a step of the bot turn; if it fails, the bot's turn ends there and the player gets the next one, so the
+     * game can never get stuck on the enemy turn.
+     */
+    private void guardedBot(Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException | Error e) {
+            System.err.println("Bot turn failed: " + e);
+            e.printStackTrace();
+            if (!model.isPlayerOneTurn() && !model.isGameOver()) {
+                view.logInfo("The enemy turn was cut short by an error.");
+                endTurn();
+            }
+            unlockInput();
+        }
+    }
+
     /** Runs the action and releases the input lock if it fails, so the game can never soft-lock. */
     private void guarded(Runnable action) {
         try {
@@ -515,8 +569,8 @@ public class GameController {
                 || !(model.findUnitById(selectedUnitId) instanceof MilitaryBase)) {
             return;
         }
+        sightBefore = sight();
         CommandResult result = upgradeCommand.execute(model.getCurrentPlayer(), selectedUnitId);
-        if (result.wasSuccessful()) lastMove = null;
         logResult(result);
         if (!playPlayerAction(result)) {
             refresh();
@@ -560,6 +614,9 @@ public class GameController {
         if (!canAct()) {
             return;
         }
+        if (event.getClickCount() > 1) {
+            return; // the second click of a double-click would only deselect what the first one picked
+        }
         if (event.getButton() == MouseButton.SECONDARY) {
             cancel();
             return;
@@ -569,11 +626,11 @@ public class GameController {
             return;
         }
         BoardHighlights highlights = computeHighlights();
+        sightBefore = sight();
 
         if (currentState == ControllerState.AWAITING_PLACEMENT) {
             CommandResult result = addCommand.execute(model.getCurrentPlayer(), unitTypeToAdd.name(), clickedPoint);
-            if (result.wasSuccessful()) lastMove = null;
-            logResult(result);
+                logResult(result);
             if (result.wasSuccessful()) {
                 resetSelection();
             }
@@ -583,8 +640,11 @@ public class GameController {
             return;
         }
 
-        Unit clickedUnit = model.getUnitAt(clickedPoint);
         Player currentPlayer = model.getCurrentPlayer();
+        Unit clickedUnit = model.getUnitAt(clickedPoint);
+        if (clickedUnit != null && !model.isVisibleTo(currentPlayer, clickedUnit)) {
+            clickedUnit = null; // a hidden enemy is an empty tile to the player: moving there is an ambush
+        }
         boolean animated = false;
 
         if (currentState == ControllerState.NORMAL) {
@@ -600,31 +660,21 @@ public class GameController {
                 resetSelection();
             } else if (clickedUnit != null && !model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
                 CommandResult result = attackCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
-                if (result.wasSuccessful()) lastMove = null;
-                logResult(result);
+                        logResult(result);
                 if (result.wasSuccessful()) {
                     resetSelection();
                 }
                 animated = playPlayerAction(result);
             } else if (clickedUnit != null && highlights.supportTargets().contains(clickedPoint)) {
                 CommandResult result = healCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
-                if (result.wasSuccessful()) lastMove = null;
-                logResult(result);
+                        logResult(result);
                 if (result.wasSuccessful()) {
                     resetSelection();
                 }
                 animated = playPlayerAction(result);
             } else if (clickedUnit == null && highlights.moveTiles().contains(clickedPoint)) {
-                Set<Unit> seenBefore = new HashSet<>(model.getVisibleEnemies(currentPlayer));
-                int movedId = selectedUnitId;
                 CommandResult result = moveCommand.execute(currentPlayer, selectedUnitId, clickedPoint);
                 logResult(result);
-                // a move can be taken back unless it ran into an ambush or revealed new enemies (no free scouting)
-                lastMove = null;
-                if (result.wasSuccessful() && !result.getMessage().startsWith("Ambush!")
-                        && seenBefore.containsAll(model.getVisibleEnemies(currentPlayer))) {
-                    lastMove = new UndoableMove(movedId, ((GameEvent.UnitMoved) result.getEvents().get(0)).path());
-                }
                 // a unit that can still act stays selected, so its targets show right after the move
                 if (!result.wasSuccessful() || !selectedUnit.isAvailable() || !canStillAct(selectedUnitId, selectedUnit)) {
                     resetSelection();
@@ -659,7 +709,6 @@ public class GameController {
         view.setArmedDeploy(currentState == ControllerState.AWAITING_PLACEMENT ? unitTypeToAdd : null);
         view.setBlockedDeploys(blockedDeploys());
         view.setReadyUnits(canAct() ? readyUnits() : List.of());
-        view.setUndoableUnit(canAct() && lastMove != null ? lastMove.unitId() : -1);
         view.setEndTurnSuggested(canAct() && currentState == ControllerState.NORMAL && nothingLeftToDo());
         view.setHint(hint());
     }
@@ -752,12 +801,18 @@ public class GameController {
     private boolean nothingLeftToDo() {
         for (Map.Entry<Integer, Unit> entry : model.getCurrentPlayer().getPlayerDeck().getUnits().entrySet()) {
             Unit unit = entry.getValue();
-            if (unit instanceof MovableUnit && unit.isAvailable() && (!unit.hasMoved() || canStillAct(entry.getKey(), unit))) {
+            if (isReady(entry.getKey(), unit)) {
                 return false;
             }
         }
         int resources = model.getCurrentPlayer().getResourcePoints();
         return deployOptions.stream().noneMatch(option -> option.cost() <= resources && !deployTiles(option.type()).isEmpty());
+    }
+
+    /** True if the unit can still do something this turn: move somewhere, or act from where it stands. */
+    private boolean isReady(int unitId, Unit unit) {
+        if (!(unit instanceof MovableUnit) || !unit.isAvailable()) return false;
+        return (!unit.hasMoved() && !Movement.reachable(model, unit).isEmpty()) || canStillAct(unitId, unit);
     }
 
     /** True if the unit has something to do from where it stands: a target to shoot, heal or build on. */
@@ -805,7 +860,7 @@ public class GameController {
                 }
                 if (selected.hasMoved()) {
                     return "Moved: " + (selected instanceof AssaultClass ? "red brackets to attack" : "act from here")
-                            + ", or Esc if this unit is done." + (lastMove != null ? "  Z: undo the move." : "");
+                            + ", or Esc if this unit is done.";
                 }
                 if (selected instanceof ArmoredRecoveryVehicle
                         && !addCommand.findDeployablePositions(model.getCurrentPlayer(),
@@ -826,7 +881,7 @@ public class GameController {
                     return "Nothing left to do this turn.  Press E to end your turn.";
                 }
                 return "Select a unit (N: next ready one), or deploy with keys 1–9 (Tab switches the deploy tab).  "
-                        + (lastMove != null ? "Z: undo the move.  " : "") + "E: end your turn.";
+                        + "E: end your turn.";
             }
         }
     }

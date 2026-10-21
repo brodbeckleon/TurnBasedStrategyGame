@@ -177,14 +177,14 @@ public class BotService {
      * so evenly matched armies do not just wait for each other forever.
      */
     private double boldness() {
-        double own = strength(me());
-        double enemy = strength(enemy());
+        double own = strength(me().getPlayerDeck().getUnits().values());
+        double enemy = strength(visibleEnemies());
         if (own + enemy == 0) return 1;
         return Math.max(MIN_CAUTION, Math.min(MAX_CAUTION, 2 * enemy / (own + enemy)));
     }
 
-    private static double strength(Player player) {
-        return player.getPlayerDeck().getUnits().values().stream()
+    private static double strength(java.util.Collection<Unit> units) {
+        return units.stream()
                 .filter(unit -> unit instanceof AssaultClass)
                 .mapToDouble(unit -> valueOf(unit) * healthRatio(unit))
                 .sum();

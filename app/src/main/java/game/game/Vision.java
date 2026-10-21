@@ -55,12 +55,17 @@ public final class Vision {
 
     /** True if the player can see the unit, given the tiles it sees. */
     public static boolean canSee(Player viewer, Unit unit, Set<Point> visibleTiles) {
+        return canSee(viewer, unit, unit.getPosition(), visibleTiles);
+    }
+
+    /** True if the player could see the unit if it stood on the given tile. */
+    public static boolean canSee(Player viewer, Unit unit, Point position, Set<Point> visibleTiles) {
         if (unit.getPlayerID() == viewer.getPlayerID() || unit instanceof Infrastructure) {
             return true;
         }
         if (unit instanceof Submarine) {
             for (Unit own : viewer.getPlayerDeck().getUnits().values()) {
-                double distance = own.getPosition().distance(unit.getPosition());
+                double distance = own.getPosition().distance(position);
                 if (distance < 1.5 || (own instanceof Kongo && distance <= SONAR_RANGE + 0.4)) {
                     return true;
                 }
@@ -70,10 +75,10 @@ public final class Vision {
         if (unit instanceof FThirtyFive) {
             // a stealth fighter only shows up close by
             for (Unit own : viewer.getPlayerDeck().getUnits().values()) {
-                if (own.getPosition().distance(unit.getPosition()) <= STEALTH_RANGE + 0.4) return true;
+                if (own.getPosition().distance(position) <= STEALTH_RANGE + 0.4) return true;
             }
             return false;
         }
-        return visibleTiles.contains(unit.getPosition());
+        return visibleTiles.contains(position);
     }
 }

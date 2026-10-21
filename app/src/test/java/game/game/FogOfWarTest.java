@@ -14,6 +14,8 @@ import game.model.Game;
 import game.testing.Fixtures;
 import game.units.assaultClasses.AssaultTanks.TypeNinety;
 import game.units.assaultClasses.AssaultTanks.TypeTen;
+import game.units.assaultClasses.aircraft.FThirtyFive;
+import game.units.assaultClasses.aircraft.FTwo;
 import game.units.assaultClasses.artillery.TypeNinetyNineSPH;
 import game.units.assaultClasses.ships.Kongo;
 import game.units.assaultClasses.ships.Soryu;
@@ -129,5 +131,83 @@ class FogOfWarTest {
         Fixtures.place(game, 2, base);
         assertTrue(game.isVisibleTo(player, base));
         assertTrue(game.getVisibleTiles(game.getPlayerTwo()).contains(new Point(10, 10)));
+    }
+
+    @Test
+    void groundUnitsDriveUnderAHiddenAircraftWithoutAnAmbush() {
+        MoveCommand move = new MoveCommand(game);
+        TypeTen tank = new TypeTen(1, new Point(2, 2));
+        int id = Fixtures.place(game, 1, tank);
+        FThirtyFive stealth = new FThirtyFive(2, new Point(4, 4));
+        Fixtures.place(game, 2, stealth);
+        assertFalse(game.isVisibleTo(player, stealth));
+
+        CommandResult result = move.execute(player, id, new Point(5, 5));
+
+        assertTrue(result.wasSuccessful());
+        assertFalse(result.getMessage().startsWith("Ambush!"), "a visible aircraft would not block it either");
+        assertEquals(new Point(5, 5), tank.getPosition());
+    }
+
+    @Test
+    void aircraftFlyOverHiddenGroundUnitsWithoutAnAmbush() {
+        MoveCommand move = new MoveCommand(game);
+        FTwo jet = new FTwo(1, new Point(2, 2));
+        int id = Fixtures.place(game, 1, jet);
+        TypeNinety hidden = new TypeNinety(2, new Point(6, 6));
+        Fixtures.place(game, 2, hidden);
+        assertFalse(game.isVisibleTo(player, hidden));
+
+        CommandResult result = move.execute(player, id, new Point(7, 7));
+
+        assertTrue(result.wasSuccessful());
+        assertFalse(result.getMessage().startsWith("Ambush!"));
+        assertEquals(new Point(7, 7), jet.getPosition());
+    }
+
+    @Test
+    void aHiddenEnemyOnTheDestinationStillAmbushes() {
+        MoveCommand move = new MoveCommand(game);
+        FTwo jet = new FTwo(1, new Point(2, 2));
+        int id = Fixtures.place(game, 1, jet);
+        Fixtures.place(game, 2, new TypeNinety(2, new Point(7, 7)));
+
+        CommandResult result = move.execute(player, id, new Point(7, 7));
+
+        assertTrue(result.getMessage().startsWith("Ambush!"));
+        assertEquals(new Point(6, 6), jet.getPosition());
+    }
+
+    @Test
+    void deployTilesDoNotGiveAHiddenEnemyAway() {
+        AddCommand add = new AddCommand(game);
+        var base = player.getPlayerDeck().getBase();
+        base.upgrade();
+        base.upgrade(); // deploys 4 tiles out, but only sees 3
+        TypeNinety hidden = new TypeNinety(2, new Point(4, 0));
+        Fixtures.place(game, 2, hidden);
+        assertFalse(game.isVisibleTo(player, hidden));
+
+        assertTrue(add.findDeployablePositions(player, new TypeTen(1, new Point())).contains(new Point(4, 0)));
+        player.addResourcePoints(20);
+        CommandResult result = add.execute(player, "TYPETEN", new Point(4, 0));
+        assertFalse(result.wasSuccessful());
+        assertEquals(new Point(4, 0), hidden.getPosition());
+    }
+
+    @Test
+    void theForecastOnlyCountsAntiAirTheAttackerCanSee() {
+        var helicopter = new game.units.assaultClasses.helicopters.AHSixtyFourD(1, new Point(5, 5)); // sees 3 tiles
+        int id = Fixtures.place(game, 1, helicopter);
+        int target = Fixtures.place(game, 2, new TypeNinety(2, new Point(7, 5)));
+        var antiAir = new game.units.assaultClasses.antiAir.TypeEightySeven(2, new Point(9, 5)); // reaches 4
+        Fixtures.place(game, 2, antiAir);
+        assertFalse(game.isVisibleTo(player, antiAir));
+
+        var preview = attack.preview(player, id, target);
+
+        assertNotNull(preview);
+        assertEquals(0, preview.antiAirDamage());
+        assertFalse(attack.findInterceptors(game.getPlayerTwo(), helicopter, target).isEmpty(), "it does fire, though");
     }
 }

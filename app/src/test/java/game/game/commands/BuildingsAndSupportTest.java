@@ -202,6 +202,16 @@ class BuildingsAndSupportTest {
     }
 
     @Test
+    void aDestroyedBaseCannotBeRepaired() {
+        int recovery = Fixtures.place(game, 1, new ArmoredRecoveryVehicle(1, new Point(1, 1)));
+        var base = player.getPlayerDeck().getBase();
+        base.setHealthPoints(-base.getHealthPoints());
+
+        assertFalse(heal.execute(player, recovery, base.getBaseID()).wasSuccessful());
+        assertEquals(0, base.getHealthPoints());
+    }
+
+    @Test
     void recoveryVehicleRepairsTheBase() {
         int recovery = Fixtures.place(game, 1, new ArmoredRecoveryVehicle(1, new Point(1, 0)));
         var base = player.getPlayerDeck().getBase();

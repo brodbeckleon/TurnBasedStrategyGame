@@ -116,6 +116,15 @@ public final class Movement {
         return isHiddenEnemy(game, mover, point, owner, game.isFogOfWar() ? Vision.visibleTiles(game, owner) : Set.of());
     }
 
+    /**
+     * True if a hidden enemy on the tile stops the mover there: one it would bump into if it could see it (aircraft
+     * fly over everything, and nothing on the ground is stopped by an aircraft), or one on the tile it means to stop on.
+     */
+    public static boolean isAmbush(Game game, Unit mover, Point point, boolean destination) {
+        if (!isHiddenEnemy(game, mover, point)) return false;
+        return destination || (!(mover instanceof ByAir) && !(game.getUnitAt(point) instanceof ByAir));
+    }
+
     private static boolean isHiddenEnemy(Game game, Unit mover, Point point, Player owner, Set<Point> seen) {
         if (!game.isFogOfWar()) return false;
         Unit other = game.getUnitAt(point);
