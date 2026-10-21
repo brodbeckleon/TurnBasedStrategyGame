@@ -76,6 +76,7 @@ public class GameController {
     private UnitEnum unitTypeToAdd = null;
     private int selectedUnitId = -1; // -1 means no unit is selected
     private boolean animating = false; // true while an animation or the bot turn blocks the player's input
+    private boolean stopped = false; // the player left the game: nothing more happens in it
     private int round = 1;
     private static Difficulty difficulty = Difficulty.NORMAL; // kept for the next game ("Play again")
     private final List<GameEvent> enemyTurn = new ArrayList<>(); // what the player saw of the enemy's turn
@@ -208,8 +209,13 @@ public class GameController {
         });
     }
 
+    /** Ends this game for good (the player went back to the main menu): a running enemy turn stops too. */
+    public void stop() {
+        stopped = true;
+    }
+
     private boolean canAct() {
-        return model.isPlayerOneTurn() && !model.isGameOver() && !animating;
+        return model.isPlayerOneTurn() && !model.isGameOver() && !animating && !stopped;
     }
 
     private void handleKey(KeyEvent event) {
@@ -569,6 +575,9 @@ public class GameController {
      * game can never get stuck on the enemy turn.
      */
     private void guardedBot(Runnable action) {
+        if (stopped) {
+            return;
+        }
         try {
             action.run();
         } catch (RuntimeException | Error e) {

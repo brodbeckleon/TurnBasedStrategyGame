@@ -1,25 +1,27 @@
-/* Minimal, eckig, flach */
+/* Pixel-art bars: square, with a dark outline and a lighter top row on the filled part */
 .progress-bar {
     -fx-background-color: transparent;
     -fx-background-insets: 0;
-    -fx-background-radius: 0;    /* keine Rundungen */
+    -fx-background-radius: 0;
     -fx-border-radius: 0;
     -fx-padding: 0;
     -fx-effect: null;
 }
 
-/* die Bahn (Hintergrund) */
+/* the track: outline, then a dark well */
 .progress-bar .track {
+    -fx-background-color: #0e0b16, #2a2f40;
+    -fx-background-insets: 0, 1;
     -fx-background-radius: 0;
     -fx-border-radius: 0;
     -fx-padding: 0;
 }
 
-/* der Fortschrittsbalken selbst */
+/* the filled part, in the bar's accent colour (units set it by their health) */
 .progress-bar .bar {
+    -fx-background-color: derive(-fx-accent, 35%), -fx-accent;
+    -fx-background-insets: 1, 2 1 1 1;
     -fx-background-radius: 0;
     -fx-border-radius: 0;
-    -fx-background-insets: 0;
     -fx-padding: 0;
 }
-

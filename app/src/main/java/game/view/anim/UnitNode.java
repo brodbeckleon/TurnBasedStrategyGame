@@ -63,11 +63,11 @@ public class UnitNode extends StackPane {
         healthBar.setProgress(clamped);
         String style;
         if (clamped > 0.6) {
-            style = "-fx-accent: green;";
+            style = "-fx-accent: #4cc35e;";
         } else if (clamped > 0.3) {
-            style = "-fx-accent: orange;";
+            style = "-fx-accent: #f0a030;";
         } else {
-            style = "-fx-accent: red;";
+            style = "-fx-accent: #e8483c;";
         }
         if (!style.equals(healthBar.getStyle())) {
             healthBar.setStyle(style);

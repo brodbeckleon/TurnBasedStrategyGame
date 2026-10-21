@@ -1,5 +1,7 @@
 package game.view.anim;
 
+import game.view.PixelFonts;
+
 import game.events.GameEvent;
 import game.events.GameEvent.BaseUpgraded;
 import game.events.GameEvent.UnitAttacked;
@@ -15,6 +17,7 @@ import javafx.scene.Group;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.effect.ColorAdjust;
+import javafx.scene.effect.BlurType;
 import javafx.scene.effect.DropShadow;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
@@ -153,9 +156,9 @@ public final class AnimationDirector {
     /** A banner with a second, smaller line under the title (e.g. what the enemy did); it stays up longer. */
     public Transition banner(String text, String subtitle) {
         Label label = new Label(text);
-        label.setFont(Font.font("System", FontWeight.EXTRA_BOLD, 34));
-        label.setTextFill(Color.WHITE);
-        label.setEffect(new DropShadow(4, Color.BLACK));
+        label.setFont(Font.font(PixelFonts.TITLE, FontWeight.BOLD, 32));
+        label.setStyle("-fx-text-fill: #f5c542;"); // inline, so the stylesheet's label colour does not win
+        label.setEffect(new DropShadow(BlurType.ONE_PASS_BOX, Color.rgb(14, 11, 22), 0, 1, 3, 3)); // a hard pixel shadow
 
         double width = boardWidth - 2 * BANNER_MARGIN;
         javafx.scene.layout.VBox lines = new javafx.scene.layout.VBox(2, label);
@@ -164,8 +167,8 @@ public final class AnimationDirector {
         double hold = BANNER_HOLD_MS;
         if (subtitle != null && !subtitle.isBlank()) {
             Label small = new Label(subtitle);
-            small.setFont(Font.font("System", FontWeight.BOLD, 13));
-            small.setTextFill(Color.rgb(220, 228, 240));
+            small.setFont(Font.font(PixelFonts.TEXT, 20));
+            small.setTextFill(Color.rgb(233, 226, 204));
             small.setWrapText(true);
             small.setMaxWidth(width - 24);
             small.setAlignment(javafx.geometry.Pos.CENTER);
@@ -178,8 +181,9 @@ public final class AnimationDirector {
         bar.setPrefSize(width, height);
         bar.setMinSize(width, height);
         bar.setMaxSize(width, height);
-        bar.setStyle("-fx-background-color: rgba(10, 14, 28, 0.8); -fx-background-radius: 14;"
-                + "-fx-border-color: rgba(255, 255, 255, 0.45); -fx-border-width: 2; -fx-border-radius: 14;");
+        // a pixel frame like the panels of the side bar: dark outline, light top-left, dark bottom-right edge
+        bar.setStyle("-fx-background-color: #0e0b16, #5a6488, #1c2030, rgba(43, 48, 69, 0.94);"
+                + "-fx-background-insets: 0, 2, 4 2 2 4, 4;");
         bar.setLayoutX(BANNER_MARGIN);
         bar.setLayoutY((boardHeight - height) / 2);
         bar.setMouseTransparent(true);
@@ -361,7 +365,7 @@ public final class AnimationDirector {
 
     private void floatingNumber(Schedule schedule, double startMs, String text, Color fill, Point cell) {
         Text number = new Text(text);
-        number.setFont(Font.font("System", FontWeight.BOLD, 14));
+        number.setFont(Font.font(PixelFonts.TITLE, FontWeight.BOLD, 16));
         number.setFill(fill);
         number.setStroke(Color.rgb(20, 16, 28));
         number.setStrokeWidth(3);
