@@ -18,6 +18,7 @@ import game.units.MilitaryBase;
 import game.units.SupportClass;
 import game.units.TransportShip;
 import game.units.Unit;
+import game.units.infrastructures.NavyBase;
 import game.units.assaultClasses.AssaultTank;
 import game.view.anim.AnimationDirector;
 import game.view.anim.Cells;
@@ -79,6 +80,7 @@ public class GameView {
     private final ImageView fogView = new ImageView(); // above the units: what is in the fog stays dim
     private Set<Point> foggedTiles = Set.of();
     private Battlefield paintedField;
+    private Set<Point> paintedHarbours = Set.of();
     private final StackPane board;
     private final StackPane boardArea;
     private final Pane boardHolder;
@@ -403,9 +405,17 @@ public class GameView {
     }
 
     private void drawTerrain(Battlefield battlefield) {
-        if (paintedField != battlefield) {
+        // repainted when a harbour is built (it gets a canal to the sea) or one is destroyed
+        Set<Point> harbours = new HashSet<>();
+        for (Player player : model.getPlayers()) {
+            for (Unit unit : player.getPlayerDeck().getBuildings()) {
+                if (unit instanceof NavyBase) harbours.add(unit.getPosition());
+            }
+        }
+        if (paintedField != battlefield || !harbours.equals(paintedHarbours)) {
             paintedField = battlefield;
-            terrainView.setImage(paint(battlefield));
+            paintedHarbours = harbours;
+            terrainView.setImage(paint(battlefield, harbours));
         }
         drawFog(battlefield);
         for (int y = 0; y < gridHeight; y++) {
@@ -440,13 +450,13 @@ public class GameView {
         fogView.setImage(image);
     }
 
-    /** The whole battlefield painted as one pixel-art picture. */
-    private static Image paint(Battlefield battlefield) {
+    /** The whole battlefield painted as one pixel-art picture, with canals at the harbours. */
+    private static Image paint(Battlefield battlefield, Set<Point> harbours) {
         int width = battlefield.getSize().x * MapPainter.TILE;
         int height = battlefield.getSize().y * MapPainter.TILE;
         WritableImage image = new WritableImage(width, height);
         image.getPixelWriter().setPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(),
-                MapPainter.paint(battlefield, System.identityHashCode(battlefield)), 0, width);
+                MapPainter.paint(battlefield, System.identityHashCode(battlefield), harbours), 0, width);
         return image;
     }
 

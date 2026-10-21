@@ -68,4 +68,28 @@ class MapPainterTest {
             assertTrue(yard.contains(pixels[y * 16 * 16 + x]), "a yard at " + place);
         }
     }
+
+    @Test
+    void aHarbourGetsACanalToTheSeaWhicheverSideTheSeaIsOn() {
+        int[][] sides = {{0, 1}, {1, 0}, {-1, 0}, {0, -1}};
+        for (int[] side : sides) {
+            Battlefield field = new Battlefield(new CircleGenerator(), 10, 10, MapType.CONTINENTS, 2);
+            field.getGeography().replaceAll((point, terrain) -> TerrainEnum.PLAIN);
+            field.getBaseSites().clear();
+            Point harbour = new Point(5, 5);
+            field.getBaseSites().add(harbour);
+            for (int i = -5; i <= 5; i++) {
+                for (int j = 1; j <= 4; j++) {
+                    Point water = new Point(harbour.x + side[0] * j + (side[0] == 0 ? i : 0), harbour.y + side[1] * j + (side[1] == 0 ? i : 0));
+                    if (field.getGeography().containsKey(water)) field.getGeography().put(water, TerrainEnum.WATER);
+                }
+            }
+            int[] without = MapPainter.paint(field, 1);
+            int[] with = MapPainter.paint(field, 1, Set.of(harbour));
+            // under the quay of the harbour (the bottom of its tile) there is water now
+            int quay = (harbour.y * 16 + 16) * 160 + harbour.x * 16 + 8;
+            assertFalse(WATER_COLOURS.contains(without[quay]), "dry land before");
+            assertTrue(WATER_COLOURS.contains(with[quay]), "a basin under the quay, sea to " + Arrays.toString(side));
+        }
+    }
 }

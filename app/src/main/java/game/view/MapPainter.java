@@ -37,6 +37,7 @@ public final class MapPainter {
     private static final int YARD = 0xffa08a63, YARD_LIGHT = 0xffb39c72, YARD_DARK = 0xff8a7553, YARD_EDGE = 0xff7d6a4a;
     private static final int YARD_SHADOW = 0xff665540, TRACK = 0xffa8916a, TRACK_EDGE = 0xff86714f;
     private static final int PLANK = 0xff8a6a44, PLANK_DARK = 0xff5e4630, PLANK_LIGHT = 0xffa7835a;
+    private static final int QUAY = 0xff8e9aa6, QUAY_DARK = 0xff444d5c;
 
     private static final String[] PINE = {
             "...oo...",
@@ -72,9 +73,10 @@ public final class MapPainter {
             "...oLLLLLDDDDDDo...",
             "..oLLLLlLDDDDDDDo..",
             ".oLLLLlllDDDDDDDDo.",
-            "oLLLllllDDDDDDDDDDo",
-            "oLLlllllDDDDDDDDDDo",
-            "ooooooooooooooooooo",
+            ".LLLllllDDDDDDDDDD.",
+            "gLlllllgDDDDDDDkDDg",
+            "g.glkgg.gDgkgg.g.gk",
+            "..g..k.g..g.k..g...",
     };
     private static final String[] PEAK = {
             "......o......",
@@ -83,27 +85,29 @@ public final class MapPainter {
             "...oLSDDDo...",
             "..oLLLDDDDo..",
             ".oLLLLDDDDDo.",
-            "oLLLLLDDDDDDo",
-            "oLLLLDDDDDDDo",
-            "ooooooooooooo",
+            ".LLLLLDDDDDD.",
+            "gLlLgDDDkDDDg",
+            "g.g.kg.g.g.gg",
+            "..g...k...g..",
     };
     private static final String[] HILL = {
             "...oooo...",
             "..oLLLDo..",
-            ".oLLLDDDo.",
-            "oLLLDDDDDo",
-            "oooooooooo",
+            ".oLlLDDDo.",
+            "gLlLDDkDDg",
+            "g.gk.g.g.g",
     };
     private static final int[] TREE_COLORS = {0xff201829, 0xff4f9e44, 0xff2f7a3a, 0xff225c34, 0xff75553a, 0xff4b3626};
     private static final String TREE_KEYS = "oLGDtT";
-    private static final int[] ROCK_COLORS = {0xff331f29, 0xffbc9a78, 0xff94785c, 0xff79584f, 0xffe8eef2};
-    private static final String ROCK_KEYS = "oLlDS";
+    private static final int[] ROCK_COLORS = {0xff331f29, 0xffbc9a78, 0xff94785c, 0xff79584f, 0xffe8eef2, 0xff866a4c, 0xff6b523f};
+    private static final String ROCK_KEYS = "oLlDSgk"; // g, k: the ground and pits the rock fades into
 
     private final Battlefield battlefield;
     private final int tilesX, tilesY, width, height;
     private final long seed;
     private final int[] kind;
     private final int[] pixels;
+    private final java.util.Set<Point> harbours = new java.util.HashSet<>();
 
     private MapPainter(Battlefield battlefield, long seed) {
         this.battlefield = battlefield;
@@ -119,7 +123,13 @@ public final class MapPainter {
 
     /** The battlefield as ARGB pixels, {@code TILE} per tile in both directions, row by row. */
     public static int[] paint(Battlefield battlefield, long seed) {
+        return paint(battlefield, seed, java.util.Set.of());
+    }
+
+    /** The same, with a canal from each harbour (naval base) out to the sea. */
+    public static int[] paint(Battlefield battlefield, long seed, java.util.Set<Point> harbours) {
         MapPainter painter = new MapPainter(battlefield, seed);
+        painter.harbours.addAll(harbours);
         painter.shape();
         painter.colour();
         painter.settle();
@@ -199,11 +209,15 @@ public final class MapPainter {
 
     private void colour() {
         int[] toWater = distance(WATER);
+        int[] toRock = distance(MOUNTAIN);
         int[] toLand = distanceToLand();
         for (int py = 0; py < height; py++) {
             for (int px = 0; px < width; px++) {
                 int i = py * width + px;
                 pixels[i] = kind[i] == WATER ? water(px, py, toLand[i]) : land(px, py, kind[i], toWater[i]);
+                if (kind[i] == GRASS && toWater[i] > 1 && toRock[i] <= 3 && scree(px, py, toRock[i])) {
+                    pixels[i] = toRock[i] == 1 ? ROCK_GROUND : hash(px, py, 7) % 2 == 0 ? ROCK_SPECKLE : ROCK_PIT;
+                }
             }
         }
     }
@@ -229,6 +243,12 @@ public final class MapPainter {
         }
         double patch = wobble(px, py, 14, 5);
         return patch > 0.35 ? GRASS_LIGHT : patch < -0.35 ? GRASS_DARK : GRASS_BASE;
+    }
+
+    /** Stones scattered on the grass at the foot of the mountains, thinning out with the distance. */
+    private boolean scree(int px, int py, int toRock) {
+        int roll = hash(px, py, 8) % 6;
+        return toRock == 1 ? (px + py) % 2 == 0 || roll < 2 : toRock == 2 ? roll < 2 : roll == 0;
     }
 
     private boolean isLandAt(int px, int py) {
@@ -299,10 +319,15 @@ public final class MapPainter {
             track(road);
         }
         for (Point place : places) {
-            if (battlefield.getBaseSites().contains(place)) {
+            if (harbours.contains(place)) {
+                canal(place);
+            } else if (battlefield.getBaseSites().contains(place)) {
                 jetty(place);
             }
             yard(place);
+        }
+        for (Point harbour : harbours) {
+            canal(harbour); // again over the yard, so the water reaches right under the harbour
         }
     }
 
@@ -363,6 +388,72 @@ public final class MapPainter {
                 }
             }
             return;
+        }
+    }
+
+    /**
+     * A canal walled with stone from the quay of the harbour (the water strip at the foot of its sprite) out to
+     * the sea next to it. The basin always lies under the quay; with the sea to the side or behind the harbour, a
+     * channel leads from there past the building to the water.
+     */
+    private void canal(Point harbour) {
+        int cx = harbour.x * TILE + TILE / 2, cy = harbour.y * TILE + TILE / 2;
+        int top = cy + 2, bottom = cy + 11; // the basin under the quay
+        int[][] directions = {{0, 1}, {1, 0}, {-1, 0}, {0, -1}};
+        for (int[] d : directions) {
+            Point next = new Point(harbour.x + d[0], harbour.y + d[1]);
+            if (battlefield.getGeographyOfPoint(next) != TerrainEnum.WATER) continue;
+            List<int[]> parts = new ArrayList<>();
+            if (d[1] == 1) {
+                parts.add(new int[]{cx - 7, top, cx + 7, cy + TILE + 4});
+            } else if (d[0] != 0) {
+                int far = cx + d[0] * (TILE + 4);
+                parts.add(new int[]{Math.min(cx - 7, far), top, Math.max(cx + 7, far), bottom});
+            } else {
+                parts.add(new int[]{cx - 7, top, cx + 7, bottom});
+                parts.add(new int[]{cx + 5, cy - TILE - 4, cx + 11, bottom}); // up past the building's side
+            }
+            basin(parts);
+            return;
+        }
+    }
+
+    /** Water inside the rectangles, walled with two rows of stone wherever they meet land (not the open sea). */
+    private void basin(List<int[]> parts) {
+        java.util.function.BiPredicate<Integer, Integer> in = (x, y) -> parts.stream()
+                .anyMatch(r -> x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]);
+        int x0 = parts.stream().mapToInt(r -> r[0]).min().orElse(0), x1 = parts.stream().mapToInt(r -> r[2]).max().orElse(0);
+        int y0 = parts.stream().mapToInt(r -> r[1]).min().orElse(0), y1 = parts.stream().mapToInt(r -> r[3]).max().orElse(0);
+        int[] shape = kind.clone(); // the sea as it was before the canal
+        for (int py = y0; py <= y1; py++) {
+            for (int px = x0; px <= x1; px++) {
+                if (!inside(px, py) || !in.test(px, py)) continue;
+                int i = py * width + px;
+                if (shape[i] == WATER) {
+                    // the open sea stays as it is, but no surf breaks across the mouth of the canal
+                    if (pixels[i] == SURF || pixels[i] == SEA_SHADOW) pixels[i] = SEA;
+                    continue;
+                }
+                int toLand = 3;
+                for (int r = 1; r <= 2 && toLand == 3; r++) {
+                    for (int dy = -r; dy <= r; dy++) {
+                        for (int dx = -r; dx <= r; dx++) {
+                            int nx = px + dx, ny = py + dy;
+                            boolean outside = !in.test(nx, ny);
+                            boolean sea = inside(nx, ny) && shape[ny * width + nx] == WATER;
+                            if (outside && !sea) toLand = Math.min(toLand, r);
+                        }
+                    }
+                }
+                if (toLand == 1) {
+                    pixels[i] = QUAY_DARK;
+                } else if (toLand == 2) {
+                    pixels[i] = (px + py) % 4 == 0 ? QUAY_DARK : QUAY; // stone blocks
+                } else {
+                    pixels[i] = (px * 3 + py) % 7 == 0 ? SEA_LIGHT : SEA;
+                }
+                kind[i] = toLand <= 2 ? BUILT : WATER;
+            }
         }
     }
 
