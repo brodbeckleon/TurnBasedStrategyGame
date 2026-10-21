@@ -29,6 +29,13 @@
     -fx-border-color: transparent transparent transparent #262e40;
 }
 
+.side-scroll,
+.side-scroll > .viewport {
+    -fx-background-color: #1a2030;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
 .section-title {
     -fx-text-fill: #7d889f;
     -fx-font-size: 11px;
