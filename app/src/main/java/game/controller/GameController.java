@@ -595,7 +595,7 @@ public class GameController {
     /** What the selected unit's attack on the unit at the cell would do, for the inspector; null if none. */
     private AttackPreview attackPreview(Point cell) {
         if (currentState != ControllerState.UNIT_SELECTED || !canAct()) return null;
-        Unit target = model.getUnitAt(cell);
+        Unit target = model.getUnitSeenAt(cell, model.getCurrentPlayer());
         if (target == null || model.isUnitOwnedByCurrentPlayer(model.getUnitID(target))) return null;
         return attackCommand.preview(model.getCurrentPlayer(), selectedUnitId, model.getUnitID(target));
     }
@@ -678,10 +678,8 @@ public class GameController {
         }
 
         Player currentPlayer = model.getCurrentPlayer();
-        Unit clickedUnit = model.getUnitAt(clickedPoint);
-        if (clickedUnit != null && !model.isVisibleTo(currentPlayer, clickedUnit)) {
-            clickedUnit = null; // a hidden enemy is an empty tile to the player: moving there is an ambush
-        }
+        // a hidden enemy is an empty tile to the player (moving there is an ambush), or just the building it is on
+        Unit clickedUnit = model.getUnitSeenAt(clickedPoint, currentPlayer);
         boolean animated = false;
 
         if (currentState == ControllerState.NORMAL) {

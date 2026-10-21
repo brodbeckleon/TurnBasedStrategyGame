@@ -154,10 +154,14 @@ public class AttackCommand extends Command {
         return targets;
     }
 
-    /** True if a unit the attacker could hit stands on top of the building or ship: it takes the attack first. */
+    /**
+     * True if a unit the attacker could hit stands on top of the building or ship: it takes the attack first. One the
+     * attacker's side cannot see (a stealth fighter on its air base) shields nothing, the building is a fair target.
+     */
     public boolean isShielded(Unit target, Unit attacker) {
         Unit guest = getGameModel().getGuestOf(target);
-        return guest != null && canTarget(attacker, guest);
+        return guest != null && canTarget(attacker, guest)
+                && getGameModel().isVisibleTo(getGameModel().getOwner(attacker), guest);
     }
 
     /** What attacking the target would do, or null if the attack is not possible. */

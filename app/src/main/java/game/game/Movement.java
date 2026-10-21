@@ -119,9 +119,14 @@ public final class Movement {
      */
     private static boolean blocks(Game game, Unit unit, Point point, Player owner, Set<Point> seen) {
         if (unit instanceof ByAir) return false;
-        Unit other = game.getUnitAt(point);
-        return other != null && other.getPlayerID() != unit.getPlayerID() && !(other instanceof ByAir)
-                && !isHiddenEnemy(game, unit, point, owner, seen);
+        // every unit on the tile counts: an aircraft parked on an enemy base does not open the way through it
+        for (Unit other : game.getUnitsAt(point)) {
+            if (other.getPlayerID() != unit.getPlayerID() && !(other instanceof ByAir)
+                    && (!game.isFogOfWar() || Vision.canSee(owner, other, seen))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True if an enemy the mover's side cannot see stands on the tile. */
@@ -139,10 +144,12 @@ public final class Movement {
         return destination || (!(mover instanceof ByAir) && !(game.getUnitAt(point) instanceof ByAir));
     }
 
+    /** True if an enemy stands on the tile and the mover's side sees nothing there (not even a building under it). */
     private static boolean isHiddenEnemy(Game game, Unit mover, Point point, Player owner, Set<Point> seen) {
         if (!game.isFogOfWar()) return false;
         Unit other = game.getUnitAt(point);
-        return other != null && other.getPlayerID() != mover.getPlayerID() && !Vision.canSee(owner, other, seen);
+        return other != null && other.getPlayerID() != mover.getPlayerID()
+                && game.getUnitSeenAt(point, unit -> Vision.canSee(owner, unit, seen)) == null;
     }
 
     private static List<Point> path(Map<Point, Point> previous, Point start, Point end) {
