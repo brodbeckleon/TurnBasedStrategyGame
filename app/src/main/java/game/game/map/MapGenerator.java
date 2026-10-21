@@ -3,18 +3,18 @@ package game.game.map;
 import game.enums.TerrainEnum;
 import game.tools.CircleGenerator;
 import game.tools.PerlinNoise;
-
 import java.awt.*;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 
@@ -23,17 +23,37 @@ public class MapGenerator {
     private final HashMap<Point, TerrainEnum> map = new HashMap<>();
     private final PerlinNoise perlinNoise = new PerlinNoise();
     private final CircleGenerator circleGenerator;
+    private final MapType type;
+    private final List<Point> bases;
     private final double scale = 2.0; // Adjust for more or less detail in the noise
-    private static final int SITE_PAIRS = 3;
+    private static final int SITE_PAIRS = 3; // on the classic 16 x 16 board
     private static final double FOREST_THRESHOLD = 0.25;
     private static final double MIN_SITE_DISTANCE_FROM_HQ = 6;
     private static final double MIN_SITE_SPACING = 4.5;
+    private static final double SEA_RIM = 3; // how far from the edge the big continent's coast reaches
     private final Random random = new Random();
 
+    /** The classic map: continents, the two headquarters in opposite corners. */
     public MapGenerator(CircleGenerator circleGenerator, int width, int height) {
+        this(circleGenerator, width, height, MapType.CONTINENTS, basePositions(width, height, 2));
+    }
+
+    public MapGenerator(CircleGenerator circleGenerator, int width, int height, MapType type, List<Point> bases) {
         this.circleGenerator = circleGenerator;
         this.width = width;
         this.height = height;
+        this.type = type;
+        this.bases = List.copyOf(bases);
+    }
+
+    /**
+     * Where the headquarters of the given number of players stand: player one top left, player two in the opposite
+     * corner, then the two other corners, and a fifth player in the middle.
+     */
+    public static List<Point> basePositions(int width, int height, int players) {
+        List<Point> corners = List.of(new Point(0, 0), new Point(width - 1, height - 1), new Point(width - 1, 0),
+                new Point(0, height - 1), new Point(width / 2, height / 2));
+        return corners.subList(0, players);
     }
 
     public HashMap<Point, TerrainEnum> generate() {
@@ -43,18 +63,20 @@ public class MapGenerator {
             }
         }
         generateForests();
-        generatePlainAroundBase();
-        connectBases();
+        generatePlainAroundBases();
+        if (type.landBridges()) {
+            for (Point base : bases.subList(1, bases.size())) {
+                connect(bases.get(0), base);
+            }
+        }
         return map;
     }
 
     /**
-     * Makes sure ground units can drive from one base to the other: if water or mountains cut the map in two,
+     * Makes sure ground units can drive from one point to the other: if water or mountains cut the map in two,
      * the fewest tiles needed to join them are turned into open ground (a land bridge or a pass).
      */
-    private void connectBases() {
-        Point start = new Point(0, 0);
-        Point goal = new Point(width - 1, height - 1);
+    private void connect(Point start, Point goal) {
         // 0-1 breadth-first search: open ground is free to cross, every other tile costs one conversion
         Map<Point, Integer> cost = new HashMap<>();
         Map<Point, Point> previous = new HashMap<>();
@@ -81,78 +103,86 @@ public class MapGenerator {
         }
     }
 
-    private void generatePlainAroundBase() {
-
-        ArrayList<Point> baseOnePlainCircle = circleGenerator.getCoordinatesInRange(new Point(0,0), 4);
-        Iterator<Point> iterator = baseOnePlainCircle.iterator();
-        while (iterator.hasNext()) {
-            Point point = iterator.next();
-            if (point.x < 0 || point.y < 0) {
-                iterator.remove();
+    /** Open ground around every headquarters, the same size for everyone. */
+    private void generatePlainAroundBases() {
+        for (Point base : bases) {
+            for (Point point : circleGenerator.getCoordinatesInRange(base, type.homeRadius())) {
+                if (map.containsKey(point)) {
+                    map.put(point, TerrainEnum.PLAIN);
+                }
             }
-        }
-        // the second base sits in the opposite corner, so its clearing mirrors the first one exactly
-        ArrayList<Point> baseTwoPlainCircle = circleGenerator.getCoordinatesInRange(new Point(width - 1, height - 1), 4);
-        iterator = baseTwoPlainCircle.iterator();
-        while (iterator.hasNext()) {
-            Point point = iterator.next();
-            if (point.x >= width || point.y >= height) {
-                iterator.remove();
-            }
-        }
-
-        for (Point p : baseOnePlainCircle) {
-            map.put(p, TerrainEnum.PLAIN);
-        }
-        for (Point p : baseTwoPlainCircle) {
-            map.put(p, TerrainEnum.PLAIN);
         }
     }
 
     /**
-     * Picks the base ruins on a generated map: pairs mirrored through the centre so both players get the same
-     * chances, away from both headquarters, on open ground with room around it. The first pair sits on the
-     * coast when the map has one, so naval bases are possible.
+     * Picks the base ruins on a generated map: groups mirrored through the centre (and, with more than two
+     * players, across both axes) so everyone gets the same chances, away from every headquarters, on open ground
+     * with room around it. The first group sits on the coast when the map has one, so naval bases are possible.
+     * On island maps every headquarters also gets ruins on its own shore, so it can build a harbour.
      */
     public Set<Point> generateBaseSites(HashMap<Point, TerrainEnum> map) {
-        Set<Point> sites = pickSites(map, candidateSites(map, true));
-        if (sites.isEmpty()) {
-            // no pair where both sides are good land: take pairs with one good side, the other is cleared below
-            sites = pickSites(map, candidateSites(map, false));
+        Set<Point> sites = new LinkedHashSet<>();
+        // a crowded board (small, many players) may need the ruins closer to the headquarters and to each other
+        for (double room : new double[]{1, 0.8, 0.6}) {
+            sites = pickSites(map, candidateSites(map, true, room), room);
+            if (sites.isEmpty()) {
+                // no group where every side is good land: take groups with one good side, the others are cleared below
+                sites = pickSites(map, candidateSites(map, false, room), room);
+            }
+            if (!sites.isEmpty()) break;
+        }
+        if (!type.landBridges()) {
+            for (Point base : bases) {
+                homeShore(map, base, sites).ifPresent(sites::add);
+            }
         }
         sites.forEach(site -> map.put(site, TerrainEnum.PLAIN)); // ruins in a forest stand in a clearing
-        for (Point site : sites) {
-            connectToHq(map, site);
+        if (type.landBridges()) {
+            for (Point site : sites) {
+                connectToHq(map, site);
+            }
         }
         return sites;
     }
 
-    /** Up to SITE_PAIRS well spaced pairs from the candidates, the first on the coast if possible. */
-    private Set<Point> pickSites(HashMap<Point, TerrainEnum> map, List<Point> candidates) {
+    /** Up to the map's number of well spaced groups from the candidates, the first on the coast if possible. */
+    private Set<Point> pickSites(HashMap<Point, TerrainEnum> map, List<Point> candidates, double room) {
         Collections.shuffle(candidates, random);
+        int wanted = siteCount();
         Set<Point> sites = new LinkedHashSet<>();
         for (Point candidate : candidates) {
-            if (isCoastal(map, candidate) && isCoastal(map, mirror(candidate)) && addPair(sites, candidate)) break;
+            if (images(candidate).stream().allMatch(image -> isCoastal(map, image)) && addGroup(sites, candidate, room)) break;
         }
         for (Point candidate : candidates) {
-            if (sites.size() >= SITE_PAIRS * 2) break;
-            addPair(sites, candidate);
+            if (sites.size() >= wanted) break;
+            addGroup(sites, candidate, room);
         }
         return sites;
     }
 
-    /** Sites on the first player's half whose pair is far enough from both headquarters. */
-    private List<Point> candidateSites(HashMap<Point, TerrainEnum> map, boolean bothSidesGood) {
+    /** How many ruins the map gets: six on the classic board, more on bigger ones. */
+    private int siteCount() {
+        return Math.max(4, (int) Math.round(SITE_PAIRS * 2 * width * height / 256.0));
+    }
+
+    /**
+     * Sites in the first player's share of the map whose group is far enough from every headquarters; {@code room}
+     * scales the distance down on a crowded board.
+     */
+    private List<Point> candidateSites(HashMap<Point, TerrainEnum> map, boolean allSidesGood, double room) {
         List<Point> candidates = new ArrayList<>();
+        double minDistance = room * Math.min(MIN_SITE_DISTANCE_FROM_HQ, Math.max(width, height) * 0.375);
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 Point point = new Point(x, y);
-                Point mirror = mirror(point);
-                boolean good = bothSidesGood ? isGoodSite(map, point) && isGoodSite(map, mirror)
-                        : isGoodSite(map, point) || isGoodSite(map, mirror);
-                if (x + y < width - 1 && good
-                        && point.distance(0, 0) >= MIN_SITE_DISTANCE_FROM_HQ
-                        && point.distance(width - 1, height - 1) >= MIN_SITE_DISTANCE_FROM_HQ) {
+                boolean inShare = bases.size() == 2 ? x + y < width - 1 : x <= (width - 1) / 2 && y <= (height - 1) / 2;
+                if (!inShare) continue;
+                List<Point> group = images(point);
+                boolean good = allSidesGood ? group.stream().allMatch(image -> isGoodSite(map, image))
+                        : group.stream().anyMatch(image -> isGoodSite(map, image));
+                boolean away = group.stream().allMatch(image -> bases.stream()
+                        .allMatch(base -> image.distance(base) >= minDistance));
+                if (good && away) {
                     candidates.add(point);
                 }
             }
@@ -160,20 +190,49 @@ public class MapGenerator {
         return candidates;
     }
 
-    /** Adds the site and its mirror image, unless that would crowd the sites already chosen; true if added. */
-    private boolean addPair(Set<Point> sites, Point site) {
-        Point mirror = mirror(site);
-        boolean spaced = site.distance(mirror) >= MIN_SITE_SPACING && sites.stream()
-                .allMatch(other -> other.distance(site) >= MIN_SITE_SPACING && other.distance(mirror) >= MIN_SITE_SPACING);
+    /** The site and its mirror images: through the centre, and across both axes with more than two players. */
+    private List<Point> images(Point point) {
+        Set<Point> images = new LinkedHashSet<>();
+        images.add(point);
+        images.add(new Point(width - 1 - point.x, height - 1 - point.y));
+        if (bases.size() > 2) {
+            images.add(new Point(width - 1 - point.x, point.y));
+            images.add(new Point(point.x, height - 1 - point.y));
+        }
+        return List.copyOf(images);
+    }
+
+    /** Adds the site and its mirror images, unless that would crowd the sites already chosen; true if added. */
+    private boolean addGroup(Set<Point> sites, Point site, double room) {
+        double spacing = room * MIN_SITE_SPACING * Math.min(1, Math.max(width, height) / 16.0);
+        List<Point> group = images(site);
+        boolean spaced = group.size() == (bases.size() > 2 ? 4 : 2);
+        for (int i = 0; i < group.size() && spaced; i++) {
+            for (int j = i + 1; j < group.size(); j++) {
+                spaced &= group.get(i).distance(group.get(j)) >= spacing;
+            }
+        }
+        spaced &= sites.stream().allMatch(other -> group.stream().allMatch(image -> other.distance(image) >= spacing));
         if (spaced) {
-            sites.add(site);
-            sites.add(mirror);
+            sites.addAll(group);
         }
         return spaced;
     }
 
-    private Point mirror(Point point) {
-        return new Point(width - 1 - point.x, height - 1 - point.y);
+    /**
+     * Ruins on the headquarters' own island, so it can always build a harbour: open ground at least two tiles
+     * from it, on the shore if the island has one within reach, as close as possible (towards the middle of the
+     * map on a tie).
+     */
+    private Optional<Point> homeShore(HashMap<Point, TerrainEnum> map, Point base, Set<Point> taken) {
+        Point centre = new Point(width / 2, height / 2);
+        Set<Point> island = reachableLand(map, base);
+        return island.stream()
+                .filter(point -> map.get(point) == TerrainEnum.PLAIN && point.distance(base) >= 2)
+                .filter(point -> !bases.contains(point) && bases.stream().allMatch(other -> other.distance(point) >= 2))
+                .filter(point -> taken.stream().allMatch(other -> other.distance(point) >= 2))
+                .min(Comparator.comparingDouble((Point point) -> point.distance(base) + (isCoastal(map, point) ? 0 : 3))
+                        .thenComparingDouble(point -> point.distance(centre)));
     }
 
     /** Land with at least two land neighbours, so a vehicle can get next to it. */
@@ -188,7 +247,7 @@ public class MapGenerator {
 
     /**
      * Makes sure a recovery vehicle can drive from the headquarters to a tile next to the ruins: ruins on an
-     * island or behind mountains get the fewest tiles needed turned into open ground, as connectBases does.
+     * island or behind mountains get the fewest tiles needed turned into open ground, as connect does.
      */
     private void connectToHq(HashMap<Point, TerrainEnum> map, Point site) {
         Set<Point> reachable = reachableLand(map);
@@ -235,12 +294,16 @@ public class MapGenerator {
 
     /**
      * The land a vehicle can drive to from the first headquarters, stepping to any of the eight tiles around it
-     * as units do (connectBases joins the second headquarters to it).
+     * as units do (connect joins the other headquarters to it).
      */
     private Set<Point> reachableLand(HashMap<Point, TerrainEnum> map) {
+        return reachableLand(map, bases.get(0));
+    }
+
+    /** The land a vehicle can drive to from the start. */
+    private static Set<Point> reachableLand(HashMap<Point, TerrainEnum> map, Point start) {
         Set<Point> reached = new HashSet<>();
         Deque<Point> queue = new ArrayDeque<>();
-        Point start = new Point(0, 0);
         reached.add(start);
         queue.add(start);
         while (!queue.isEmpty()) {
@@ -286,11 +349,14 @@ public class MapGenerator {
     }
 
     private TerrainEnum generateTerrain(int x, int y) {
-        double noiseValue = perlinNoise.noise(x * scale, y * scale, 0.1, 13);
-        // Adjust these thresholds to change the distribution of terrains
-        if (noiseValue < -0.18) return TerrainEnum.WATER;
-        else if (noiseValue < 0.5) return TerrainEnum.PLAIN;
+        double noiseValue = perlinNoise.noise(x * type.scale(), y * type.scale(), 0.1, 13);
+        if (type == MapType.BIG_CONTINENT) {
+            // the sea rises towards the edges of the board, so the land forms one continent
+            double edge = Math.min(Math.min(x, width - 1 - x), Math.min(y, height - 1 - y));
+            noiseValue -= 1.6 * Math.max(0, 1 - edge / SEA_RIM);
+        }
+        if (noiseValue < type.waterBelow()) return TerrainEnum.WATER;
+        else if (noiseValue < type.mountainAbove()) return TerrainEnum.PLAIN;
         else return TerrainEnum.MOUNTAIN;
     }
 }
-

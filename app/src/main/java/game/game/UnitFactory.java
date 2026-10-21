@@ -28,6 +28,8 @@ import game.units.infrastructures.Radarstation;
 import game.units.supportClasses.ArmoredAmbulanceVehicle;
 import game.units.supportClasses.ArmoredReconaissanceVehicle;
 import game.units.supportClasses.ArmoredRecoveryVehicle;
+import game.units.transports.Izumo;
+import game.units.transports.Osumi;
 
 import java.awt.*;
 
@@ -58,6 +60,8 @@ public class UnitFactory {
             case YAMATO -> new Yamato(playerID, position);
             case KONGO -> new Kongo(playerID, position);
             case SORYU -> new Soryu(playerID, position);
+            case IZUMO -> new Izumo(playerID, position);
+            case OSUMI -> new Osumi(playerID, position);
             case INFANTRY -> new RifleSquad(playerID, position);
             case ANTITANKTEAM -> new AntiTankTeam(playerID, position);
             case AHSIXTYFOURD -> new AHSixtyFourD(playerID, position);

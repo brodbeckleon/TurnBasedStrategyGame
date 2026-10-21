@@ -6,9 +6,11 @@ import game.game.Movement;
 import game.game.Player;
 import game.model.Game;
 import game.interfaces.ActsAfterMoving;
+import game.units.TransportShip;
 import game.units.Unit;
 
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.List;
 
 public class MoveCommand extends Command {
@@ -22,11 +24,8 @@ public class MoveCommand extends Command {
         if (unit == null || !unit.isAvailable() || unit.hasMoved()) {
             return new CommandResult(false, "This unit is not available for moving.");
         }
-        if (!checkIfPositionIsFree(position) && !Movement.isHiddenEnemy(getGameModel(), unit, position)) {
+        if (!getGameModel().canStandOn(unit, position) && !Movement.isHiddenEnemy(getGameModel(), unit, position)) {
             return new CommandResult(false, "Position is not free!");
-        }
-        if (!checkIfTerrainIsDeployable(unit, position)) {
-            return new CommandResult(false, "Terrain is not suited for this Unit.");
         }
         List<Point> path = Movement.path(getGameModel(), unit, position);
         if (path.isEmpty()) {
@@ -41,7 +40,7 @@ public class MoveCommand extends Command {
                 break;
             }
         }
-        while (stop > 0 && !checkIfPositionIsFree(path.get(stop))) {
+        while (stop > 0 && !getGameModel().canStandOn(unit, path.get(stop))) {
             stop--; // something stands where it would stop: it halts one tile earlier
         }
         boolean ambushed = stop < path.size() - 1;
@@ -49,6 +48,7 @@ public class MoveCommand extends Command {
         position = path.get(stop);
 
         Point from = unit.getPosition();
+        Unit passenger = unit instanceof TransportShip ? getGameModel().getGuestOf(unit) : null;
         player.getPlayerDeck().moveUnit(unitID, position);
         unit.setHasMoved(true);
         // light and medium units may still act this turn; everything else is done
@@ -56,8 +56,15 @@ public class MoveCommand extends Command {
             unit.setIsAvailable(false);
         }
 
-        GameEvent moved = new GameEvent.UnitMoved(player.getPlayerID(), unitID, unit.getUnitName(), from, position, path);
+        List<GameEvent> events = new ArrayList<>();
+        events.add(new GameEvent.UnitMoved(player.getPlayerID(), unitID, unit.getUnitName(), from, position, path));
+        if (passenger != null) {
+            // the unit on deck sails along (the view plays both moves together)
+            int passengerId = getGameModel().getUnitID(passenger);
+            player.getPlayerDeck().moveUnit(passengerId, position);
+            events.add(new GameEvent.UnitMoved(player.getPlayerID(), passengerId, passenger.getUnitName(), from, position, path));
+        }
         return new CommandResult(true, ambushed ? "Ambush! " + unit.getUnitName() + " ran into a hidden enemy."
-                : "unit with ID: " + unitID + " moved to position: " + position.x + ", " + position.y, List.of(moved));
+                : "unit with ID: " + unitID + " moved to position: " + position.x + ", " + position.y, events);
     }
 }

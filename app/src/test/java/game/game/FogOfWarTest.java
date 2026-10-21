@@ -179,23 +179,6 @@ class FogOfWarTest {
     }
 
     @Test
-    void deployTilesDoNotGiveAHiddenEnemyAway() {
-        AddCommand add = new AddCommand(game);
-        var base = player.getPlayerDeck().getBase();
-        base.upgrade();
-        base.upgrade(); // deploys 4 tiles out, but only sees 3
-        TypeNinety hidden = new TypeNinety(2, new Point(4, 0));
-        Fixtures.place(game, 2, hidden);
-        assertFalse(game.isVisibleTo(player, hidden));
-
-        assertTrue(add.findDeployablePositions(player, new TypeTen(1, new Point())).contains(new Point(4, 0)));
-        player.addResourcePoints(20);
-        CommandResult result = add.execute(player, "TYPETEN", new Point(4, 0));
-        assertFalse(result.wasSuccessful());
-        assertEquals(new Point(4, 0), hidden.getPosition());
-    }
-
-    @Test
     void theForecastOnlyCountsAntiAirTheAttackerCanSee() {
         var helicopter = new game.units.assaultClasses.helicopters.AHSixtyFourD(1, new Point(5, 5)); // sees 3 tiles
         int id = Fixtures.place(game, 1, helicopter);

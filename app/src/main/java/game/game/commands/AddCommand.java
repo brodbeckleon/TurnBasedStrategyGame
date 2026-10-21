@@ -39,19 +39,20 @@ public class AddCommand extends Command {
             }
         } else if (isHiddenEnemy(player, position)) {
             return new CommandResult(false, "An enemy hidden in the fog is in the way!");
-        } else if (!checkIfPositionIsFree(position)) {
+        } else if (unit instanceof Infrastructure && !checkIfPositionIsFree(position)) {
             return new CommandResult(false, "Position is not free!");
         }
 
-        // Check if position is within the deployment radius of a building that can deploy this unit
+        // Buildings go within the construction radius; units on top of a building or ship that deploys them
         if (!checkIfPositionIsDeployable(player, unit, position)) {
             return new CommandResult(false, unit instanceof Infrastructure
                     ? "Position is not in construction radius of your base or an army base!"
-                    : "Position is not in deployment radius of a building that can deploy a " + unit.getUnitName() + "!");
+                    : "A " + unit.getUnitName() + " is deployed on top of a free building or ship that can deploy it"
+                      + (unit instanceof game.interfaces.militaryBranches.Navy ? ", or on the water next to a naval base." : "."));
         }
 
-        // Check terrain suitability
-        if (!checkIfTerrainIsDeployable(unit, position)) {
+        // Check terrain suitability (a unit on top of a ship stands on its deck)
+        if ((unit instanceof Infrastructure || checkIfPositionIsFree(position)) && !checkIfTerrainIsDeployable(unit, position)) {
             return new CommandResult(false, unit instanceof NavyBase
                     ? "A naval base must be built on open ground next to water."
                     : "Terrain is not suited for this Unit.");

@@ -54,17 +54,17 @@ class CommandEventsTest {
 
     @Test
     void addEmitsUnitDeployedWithTheAssignedId() {
-        CommandResult result = add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(1, 1));
+        CommandResult result = add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(0, 0));
 
         assertTrue(result.wasSuccessful());
-        int unitId = game.getUnitID(game.getUnitAt(new Point(1, 1)));
-        assertEquals(List.of(new UnitDeployed(1, unitId, "Type 90", new Point(1, 1))), result.getEvents());
+        int unitId = game.getUnitID(game.getUnitAt(new Point(0, 0)));
+        assertEquals(List.of(new UnitDeployed(1, unitId, "Type 90", new Point(0, 0))), result.getEvents());
     }
 
     @Test
     void aNewUnitWaitsForTheNextTurnBeforeItActs() {
-        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPETEN.name(), new Point(1, 1)).wasSuccessful());
-        var unit = game.getUnitAt(new Point(1, 1));
+        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPETEN.name(), new Point(0, 0)).wasSuccessful());
+        var unit = game.getUnitAt(new Point(0, 0));
         int unitId = game.getUnitID(unit);
 
         assertFalse(unit.isAvailable());
@@ -82,15 +82,16 @@ class CommandEventsTest {
 
     @Test
     void failedAddsEmitNothing() {
-        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(9, 9)).getEvents().isEmpty(),
-                "outside the deployment radius");
-        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(0, 0)).getEvents().isEmpty(),
-                "position taken by the base");
-        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.YAMATO.name(), new Point(1, 1)).getEvents().isEmpty(),
+        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(1, 1)).getEvents().isEmpty(),
+                "next to the base instead of on top of it");
+        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.YAMATO.name(), new Point(0, 0)).getEvents().isEmpty(),
                 "ship on land");
 
-        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(1, 1)).wasSuccessful());
-        CommandResult broke = add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(2, 1));
+        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(0, 0)).wasSuccessful());
+        assertTrue(add.execute(game.getPlayerOne(), UnitEnum.INFANTRY.name(), new Point(0, 0)).getEvents().isEmpty(),
+                "a unit already stands on top of the base");
+        game.getPlayerOne().getPlayerDeck().moveUnit(game.getUnitID(game.getUnitAt(new Point(0, 0))), new Point(2, 2));
+        CommandResult broke = add.execute(game.getPlayerOne(), UnitEnum.TYPENINETY.name(), new Point(0, 0));
         assertFalse(broke.wasSuccessful(), "only one Type 90 can be paid with 6 RP");
         assertTrue(broke.getEvents().isEmpty());
     }

@@ -7,6 +7,7 @@ import game.game.Player;
 import game.game.commands.AttackPreview;
 import game.game.Vision;
 import game.game.map.Battlefield;
+import game.interfaces.Host;
 import game.interfaces.MovableUnit;
 import game.model.Game;
 import game.interfaces.Spotter;
@@ -15,6 +16,7 @@ import game.units.Base;
 import game.units.Infrastructure;
 import game.units.MilitaryBase;
 import game.units.SupportClass;
+import game.units.TransportShip;
 import game.units.Unit;
 import game.units.assaultClasses.AssaultTank;
 import game.view.anim.AnimationDirector;
@@ -81,8 +83,9 @@ public class GameView {
     private final Label hintLabel;
     private final Label roundLabel;
     private final Label turnLabel;
-    private final PlayerCard player1Card;
-    private final PlayerCard player2Card;
+    private final GridPane playerCards = new GridPane();
+    private final List<PlayerCard> cards = new ArrayList<>();
+    private Runnable onMainMenu;
     private final VBox deployBox;
     private final HBox deployTabs;
     private final GridPane deployCards;
@@ -96,6 +99,8 @@ public class GameView {
     private final int gridWidth;
     private final int gridHeight;
     private static final int CELL_SIZE = Cells.SIZE;
+    /** How big a unit on top of a building or ship is drawn. */
+    private static final double GUEST_SCALE = 0.72;
     private final Map<String, Image> imageCache = new HashMap<>();
     private final Map<Point, StackPane> cellPanes = new HashMap<>();
 
@@ -190,11 +195,13 @@ public class GameView {
         turnLabel.getStyleClass().add("turn-label");
         VBox header = new VBox(2, roundLabel, turnLabel);
 
-        player1Card = new PlayerCard("PLAYER 1", "You", 1);
-        player2Card = new PlayerCard("PLAYER 2", "Bot", 2);
-        HBox playerCards = new HBox(8, player1Card, player2Card);
-        HBox.setHgrow(player1Card, Priority.ALWAYS);
-        HBox.setHgrow(player2Card, Priority.ALWAYS);
+        playerCards.setHgap(8);
+        playerCards.setVgap(8);
+        for (int i = 0; i < 2; i++) {
+            ColumnConstraints half = new ColumnConstraints();
+            half.setPercentWidth(50);
+            playerCards.getColumnConstraints().add(half);
+        }
 
         skipTurnButton = new Button("End Turn  [E]");
         skipTurnButton.getStyleClass().add("end-turn");
@@ -316,7 +323,16 @@ public class GameView {
     }
 
     private Image unitImage(int playerID, String unitName) {
-        return loadImage(String.format("/images/units/player%d/%s.png", playerID, unitName));
+        if (playerID <= 2) {
+            return loadImage(String.format("/images/units/player%d/%s.png", playerID, unitName));
+        }
+        String key = "player" + playerID + "/" + unitName;
+        if (!imageCache.containsKey(key)) {
+            Image blue = loadImage("/images/units/player1/" + unitName + ".png");
+            Image red = loadImage("/images/units/player2/" + unitName + ".png");
+            imageCache.put(key, TeamColors.recolor(blue, red, playerID));
+        }
+        return imageCache.get(key);
     }
 
     public void update(Game model, BoardHighlights highlights) {
@@ -325,12 +341,17 @@ public class GameView {
         Player currentPlayer = model.getCurrentPlayer();
         if (!gameOver) {
             boolean yourTurn = currentPlayer.getPlayerID() == 1;
-            turnLabel.setText(yourTurn ? "Your turn" : "Enemy turn");
-            turnLabel.getStyleClass().removeAll("turn-p1", "turn-p2");
-            turnLabel.getStyleClass().add(yourTurn ? "turn-p1" : "turn-p2");
+            turnLabel.setText(yourTurn ? "Your turn" : model.getPlayerName(currentPlayer.getPlayerID()) + " turn");
+            turnLabel.getStyleClass().removeIf(style -> style.startsWith("turn-p"));
+            turnLabel.getStyleClass().add("turn-p" + currentPlayer.getPlayerID());
         }
-        player1Card.update(model, model.getPlayerOne(), currentPlayer == model.getPlayerOne());
-        player2Card.update(model, model.getPlayerTwo(), currentPlayer == model.getPlayerTwo());
+        if (cards.size() != model.getPlayers().size()) {
+            buildPlayerCards(model);
+        }
+        for (int i = 0; i < cards.size(); i++) {
+            Player player = model.getPlayers().get(i);
+            cards.get(i).update(model, player, currentPlayer == player);
+        }
         refreshDeployButtons();
 
         idleMotion.clear();
@@ -338,8 +359,7 @@ public class GameView {
         visibleTiles = model.getVisibleTiles(model.getPlayerOne());
         drawTerrain(model.getBattlefield());
         drawRangeOverlays();
-        drawPlayerUnits(model, model.getPlayerOne());
-        drawPlayerUnits(model, model.getPlayerTwo());
+        drawUnits(model);
         drawTargetMarkers();
 
         if (highlights.selectedUnitId() != -1) {
@@ -502,14 +522,35 @@ public class GameView {
     }
 
 
-    private void drawPlayerUnits(Game model, Player player) {
-        boolean playersTurn = model.getCurrentPlayer() == player;
-        // the base is one of the deck's units and is drawn with them
-        for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
+    /** One card per player, two side by side. */
+    private void buildPlayerCards(Game model) {
+        cards.clear();
+        playerCards.getChildren().clear();
+        for (Player player : model.getPlayers()) {
+            int id = player.getPlayerID();
+            PlayerCard card = new PlayerCard(id == 1 ? "PLAYER 1" : model.getPlayerName(id).toUpperCase(),
+                    id == 1 ? "You" : "Bot", id);
+            playerCards.add(card, (id - 1) % 2, (id - 1) / 2);
+            cards.add(card);
+        }
+    }
+
+    /**
+     * Every player's units; buildings and ships first, so a unit standing on top of one is drawn over it (and
+     * smaller, so both can be told apart).
+     */
+    private void drawUnits(Game model) {
+        List<Map.Entry<Integer, Unit>> units = new ArrayList<>();
+        for (Player player : model.getPlayers()) {
+            units.addAll(player.getPlayerDeck().getUnits().entrySet());
+        }
+        units.sort(java.util.Comparator.comparingInt(entry -> entry.getValue() instanceof Host ? 0 : 1));
+        for (Map.Entry<Integer, Unit> entry : units) {
             Unit unit = entry.getValue();
             if (!isShown(unit)) continue; // hidden in the fog of war
+            boolean playersTurn = model.getCurrentPlayer().getPlayerID() == unit.getPlayerID();
             boolean spent = playersTurn && !(unit instanceof Infrastructure) && !unit.isAvailable();
-            drawUnitWithHealthBar(unit, player.getPlayerID(), entry.getKey(), spent);
+            drawUnitWithHealthBar(unit, unit.getPlayerID(), entry.getKey(), spent);
         }
     }
 
@@ -531,6 +572,10 @@ public class GameView {
         }
         unitStack.setUserData(unitId);
 
+        if (model.getHostOf(unit) != null) {
+            // on top of a building or ship: drawn smaller in the bottom right corner, over it
+            unitStack.getTransforms().add(new javafx.scene.transform.Scale(GUEST_SCALE, GUEST_SCALE, CELL_SIZE, CELL_SIZE));
+        }
         cellPane.getChildren().add(unitStack);
         if (unit instanceof MilitaryBase base && base.getLevel() > 1 && unit.getHealthPoints() > 0) {
             Label badge = new Label(base.getLevel() == 2 ? "II" : "III");
@@ -545,7 +590,7 @@ public class GameView {
 
     /** The one place that builds a unit sprite with its health bar, for the board and for animation ghosts. */
     private UnitNode createUnitNode(int playerID, String unitName, double healthRatio, UnitKind kind) {
-        return new UnitNode(unitImage(playerID, unitName), playerID == 2, healthRatio, kind);
+        return new UnitNode(unitImage(playerID, unitName), playerID != 1, healthRatio, kind);
     }
 
     private void addIdleMotion(UnitNode unitNode, int unitId) {
@@ -882,15 +927,15 @@ public class GameView {
         icon.setFitHeight(40);
         icon.setPreserveRatio(true);
         icon.setSmooth(false);
-        if (unit.getPlayerID() == 2) {
+        if (unit.getPlayerID() != 1) {
             icon.setScaleX(-1);
         }
 
         Label name = new Label(unit.getUnitName());
         name.getStyleClass().add("inspect-name");
         boolean own = unit.getPlayerID() == 1;
-        Label owner = new Label(own ? "Your unit" : "Enemy unit");
-        owner.getStyleClass().add(own ? "owner-p1" : "owner-p2");
+        Label owner = new Label(own ? "Your unit" : model.getPlayerName(unit.getPlayerID()) + (model.getPlayers().size() == 2 ? " unit" : "'s unit"));
+        owner.getStyleClass().add("owner-p" + unit.getPlayerID());
         VBox title = new VBox(1, name, owner);
         HBox top = new HBox(10, icon, title);
         top.setAlignment(Pos.CENTER_LEFT);
@@ -928,15 +973,22 @@ public class GameView {
                 addStat(stats, column++, "RP/RND", base.getIncome());
             }
             addStat(stats, column++, "ARM %", building.getArmorValue());
-            if (building.getDeploymentRadius() > 0) {
-                addStat(stats, column++, "DEPLOY", building.getDeploymentRadius());
-            }
             if (building.getConstructionRadius() > 0) {
                 addStat(stats, column, "BUILD", building.getConstructionRadius());
             }
         }
 
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
+        Unit host = model.getHostOf(unit);
+        Unit guest = model.getGuestOf(unit);
+        if (host != null || guest != null) {
+            Label stack = new Label(host != null ? "On top of " + host.getUnitName() + " (click again to select it)"
+                    : (unit instanceof TransportShip ? "Carrying " : "Holding ") + guest.getUnitName()
+                      + " on top: it takes attacks first");
+            stack.getStyleClass().add("muted");
+            stack.setWrapText(true);
+            inspector.getChildren().add(stack);
+        }
 
         boolean selected = model.findUnitById(highlights.selectedUnitId()) == unit;
         if (unit instanceof MilitaryBase base && unit.getPlayerID() == 1 && selected && unit.getHealthPoints() > 0) {
@@ -1106,6 +1158,11 @@ public class GameView {
         return model == null || !model.isFogOfWar() || Vision.canSee(model.getPlayerOne(), unit, visibleTiles);
     }
 
+    /** What the "Main menu" button on the game over screen does. */
+    public void setOnMainMenu(Runnable onMainMenu) {
+        this.onMainMenu = onMainMenu;
+    }
+
     /** What the "Play again" button on the game over screen does. */
     public void setOnRestart(Runnable onRestart) {
         this.onRestart = onRestart;
@@ -1115,23 +1172,31 @@ public class GameView {
         gameOver = true;
         boolean won = winnerId == 1;
         turnLabel.setText(won ? "Victory" : "Defeat");
-        turnLabel.getStyleClass().removeAll("turn-p1", "turn-p2");
+        turnLabel.getStyleClass().removeIf(style -> style.startsWith("turn-p"));
         turnLabel.getStyleClass().add(won ? "turn-p1" : "turn-p2");
         skipTurnButton.setDisable(true);
         setEndTurnSuggested(false);
         refreshDeployButtons();
         refreshHover();
-        infoArea.appendText("\nGame Over! Player " + winnerId + " has won.\n");
+        infoArea.appendText(won ? "\nGame Over! You have won.\n"
+                : winnerId > 1 ? "\nGame Over! " + model.getPlayerName(winnerId) + " has won.\n" : "\nGame Over! You are out.\n");
 
         Label title = new Label(won ? "VICTORY" : "DEFEAT");
         title.getStyleClass().addAll("game-over-title", won ? "victory" : "defeat");
-        Label subtitle = new Label(won ? "The enemy base has been destroyed." : "Your base has fallen.");
+        Label subtitle = new Label(won ? (model != null && model.getPlayers().size() > 2
+                ? "Every enemy base has been destroyed." : "The enemy base has been destroyed.") : "Your base has fallen.");
         subtitle.getStyleClass().add("game-over-subtitle");
         Button again = new Button("Play again");
         again.getStyleClass().add("end-turn");
         again.setDisable(onRestart == null);
         again.setOnAction(event -> onRestart.run());
-        VBox box = new VBox(12, title, subtitle, again);
+        Button menu = new Button("Main menu");
+        menu.getStyleClass().add("upgrade-button");
+        menu.setDisable(onMainMenu == null);
+        menu.setOnAction(event -> onMainMenu.run());
+        HBox buttons = new HBox(10, again, menu);
+        buttons.setAlignment(Pos.CENTER);
+        VBox box = new VBox(12, title, subtitle, buttons);
         box.setAlignment(Pos.CENTER);
         box.getStyleClass().add("game-over");
         box.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
@@ -1343,7 +1408,7 @@ public class GameView {
                     .filter(unit -> unit instanceof Infrastructure).count() - 1; // without the base
             int count = hidden
                     ? (int) model.getVisibleEnemies(model.getPlayerOne()).stream()
-                            .filter(unit -> !(unit instanceof Infrastructure)).count()
+                            .filter(unit -> unit.getPlayerID() == player.getPlayerID() && !(unit instanceof Infrastructure)).count()
                     : player.getPlayerDeck().getUnits().size() - 1 - buildings;
             units.setText((count == 1 ? "1 unit" : count + " units") + (hidden ? " in sight" : "")
                     + (buildings == 0 ? "" : buildings == 1 ? ", 1 building" : ", " + buildings + " buildings"));

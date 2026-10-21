@@ -15,6 +15,7 @@ import game.tools.CircleGenerator;
 import game.units.AssaultClass;
 import game.units.Base;
 import game.units.Infrastructure;
+import game.units.TransportShip;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.AssaultTank;
 import game.units.assaultClasses.SelfPropelledAntiAir;
@@ -37,11 +38,10 @@ public class AttackCommand extends Command {
      *
      * @param attackerPlayer   The player who attacks.
      * @param attackingUnitID  The unit ID that attacks.
-     * @param targetID         The ID of the target. Use 1/2 for base, or >2 for units.
+     * @param targetID         The ID of the target: a base has its owner's player id, every other unit a larger one.
      * @return CommandResult   Success/failure message.
      */
     public CommandResult execute(Player attackerPlayer, int attackingUnitID, int targetID) {
-        Player defenderPlayer = (attackerPlayer.getPlayerID() == 1) ? getGameModel().getPlayerTwo() : getGameModel().getPlayerOne();
         Unit attackingUnit = attackerPlayer.getPlayerDeck().getUnit(attackingUnitID);
 
         if (attackingUnit == null) {
@@ -56,15 +56,16 @@ public class AttackCommand extends Command {
             return new CommandResult(false, "This unit cannot attack.");
         }
 
-        // Determine possible targets in range (includes the enemy base)
-        List<Integer> targetsInRange = scout(attackingUnitID, attackerPlayer, defenderPlayer);
+        // Determine possible targets in range (includes the enemy bases)
+        List<Integer> targetsInRange = scout(attackingUnitID, attackerPlayer);
         if (!targetsInRange.contains(targetID)) {
             return new CommandResult(false, "Target is not in range.");
         }
+        Player defenderPlayer = getGameModel().getOwner(getGameModel().findUnitById(targetID));
 
         List<GameEvent> events;
         // Attack base
-        if (targetID == 1 || targetID == 2) {
+        if (defenderPlayer.getPlayerDeck().getUnit(targetID) instanceof Base) {
             events = attackBase(attackingUnitID, attackingUnit, defenderPlayer);
         }
         // Attack unit
@@ -135,16 +136,28 @@ public class AttackCommand extends Command {
         return describeAttack(defenderID, defender, attackingUnitID, attacker, damage, hpBefore);
     }
 
-    private List<Integer> scout(int attackingUnitID, Player attacker, Player defender) {
+    /** The enemies of every other player the unit can hit right now. */
+    private List<Integer> scout(int attackingUnitID, Player attacker) {
         Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
         Point attackingPos = attackingUnit.getPosition();
         int range = getGameModel().getShootingRange((AssaultClass) attackingUnit);
 
-        return defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range).stream()
-                .distinct()
-                .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
-                .filter(id -> getGameModel().isVisibleTo(attacker, defender.getPlayerDeck().getUnit(id))) // fog of war
-                .toList();
+        List<Integer> targets = new ArrayList<>();
+        for (Player defender : getGameModel().getEnemies(attacker)) {
+            defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range).stream()
+                    .distinct()
+                    .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
+                    .filter(id -> !isShielded(defender.getPlayerDeck().getUnit(id), attackingUnit))
+                    .filter(id -> getGameModel().isVisibleTo(attacker, defender.getPlayerDeck().getUnit(id))) // fog of war
+                    .forEach(targets::add);
+        }
+        return targets;
+    }
+
+    /** True if a unit the attacker could hit stands on top of the building or ship: it takes the attack first. */
+    public boolean isShielded(Unit target, Unit attacker) {
+        Unit guest = getGameModel().getGuestOf(target);
+        return guest != null && canTarget(attacker, guest);
     }
 
     /** What attacking the target would do, or null if the attack is not possible. */
@@ -153,8 +166,8 @@ public class AttackCommand extends Command {
         if (!(attacker instanceof AssaultClass assault) || !findTargets(attackerPlayer, attackingUnitID).contains(targetID)) {
             return null;
         }
-        Player defenderPlayer = attackerPlayer.getPlayerID() == 1 ? getGameModel().getPlayerTwo() : getGameModel().getPlayerOne();
-        Unit target = defenderPlayer.getPlayerDeck().getUnit(targetID);
+        Unit target = getGameModel().findUnitById(targetID);
+        Player defenderPlayer = getGameModel().getOwner(target);
         int damage = predictDamage(assault, target);
         int targetHpAfter = target.getHealthPoints() - damage;
         boolean destroys = targetHpAfter <= 0;
@@ -183,8 +196,7 @@ public class AttackCommand extends Command {
     public List<Integer> findTargets(Player attacker, int attackingUnitID) {
         Unit unit = attacker.getPlayerDeck().getUnit(attackingUnitID);
         if (!(unit instanceof AssaultClass)) return List.of();
-        Player defender = attacker.getPlayerID() == 1 ? getGameModel().getPlayerTwo() : getGameModel().getPlayerOne();
-        return scout(attackingUnitID, attacker, defender);
+        return scout(attackingUnitID, attacker);
     }
 
     private List<GameEvent> attackBase(int attackingUnitID, Unit attackingUnit, Player defender) {
@@ -208,12 +220,22 @@ public class AttackCommand extends Command {
         int damage = predictDamage(attacker, defendingUnit);
 
         int hpBefore = defendingUnit.getHealthPoints();
+        Unit passenger = getGameModel().getGuestOf(defendingUnit);
         defendingUnit.setHealthPoints(-damage);
 
         if (defendingUnit.getHealthPoints() <= 0) {
             defender.getPlayerDeck().removeUnit(defendingUnitID);
         }
-        return describeAttack(attackingUnitID, attackingUnit, defendingUnitID, defendingUnit, damage, hpBefore);
+        List<GameEvent> events = describeAttack(attackingUnitID, attackingUnit, defendingUnitID, defendingUnit, damage, hpBefore);
+        if (defendingUnit.getHealthPoints() <= 0 && defendingUnit instanceof TransportShip && passenger != null) {
+            // a sunk transport takes the unit on its deck down with it
+            int passengerId = getGameModel().getUnitID(passenger);
+            defender.getPlayerDeck().removeUnit(passengerId);
+            events = new ArrayList<>(events);
+            events.add(new GameEvent.UnitDestroyed(passenger.getPlayerID(), passengerId, passenger.getUnitName(),
+                    passenger.getPosition(), false));
+        }
+        return events;
     }
 
     /** The damage the attacker would deal to the target where it stands, without changing anything. */
@@ -232,7 +254,7 @@ public class AttackCommand extends Command {
 
     /** Forests and mountains shelter units on the ground; aircraft and ships get no cover. */
     public int coverPercent(Unit unit, Point position) {
-        if (unit instanceof Aircraft || unit instanceof Ship || unit instanceof Infrastructure) return 0;
+        if (unit instanceof Aircraft || isVessel(unit) || unit instanceof Infrastructure) return 0;
         TerrainEnum terrain = getGameModel().getBattlefield().getGeographyOfPoint(position);
         return terrain == null ? 0 : terrain.coverPercent();
     }
@@ -274,7 +296,7 @@ public class AttackCommand extends Command {
         if (attacker instanceof TankHunter hunter && target instanceof AssaultTank) {
             damage *= hunter.antiTankMultiplier();
         }
-        if (attacker instanceof Submarine && target instanceof Ship) {
+        if (attacker instanceof Submarine && isVessel(target)) {
             damage *= TORPEDO_VS_SHIP;
         }
         return afterArmor(damage, target instanceof AssaultTank tank ? tank.getArmorValue() : 0);
@@ -285,9 +307,14 @@ public class AttackCommand extends Command {
      * and aircraft can find a submarine.
      */
     public static boolean canTarget(Unit attacker, Unit target) {
-        if (attacker instanceof Submarine) return target instanceof Ship;
+        if (attacker instanceof Submarine) return isVessel(target);
         if (target instanceof Submarine) return attacker instanceof Ship || attacker instanceof Aircraft;
         return true;
+    }
+
+    /** Warships and transports alike: what torpedoes hunt. */
+    public static boolean isVessel(Unit unit) {
+        return unit instanceof Ship || unit instanceof TransportShip;
     }
 
     /** Armour is a percentage: 40 armour stops 40 % of the damage. */

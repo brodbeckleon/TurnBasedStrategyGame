@@ -16,7 +16,7 @@ public class PlayerDeck {
     private final int baseID;   // Store the base's ID for easy retrieval
     private final HashMap<Integer, Unit> units = new HashMap<>();
     private final CircleGenerator circleGenerator;
-    private static int nextUnitID = 3; // Start unit IDs after bases
+    private static int nextUnitID = 10; // Start unit IDs after the bases (their ids are the player ids, up to 5)
 
     public PlayerDeck(CircleGenerator circleGenerator, int playerID, int baseID, Point positionBase) {
         this.circleGenerator = circleGenerator;

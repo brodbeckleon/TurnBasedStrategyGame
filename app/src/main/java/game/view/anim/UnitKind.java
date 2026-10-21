@@ -1,5 +1,6 @@
 package game.view.anim;
 
+import game.units.TransportShip;
 import game.units.Unit;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.Ship;
@@ -14,7 +15,7 @@ public enum UnitKind {
 
     public static UnitKind of(Unit unit) {
         if (unit instanceof Aircraft) return AIR;
-        if (unit instanceof Ship) return SEA;
+        if (unit instanceof Ship || unit instanceof TransportShip) return SEA;
         return GROUND;
     }
 }
