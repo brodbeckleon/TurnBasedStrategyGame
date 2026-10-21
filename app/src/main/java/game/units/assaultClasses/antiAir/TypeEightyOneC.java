@@ -6,6 +6,6 @@ import java.awt.*;
 
 public class TypeEightyOneC extends SelfPropelledAntiAir {
     public TypeEightyOneC(int playerID, Point position) {
-        super(playerID, "Type 81 (C)", position, 4, 400, 6, 3, 350);
+        super(playerID, "Type 81 (C)", position, 4, 500, 6, 3, 350);
     }
 }

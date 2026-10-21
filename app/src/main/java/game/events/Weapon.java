@@ -1,5 +1,6 @@
 package game.events;
 
+import game.interfaces.TankHunter;
 import game.units.Unit;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.SelfPropelledAntiAir;
@@ -21,6 +22,7 @@ public enum Weapon {
         if (attacker instanceof Ship) return NAVAL_GUN;
         if (attacker instanceof Aircraft) return MISSILE;
         if (attacker instanceof SelfPropelledAntiAir) return AA_BURST;
+        if (attacker instanceof TankHunter) return MISSILE;
         return SHELL;
     }
 }

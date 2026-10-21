@@ -2,6 +2,7 @@ package game.controller;
 
 import game.events.GameEvent;
 import game.game.Command;
+import game.game.Movement;
 import game.game.Player;
 import game.game.UnitFactory;
 import game.game.commands.*;
@@ -16,6 +17,8 @@ import game.units.SupportClass;
 import game.units.Unit;
 import game.interfaces.ActsAfterMoving;
 import game.units.assaultClasses.Aircraft;
+import game.units.assaultClasses.Helicopter;
+import game.units.assaultClasses.Infantry;
 import game.units.assaultClasses.AssaultTank;
 import game.units.assaultClasses.Ship;
 import game.units.infrastructures.NavyBase;
@@ -70,6 +73,13 @@ public class GameController {
     private int selectedUnitId = -1; // -1 means no unit is selected
     private boolean animating = false; // true while an animation or the bot turn blocks the player's input
     private int round = 1;
+    private static Difficulty difficulty = Difficulty.NORMAL; // kept for the next game ("Play again")
+    private UndoableMove lastMove; // the player's last move, while it can still be taken back
+    private final List<GameEvent> enemyTurn = new ArrayList<>(); // what the player saw of the enemy's turn
+
+    /** A move that may be taken back: nothing else happened since, and it revealed nothing new. */
+    private record UndoableMove(int unitId, List<Point> path) {
+    }
 
     public GameController(Game model, GameView view) {
         this.model = model;
@@ -103,6 +113,7 @@ public class GameController {
     private static DeployOption.Category categoryOf(Unit unit) {
         if (unit instanceof Infrastructure) return DeployOption.Category.BUILDINGS;
         if (unit instanceof SupportClass) return DeployOption.Category.SUPPORT;
+        if (unit instanceof Infantry) return DeployOption.Category.INFANTRY;
         if (unit instanceof Aircraft) return DeployOption.Category.AIR;
         if (unit instanceof Ship) return DeployOption.Category.NAVY;
         return DeployOption.Category.ARMY;
@@ -144,6 +155,11 @@ public class GameController {
             case "Armored Recovery Vehicle" -> "Builds new bases on base ruins it stands next to, and repairs an adjacent friendly building (your base too) by 600 HP.";
             case "Armored Reconnaissance Vehicle" -> "Unarmed scout: friendly units within 3 tiles shoot 1 tile further.";
             case "Yamato" -> "Battleship with a huge punch and a thick hull.";
+            case "Kongo" -> "Aegis destroyer: double damage to aircraft, covers the fleet from air attacks, and hunts submarines.";
+            case "Soryu" -> "Submarine: torpedoes deal double damage to ships. Attacks only ships; only ships and aircraft can attack it.";
+            case "Infantry" -> "Cheap riflemen. Cross forests freely and the only ground unit that can climb mountains (good cover).";
+            case "Anti-Tank Team" -> "Type 01 LMAT team: fragile, but deals double damage to tanks. Moves like infantry.";
+            case "AH-64D" -> "Apache attack helicopter: 1.5x damage to tanks. Flies anywhere, but flies low: ground fire hits it at full strength.";
             case "Army Base" -> "Forward base: +2 RP per round, deploys army units around it, and a Radar Station can be built near it. Built on base ruins by a Recovery Vehicle.";
             case "Air Base" -> "Airfield: +2 RP per round, required to deploy aircraft. Built on base ruins by a Recovery Vehicle.";
             case "Naval Base" -> "Harbour: +2 RP per round, required to deploy ships. Built on base ruins next to water by a Recovery Vehicle.";
@@ -156,7 +172,8 @@ public class GameController {
         String orders = unit instanceof AssaultClass
                 ? unit instanceof ActsAfterMoving ? " Can move and attack in the same turn." : " Moves or attacks each turn, not both."
                 : "";
-        String where = unit instanceof Aircraft ? " Deploys at an air base."
+        String where = unit instanceof Helicopter ? " Deploys at your base, an army base or an air base."
+                : unit instanceof Aircraft ? " Deploys at an air base."
                 : unit instanceof Ship ? " Deploys on the water around a naval base."
                 : " Deploys at your base or an army base.";
         return text + orders + where;
@@ -170,6 +187,19 @@ public class GameController {
         view.setDeployOptions(deployOptions, this::prepareAddUnit);
         view.setKeyHandler(this::handleKey);
         view.setOnUpgrade(this::upgradeSelected);
+        view.setAttackPreview(this::attackPreview);
+        view.setOnUndo(this::undoMove);
+        botService.setDifficulty(difficulty);
+        view.setDifficulty(difficulty, level -> {
+            difficulty = level;
+            botService.setDifficulty(level);
+            view.logInfo("Bot difficulty: " + level + ".");
+        });
+        view.setOnPickReady(this::selectUnit);
+        view.setFogOfWar(model.isFogOfWar(), fog -> {
+            model.setFogOfWar(fog);
+            if (canAct()) refresh();
+        });
     }
 
     private boolean canAct() {
@@ -181,6 +211,8 @@ public class GameController {
         switch (event.getCode()) {
             case E -> endTurn();
             case U -> upgradeSelected();
+            case Z -> undoMove();
+            case N -> selectNextReady();
             case ESCAPE -> cancel();
             default -> {
                 String key = event.getText();
@@ -204,6 +236,7 @@ public class GameController {
     }
 
     private void endTurn() {
+        lastMove = null;
         resetSelection(); // Deselect unit when turn ends
         model.switchTurn();
         if (model.isPlayerOneTurn()) {
@@ -237,18 +270,37 @@ public class GameController {
     }
 
     private void beginBotTurn() {
+        enemyTurn.clear();
         botService.startTurn();
         botStep();
     }
 
     private void botStep() {
+        Set<Point> seenBefore = model.getVisibleTiles(model.getPlayerOne());
         Optional<List<GameEvent>> step = botService.performNextStep();
         if (step.isEmpty()) {
             finishBotTurn();
             return;
         }
-        logEvents(step.get());
-        play(step.get(), this::afterBotStep);
+        // under fog of war the player only sees (and hears about) what happens where its units can see
+        Set<Point> seen = new HashSet<>(seenBefore);
+        seen.addAll(model.getVisibleTiles(model.getPlayerOne()));
+        List<GameEvent> visible = step.get().stream().filter(event -> isSeen(event, seen)).toList();
+        enemyTurn.addAll(visible);
+        logEvents(visible);
+        play(visible, this::afterBotStep);
+    }
+
+    private static boolean isSeen(GameEvent event, Set<Point> seen) {
+        return switch (event) {
+            case GameEvent.UnitDeployed e -> seen.contains(e.pos());
+            case GameEvent.UnitMoved e -> e.path().stream().anyMatch(seen::contains);
+            case GameEvent.UnitAttacked e -> seen.contains(e.from()) || seen.contains(e.to());
+            case GameEvent.UnitDamaged e -> seen.contains(e.pos());
+            case GameEvent.UnitDestroyed e -> seen.contains(e.pos());
+            case GameEvent.UnitHealed e -> seen.contains(e.pos());
+            case GameEvent.BaseUpgraded e -> seen.contains(e.pos());
+        };
     }
 
     private void afterBotStep() {
@@ -270,8 +322,87 @@ public class GameController {
     }
 
     private void finishBotTurn() {
+        String summary = summarizeEnemyTurn();
+        view.logInfo("Enemy turn: " + summary);
         endTurn();
-        view.showBanner("YOUR TURN", this::unlockInput);
+        view.showBanner("YOUR TURN", summary, this::unlockInput);
+    }
+
+    /** One line on what the player saw of the enemy's turn: attacks, losses on both sides, new enemy units. */
+    private String summarizeEnemyTurn() {
+        int attacks = 0, spotted = 0, hqDamage = 0, moves = 0;
+        List<String> yourLosses = new ArrayList<>();
+        int enemyLosses = 0;
+        for (GameEvent event : enemyTurn) {
+            switch (event) {
+                case GameEvent.UnitAttacked e -> { if (e.playerId() == 2) attacks++; }
+                case GameEvent.UnitDeployed e -> spotted++;
+                case GameEvent.UnitMoved e -> moves++;
+                case GameEvent.UnitDamaged e -> { if (e.isBase() && e.ownerId() == 1) hqDamage += e.damage(); }
+                case GameEvent.UnitDestroyed e -> {
+                    if (e.ownerId() == 1 && !e.isBase()) yourLosses.add(e.unitName());
+                    else if (e.ownerId() == 2) enemyLosses++;
+                }
+                default -> { }
+            }
+        }
+        if (enemyTurn.isEmpty()) {
+            return "the enemy moved unseen in the fog.";
+        }
+        List<String> parts = new ArrayList<>();
+        if (moves > 0) parts.add(moves == 1 ? "1 move seen" : moves + " moves seen");
+        parts.add(attacks == 0 ? "no attacks" : attacks == 1 ? "1 attack" : attacks + " attacks");
+        if (!yourLosses.isEmpty()) parts.add("you lost " + String.join(", ", yourLosses));
+        if (enemyLosses > 0) parts.add("the enemy lost " + (enemyLosses == 1 ? "1 unit" : enemyLosses + " units"));
+        if (hqDamage > 0) parts.add("your base took " + hqDamage + " damage");
+        if (spotted > 0) parts.add(spotted == 1 ? "1 new enemy unit spotted" : spotted + " new enemy units spotted");
+        return String.join(", ", parts) + ".";
+    }
+
+    /** Takes back the player's last move (Z, or the button in the inspector). */
+    private void undoMove() {
+        if (!canAct() || lastMove == null) return;
+        UndoableMove move = lastMove;
+        lastMove = null;
+        CommandResult result = moveCommand.undo(model.getCurrentPlayer(), move.unitId(), move.path());
+        view.logInfo(result.getMessage());
+        if (result.wasSuccessful()) {
+            resetSelection();
+            selectedUnitId = move.unitId();
+            currentState = ControllerState.UNIT_SELECTED;
+        }
+        if (!playPlayerAction(result)) {
+            refresh();
+        }
+    }
+
+    /** The units that can still do something this turn, in a stable order. */
+    private List<Integer> readyUnits() {
+        List<Integer> ready = new ArrayList<>();
+        for (Map.Entry<Integer, Unit> entry : new java.util.TreeMap<>(model.getPlayerOne().getPlayerDeck().getUnits()).entrySet()) {
+            Unit unit = entry.getValue();
+            if (unit instanceof MovableUnit && unit.isAvailable() && (!unit.hasMoved() || canStillAct(entry.getKey(), unit))) {
+                ready.add(entry.getKey());
+            }
+        }
+        return ready;
+    }
+
+    /** Selects a ready unit (a click in the ready list). */
+    private void selectUnit(int unitId) {
+        if (!canAct() || model.findUnitById(unitId) == null) return;
+        resetSelection();
+        selectedUnitId = unitId;
+        currentState = ControllerState.UNIT_SELECTED;
+        refresh();
+    }
+
+    /** Selects the next unit that is still ready (N). */
+    private void selectNextReady() {
+        List<Integer> ready = readyUnits();
+        if (ready.isEmpty()) return;
+        int next = ready.stream().filter(id -> id > selectedUnitId).findFirst().orElse(ready.get(0));
+        selectUnit(next);
     }
 
     /**
@@ -315,6 +446,9 @@ public class GameController {
     private void logResult(CommandResult result) {
         if (result.wasSuccessful() && !result.getEvents().isEmpty()) {
             logEvents(result.getEvents());
+            if (result.getMessage().startsWith("Ambush!")) {
+                view.logInfo(result.getMessage());
+            }
         } else {
             view.logInfo(result.getMessage());
         }
@@ -367,6 +501,14 @@ public class GameController {
         }
     }
 
+    /** What the selected unit's attack on the unit at the cell would do, for the inspector; null if none. */
+    private AttackPreview attackPreview(Point cell) {
+        if (currentState != ControllerState.UNIT_SELECTED || !canAct()) return null;
+        Unit target = model.getUnitAt(cell);
+        if (target == null || model.isUnitOwnedByCurrentPlayer(model.getUnitID(target))) return null;
+        return attackCommand.preview(model.getCurrentPlayer(), selectedUnitId, model.getUnitID(target));
+    }
+
     /** Upgrades the selected base (button in the inspector, or U). */
     private void upgradeSelected() {
         if (!canAct() || currentState != ControllerState.UNIT_SELECTED
@@ -374,6 +516,7 @@ public class GameController {
             return;
         }
         CommandResult result = upgradeCommand.execute(model.getCurrentPlayer(), selectedUnitId);
+        if (result.wasSuccessful()) lastMove = null;
         logResult(result);
         if (!playPlayerAction(result)) {
             refresh();
@@ -429,6 +572,7 @@ public class GameController {
 
         if (currentState == ControllerState.AWAITING_PLACEMENT) {
             CommandResult result = addCommand.execute(model.getCurrentPlayer(), unitTypeToAdd.name(), clickedPoint);
+            if (result.wasSuccessful()) lastMove = null;
             logResult(result);
             if (result.wasSuccessful()) {
                 resetSelection();
@@ -456,6 +600,7 @@ public class GameController {
                 resetSelection();
             } else if (clickedUnit != null && !model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
                 CommandResult result = attackCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
+                if (result.wasSuccessful()) lastMove = null;
                 logResult(result);
                 if (result.wasSuccessful()) {
                     resetSelection();
@@ -463,14 +608,23 @@ public class GameController {
                 animated = playPlayerAction(result);
             } else if (clickedUnit != null && highlights.supportTargets().contains(clickedPoint)) {
                 CommandResult result = healCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
+                if (result.wasSuccessful()) lastMove = null;
                 logResult(result);
                 if (result.wasSuccessful()) {
                     resetSelection();
                 }
                 animated = playPlayerAction(result);
             } else if (clickedUnit == null && highlights.moveTiles().contains(clickedPoint)) {
+                Set<Unit> seenBefore = new HashSet<>(model.getVisibleEnemies(currentPlayer));
+                int movedId = selectedUnitId;
                 CommandResult result = moveCommand.execute(currentPlayer, selectedUnitId, clickedPoint);
                 logResult(result);
+                // a move can be taken back unless it ran into an ambush or revealed new enemies (no free scouting)
+                lastMove = null;
+                if (result.wasSuccessful() && !result.getMessage().startsWith("Ambush!")
+                        && seenBefore.containsAll(model.getVisibleEnemies(currentPlayer))) {
+                    lastMove = new UndoableMove(movedId, ((GameEvent.UnitMoved) result.getEvents().get(0)).path());
+                }
                 // a unit that can still act stays selected, so its targets show right after the move
                 if (!result.wasSuccessful() || !selectedUnit.isAvailable() || !canStillAct(selectedUnitId, selectedUnit)) {
                     resetSelection();
@@ -504,6 +658,8 @@ public class GameController {
     private void refreshStatus() {
         view.setArmedDeploy(currentState == ControllerState.AWAITING_PLACEMENT ? unitTypeToAdd : null);
         view.setBlockedDeploys(blockedDeploys());
+        view.setReadyUnits(canAct() ? readyUnits() : List.of());
+        view.setUndoableUnit(canAct() && lastMove != null ? lastMove.unitId() : -1);
         view.setEndTurnSuggested(canAct() && currentState == ControllerState.NORMAL && nothingLeftToDo());
         view.setHint(hint());
     }
@@ -523,11 +679,7 @@ public class GameController {
 
         Set<Point> moves = new HashSet<>();
         if (selected instanceof MovableUnit && !selected.hasMoved()) {
-            for (Point point : selected.getPossibleMoves(model.getBattlefield().getSize())) {
-                if (moveCommand.checkIfPositionIsFree(point) && moveCommand.checkIfTerrainIsDeployable(selected, point)) {
-                    moves.add(point);
-                }
-            }
+            moves.addAll(Movement.reachable(model, selected).keySet());
         }
         Set<Point> range = new HashSet<>();
         Set<Point> targets = new HashSet<>();
@@ -539,7 +691,7 @@ public class GameController {
                     range.add(point);
                 }
             }
-            for (int targetId : model.getOpponent().getPlayerDeck().getUnitIDsInRange(origin, shootingRange)) {
+            for (int targetId : attackCommand.findTargets(model.getCurrentPlayer(), selectedUnitId)) {
                 targets.add(model.findUnitById(targetId).getPosition());
             }
         }
@@ -611,8 +763,7 @@ public class GameController {
     /** True if the unit has something to do from where it stands: a target to shoot, heal or build on. */
     private boolean canStillAct(int unitId, Unit unit) {
         Player player = model.getCurrentPlayer();
-        if (unit instanceof AssaultClass assault && !model.getOpponent().getPlayerDeck()
-                .getUnitIDsInRange(unit.getPosition(), model.getShootingRange(assault)).isEmpty()) {
+        if (!attackCommand.findTargets(player, unitId).isEmpty()) {
             return true;
         }
         if (!healCommand.findTargets(player, unitId).isEmpty()) {
@@ -654,7 +805,7 @@ public class GameController {
                 }
                 if (selected.hasMoved()) {
                     return "Moved: " + (selected instanceof AssaultClass ? "red brackets to attack" : "act from here")
-                            + ", or Esc if this unit is done.";
+                            + ", or Esc if this unit is done." + (lastMove != null ? "  Z: undo the move." : "");
                 }
                 if (selected instanceof ArmoredRecoveryVehicle
                         && !addCommand.findDeployablePositions(model.getCurrentPlayer(),
@@ -674,8 +825,8 @@ public class GameController {
                 if (nothingLeftToDo()) {
                     return "Nothing left to do this turn.  Press E to end your turn.";
                 }
-                return "Select one of your units, or deploy a new one with keys 1–9 (Tab switches the deploy tab).  "
-                        + "Press E to end your turn.";
+                return "Select a unit (N: next ready one), or deploy with keys 1–9 (Tab switches the deploy tab).  "
+                        + (lastMove != null ? "Z: undo the move.  " : "") + "E: end your turn.";
             }
         }
     }

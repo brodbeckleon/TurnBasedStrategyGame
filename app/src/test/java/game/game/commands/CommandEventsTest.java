@@ -120,8 +120,8 @@ class CommandEventsTest {
         assertTrue(result.wasSuccessful());
         TypeTen tank = (TypeTen) game.findUnitById(attacker);
         TypeNinety defender = (TypeNinety) game.findUnitById(target);
-        int hit = AttackCommand.predictDamage(tank, defender);
-        int counter = AttackCommand.predictDamage(defender, tank);
+        int hit = attack.predictDamage(tank, defender);
+        int counter = attack.counterDamage(defender, tank);
         assertEquals(List.of(
                 new UnitAttacked(1, attacker, "Type 10", new Point(5, 5), target, new Point(7, 5), false, Weapon.SHELL),
                 new UnitDamaged(2, target, "Type 90", new Point(7, 5), hit, 750, 750 - hit, 750, false),
@@ -137,7 +137,7 @@ class CommandEventsTest {
         TypeNinety victim = new TypeNinety(2, new Point(7, 5));
         int target = Fixtures.place(game, 2, victim);
         victim.setHealthPoints(-(victim.getMaxHealthPoints() - 100));
-        int hit = AttackCommand.predictDamage((TypeTen) game.findUnitById(attacker), victim);
+        int hit = attack.predictDamage((TypeTen) game.findUnitById(attacker), victim);
 
         CommandResult result = attack.execute(game.getPlayerOne(), attacker, target);
 
@@ -157,7 +157,7 @@ class CommandEventsTest {
         List<GameEvent> events = attack.execute(game.getPlayerTwo(), attacker, target).getEvents();
 
         assertEquals(new UnitAttacked(2, attacker, "Type 90", new Point(7, 5), target, new Point(5, 5), false, Weapon.SHELL), events.get(0));
-        int hit = AttackCommand.predictDamage((TypeNinety) game.findUnitById(attacker), game.findUnitById(target));
+        int hit = attack.predictDamage((TypeNinety) game.findUnitById(attacker), game.findUnitById(target));
         assertEquals(new UnitDamaged(1, target, "Type 10", new Point(5, 5), hit, 500, 500 - hit, 500, false), events.get(1));
     }
 
@@ -181,7 +181,7 @@ class CommandEventsTest {
 
         Base base = game.getPlayerTwo().getPlayerDeck().getBase();
         int hp = base.getMaxHealthPoints();
-        int hit = AttackCommand.predictDamage((TypeNinety) game.findUnitById(attacker), base);
+        int hit = attack.predictDamage((TypeNinety) game.findUnitById(attacker), base);
         assertEquals(new UnitAttacked(1, attacker, "Type 90", new Point(14, 15), 2, new Point(15, 15), true, Weapon.SHELL), events.get(0));
         assertEquals(new UnitDamaged(2, 2, "Base", new Point(15, 15), hit, hp, hp - hit, hp, true), events.get(1));
         assertEquals(2, events.size(), "buildings never strike back");
@@ -193,7 +193,7 @@ class CommandEventsTest {
         Base base = game.getPlayerTwo().getPlayerDeck().getBase();
         int hp = base.getMaxHealthPoints();
         base.setHealthPoints(-(hp - 300));
-        int hit = AttackCommand.predictDamage((TypeNinety) game.findUnitById(attacker), base);
+        int hit = attack.predictDamage((TypeNinety) game.findUnitById(attacker), base);
 
         List<GameEvent> events = attack.execute(game.getPlayerOne(), attacker, 2).getEvents();
 
@@ -238,7 +238,7 @@ class CommandEventsTest {
         UnitAttacked attacked = assertInstanceOf(UnitAttacked.class, events.get(0));
         assertEquals(Weapon.NAVAL_GUN, attacked.weapon());
         assertEquals("Yamato", attacked.attackerName());
-        assertEquals(AttackCommand.predictDamage((Yamato) game.findUnitById(attacker), game.findUnitById(target)),
+        assertEquals(attack.predictDamage((Yamato) game.findUnitById(attacker), game.findUnitById(target)),
                 assertInstanceOf(UnitDamaged.class, events.get(1)).damage());
     }
 

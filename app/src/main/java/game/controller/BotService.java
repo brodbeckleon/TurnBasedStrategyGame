@@ -2,6 +2,8 @@ package game.controller;
 
 import game.events.GameEvent;
 import game.game.Command;
+import game.game.Movement;
+import game.enums.TerrainEnum;
 import game.game.Player;
 import game.game.UnitFactory;
 import game.game.commands.AddCommand;
@@ -10,6 +12,7 @@ import game.game.commands.HealCommand;
 import game.game.commands.MoveCommand;
 import game.game.commands.UpgradeCommand;
 import game.interfaces.ActsAfterMoving;
+import game.interfaces.AntiAir;
 import game.interfaces.MovableUnit;
 import game.interfaces.Spotter;
 import game.model.Game;
@@ -21,10 +24,12 @@ import game.units.SupportClass;
 import game.units.Unit;
 import game.enums.UnitEnum;
 import game.units.assaultClasses.Aircraft;
+import game.units.assaultClasses.Infantry;
 import game.units.assaultClasses.AssaultTank;
 import game.units.assaultClasses.SelfPropelledAntiAir;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.assaultClasses.Ship;
+import game.units.assaultClasses.Submarine;
 import game.units.infrastructures.AirForceBase;
 import game.units.infrastructures.NavyBase;
 import game.units.infrastructures.Radarstation;
@@ -61,9 +66,9 @@ public class BotService {
     private static final double GOAL_WEIGHT = 0.3;
     private static final double THREAT_RADIUS = 6;
     private static final double ESCORT_DISTANCE = 2;
-    private static final int UPGRADE_SPARE_RP = 4;
-    private static final double PURCHASE_NOISE = 0.8;
     private static final double REPEAT_PENALTY = 0.35;
+    private static final double SAVE_FOR_BETTER = 1.3;
+    private static final double FLEET_REACH = 7;
     private static final double COUNTER_WEIGHT = 0.6;
     private static final double MIN_CAUTION = 0.3;
     private static final double MAX_CAUTION = 1.5;
@@ -77,6 +82,7 @@ public class BotService {
     private final Random random;
     private final int playerId;
     private Predicate<UnitEnum> roster = type -> true;
+    private Difficulty difficulty = Difficulty.NORMAL;
     private final UnitFactory unitFactory = new UnitFactory();
 
     private final Deque<Integer> pendingUnitIds = new ArrayDeque<>();
@@ -108,6 +114,14 @@ public class BotService {
         this.random = random;
     }
 
+    public void setDifficulty(Difficulty difficulty) {
+        this.difficulty = difficulty;
+    }
+
+    public Difficulty getDifficulty() {
+        return difficulty;
+    }
+
     /** Limits what the bot may buy; everything by default. */
     public void setRoster(Predicate<UnitEnum> roster) {
         this.roster = roster;
@@ -115,6 +129,18 @@ public class BotService {
 
     private Player me() {
         return playerId == 1 ? model.getPlayerOne() : model.getPlayerTwo();
+    }
+
+    /** The enemies the bot can see: it plays by the fog of war like the player. */
+    private List<Unit> visibleEnemies() {
+        return model.getVisibleEnemies(me());
+    }
+
+    private List<Map.Entry<Integer, Unit>> visibleEnemyEntries() {
+        java.util.Set<Unit> visible = new java.util.HashSet<>(visibleEnemies());
+        return enemy().getPlayerDeck().getUnits().entrySet().stream()
+                .filter(entry -> visible.contains(entry.getValue()))
+                .toList();
     }
 
     private Player enemy() {
@@ -263,21 +289,28 @@ public class BotService {
         boolean mayMoveFirst = attacker instanceof ActsAfterMoving && !attacker.hasMoved();
         List<Point> tiles = mayMoveFirst ? candidateTiles(attacker) : List.of(attacker.getPosition());
         Strike best = null;
+        List<Strike> worthwhile = new ArrayList<>();
         for (Point tile : tiles) {
             boolean here = tile.equals(attacker.getPosition());
             double range = (here ? model.getShootingRange(attacker) : attacker.getShootingRange()) + 0.4;
             double exposure = here ? 0 : danger(attacker, tile) - danger(attacker, attacker.getPosition());
-            for (Map.Entry<Integer, Unit> entry : enemy().getPlayerDeck().getUnits().entrySet()) {
+            for (Map.Entry<Integer, Unit> entry : visibleEnemyEntries()) {
                 Unit target = entry.getValue();
-                if (target.getPosition().distance(tile) > range) continue;
+                if (target.getPosition().distance(tile) > range || !AttackCommand.canTarget(attacker, target)) continue;
                 double trade = tradeScore(attacker, tile, target);
                 if (trade <= 0) continue;
                 // on a tie: the weaker target, then the tile the unit already stands on
                 double score = trade - Math.max(0, exposure) - target.getHealthPoints() * 1e-6 + (here ? 1e-3 : 0);
+                Strike strike = new Strike(tile, entry.getKey(), score);
+                worthwhile.add(strike);
                 if (best == null || score > best.score()) {
-                    best = new Strike(tile, entry.getKey(), score);
+                    best = strike;
                 }
             }
+        }
+        if (best != null && random.nextDouble() < difficulty.blunderChance) {
+            // a weaker bot misjudges: half the time it takes some other shot, half the time none at all
+            return random.nextBoolean() ? Optional.of(worthwhile.get(random.nextInt(worthwhile.size()))) : Optional.empty();
         }
         return Optional.ofNullable(best);
     }
@@ -286,20 +319,22 @@ public class BotService {
     private double tradeScore(AssaultClass attacker, Point from, Unit target) {
         double gain = attackScore(attacker, target);
         if (gain <= 0) return 0;
-        int damage = AttackCommand.predictDamage(attacker, target);
+        int damage = attackCommand.predictDamage(attacker, target);
         boolean survives = damage < target.getHealthPoints();
         if (survives && target instanceof AssaultClass defender
                 && from.distance(target.getPosition()) <= model.getShootingRange(defender) + 0.4) {
-            int counter = AttackCommand.predictDamage(defender, attacker);
+            // it strikes back with the health it has left after our hit
+            double left = (double) (target.getHealthPoints() - damage) / target.getMaxHealthPoints();
+            int counter = (int) Math.round(attackCommand.predictDamage(defender, attacker, from) * left);
             gain -= COUNTER_WEIGHT * valueOf(attacker) * Math.min(1, (double) counter / attacker.getHealthPoints());
         }
         if (attacker instanceof Aircraft) {
             // the enemy's anti-air umbrella fires at an aircraft that attacks under it
             int flak = 0;
-            for (Unit enemy : enemy().getPlayerDeck().getUnits().values()) {
-                if (enemy != target && enemy instanceof SelfPropelledAntiAir antiAir
+            for (Unit enemy : visibleEnemies()) {
+                if (enemy != target && enemy instanceof AntiAir && enemy instanceof AssaultClass antiAir
                         && from.distance(enemy.getPosition()) <= model.getShootingRange(antiAir) + 0.4) {
-                    flak += AttackCommand.predictDamage(antiAir, attacker);
+                    flak += attackCommand.counterDamage(antiAir, attacker);
                 }
             }
             gain -= valueOf(attacker) * Math.min(1.5, (double) flak / attacker.getHealthPoints());
@@ -307,9 +342,9 @@ public class BotService {
         return gain;
     }
 
-    private static double attackScore(AssaultClass attacker, Unit target) {
+    private double attackScore(AssaultClass attacker, Unit target) {
         if (target.getHealthPoints() <= 0) return 0;
-        int damage = AttackCommand.predictDamage(attacker, target);
+        int damage = attackCommand.predictDamage(attacker, target);
         if (damage <= 0) return 0;
         double value = valueOf(target);
         if (damage >= target.getHealthPoints()) {
@@ -333,7 +368,7 @@ public class BotService {
      */
     private Point goalFor(AssaultClass unit) {
         Point position = unit.getPosition();
-        List<Unit> enemies = List.copyOf(enemy().getPlayerDeck().getUnits().values());
+        List<Unit> enemies = visibleEnemies();
         Point enemyBase = enemy().getPlayerDeck().getBase().getPosition();
 
         if (unit instanceof SelfPropelledAntiAir) {
@@ -436,8 +471,31 @@ public class BotService {
     private UnitEnum chooseBaseType(Player botPlayer, Point site) {
         List<Unit> own = List.copyOf(botPlayer.getPlayerDeck().getUnits().values());
         if (count(own, AirForceBase.class) == 0) return UnitEnum.AIRFORCEBASE;
-        if (count(own, NavyBase.class) == 0 && addCommand.bordersWater(site)) return UnitEnum.NAVYBASE;
+        if (count(own, NavyBase.class) == 0 && addCommand.bordersWater(site) && waterReachesEnemy(site)) return UnitEnum.NAVYBASE;
         return UnitEnum.ARMYBASE;
+    }
+
+    /**
+     * True if the water next to the point is part of a sea that comes close to the enemy base, so ships launched
+     * there can join the fight (a fleet in a land-locked lake is wasted).
+     */
+    private boolean waterReachesEnemy(Point shore) {
+        Point enemyBase = enemy().getPlayerDeck().getBase().getPosition();
+        java.util.Set<Point> seen = new java.util.HashSet<>();
+        Deque<Point> queue = new ArrayDeque<>();
+        for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+            Point next = new Point(shore.x + d[0], shore.y + d[1]);
+            if (model.getBattlefield().getGeographyOfPoint(next) == TerrainEnum.WATER && seen.add(next)) queue.add(next);
+        }
+        while (!queue.isEmpty()) {
+            Point water = queue.poll();
+            if (water.distance(enemyBase) <= FLEET_REACH) return true;
+            for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}) {
+                Point next = new Point(water.x + d[0], water.y + d[1]);
+                if (model.getBattlefield().getGeographyOfPoint(next) == TerrainEnum.WATER && seen.add(next)) queue.add(next);
+            }
+        }
+        return false;
     }
 
     // --- Tile choice ---
@@ -464,19 +522,15 @@ public class BotService {
         if (unit.hasMoved()) {
             return tiles;
         }
-        for (Point point : unit.getPossibleMoves(model.getBattlefield().getSize())) {
-            if (model.isPositionFree(point) && moveCommand.checkIfTerrainIsDeployable(unit, point)) {
-                tiles.add(point);
-            }
-        }
+        tiles.addAll(Movement.reachable(model, unit).keySet());
         return tiles;
     }
 
     private double bestShotFrom(AssaultClass attacker, Point tile) {
         double range = attacker.getShootingRange() + 0.4;
         double best = 0;
-        for (Unit enemy : enemy().getPlayerDeck().getUnits().values()) {
-            if (enemy.getPosition().distance(tile) <= range) {
+        for (Unit enemy : visibleEnemies()) {
+            if (enemy.getPosition().distance(tile) <= range && AttackCommand.canTarget(attacker, enemy)) {
                 best = Math.max(best, attackScore(attacker, enemy));
             }
         }
@@ -486,17 +540,17 @@ public class BotService {
     /** How much the unit stands to lose on the tile next turn, weighted by how fragile its role is. */
     private double danger(Unit unit, Point tile) {
         double expected = 0;
-        for (Unit enemy : enemy().getPlayerDeck().getUnits().values()) {
-            if (enemy instanceof AssaultClass attacker) {
+        for (Unit enemy : visibleEnemies()) {
+            if (enemy instanceof AssaultClass attacker && AttackCommand.canTarget(attacker, unit)) {
                 // only units that can act after moving threaten tiles beyond their shooting range
                 int reach = attacker.getShootingRange()
                         + (enemy instanceof ActsAfterMoving && enemy instanceof MovableUnit movable ? movable.getMovingRange() : 0);
                 if (tile.distance(enemy.getPosition()) <= reach + 0.4) {
-                    expected += Math.min(1, (double) AttackCommand.predictDamage(attacker, unit) / unit.getHealthPoints());
+                    expected += Math.min(1, (double) attackCommand.predictDamage(attacker, unit, tile) / unit.getHealthPoints());
                 }
             }
         }
-        return Math.min(expected, 1.5) * valueOf(unit) * caution(unit) * boldness;
+        return Math.min(expected, 1.5) * valueOf(unit) * caution(unit) * boldness * difficulty.caution;
     }
 
     private static double caution(Unit unit) {
@@ -531,7 +585,7 @@ public class BotService {
                         .thenComparing(entry -> entry.getValue() instanceof Base ? 0 : 1))
                 .filter(entry -> {
                     int cost = ((MilitaryBase) entry.getValue()).getUpgradeCost();
-                    return overflowing ? rp >= cost : !threatened && rp - cost >= UPGRADE_SPARE_RP + reserve(botPlayer);
+                    return overflowing ? rp >= cost : !threatened && rp - cost >= difficulty.upgradeSpareRp + reserve(botPlayer);
                 })
                 .map(entry -> {
                     System.out.println("Bot: Upgrading " + entry.getValue().getUnitName());
@@ -562,19 +616,30 @@ public class BotService {
         int budget = botPlayer.getResourcePoints() - (threatened ? 0 : reserve(botPlayer));
         Army army = new Army(botPlayer);
 
+        // what next turn's money could buy, without the noise: if that is clearly better, save up for it
+        int nextBudget = budget + model.getIncome(botPlayer);
+        double bestNow = 0;
+        double bestNext = 0;
         UnitEnum best = null;
         double bestScore = 0;
         for (UnitEnum type : UnitEnum.values()) {
             int cost = cost(type);
-            if (cost > budget || !roster.test(type)) continue;
+            if (cost > nextBudget || !roster.test(type)) continue;
             // every copy the bot already has makes another one less attractive, so the army stays mixed
             double desire = desire(type, army, threatened) / (1 + REPEAT_PENALTY * army.owned(unitName(type)));
             if (desire <= 0 || findPlacementPosition(botPlayer, type).isEmpty()) continue;
-            double score = desire + 0.15 * cost + PURCHASE_NOISE * random.nextDouble();
+            double worth = desire + 0.15 * cost;
+            bestNext = Math.max(bestNext, worth);
+            if (cost > budget) continue;
+            bestNow = Math.max(bestNow, worth);
+            double score = worth + difficulty.purchaseNoise * random.nextDouble();
             if (score > bestScore) {
                 best = type;
                 bestScore = score;
             }
+        }
+        if (!threatened && bestNext > bestNow * SAVE_FOR_BETTER) {
+            return List.of();
         }
         if (best == null) {
             return List.of();
@@ -594,11 +659,12 @@ public class BotService {
             case TYPETEN -> 2 + 0.6 * army.enemyTanks + defence;
             case TYPENINETY -> 2 + 0.5 * army.enemyTanks + 1.5 * defence;
             case TYPESIXTEEN -> 1.5 + 0.4 * army.enemySoft;
-            case TYPEEIGHTYNINE -> 1 + 0.5 * army.enemySoft;
+            case TYPEEIGHTYNINE -> 1.5 + 0.4 * army.enemySoft;
             // artillery needs a front line to hide behind
             case TYPENINETYNINESPH -> army.combat - army.artillery < 3 ? 0 : army.artillery * 5 < army.combat ? 2 + defence : 0;
             case TYPEEIGHTYONEC, TYPENINETYTHREE, TYPEEIGHTYSEVEN -> {
-                double base = army.enemyAircraft > army.antiAir ? 3 + army.enemyAircraft - army.antiAir
+                // one anti-air unit covers about two aircraft
+                double base = army.enemyAircraft > 2 * army.antiAir ? 3 + army.enemyAircraft - 2 * army.antiAir
                         : army.antiAir == 0 && army.combat >= 4 ? 0.8 : 0;
                 yield base == 0 ? 0 : base + (type == UnitEnum.TYPEEIGHTYONEC ? 0.3 : 0);
             }
@@ -609,9 +675,15 @@ public class BotService {
             case FFOUREJKAI -> airHeavy ? 0.4 : 1.3 + 0.3 * army.enemySoft;
             case FFIFTEEN -> airHeavy ? 0.5 : 1.8 + 0.5 * army.enemyAircraft;
             case FTWO -> airHeavy ? 0.6 : 2 + 0.3 * army.enemyTanks;
-            case FTHIRTYFIVE -> airHeavy ? 0.7 : 2.2;
+            case FTHIRTYFIVE -> airHeavy ? 0.5 : 1.8;
             case ATEN -> airHeavy ? 0.6 : 1.5 + 0.6 * army.enemyTanks;
-            case YAMATO -> 3;
+            case YAMATO -> army.usefulFleet ? 2.5 : 0;
+            case KONGO -> army.usefulFleet ? 2 + 0.5 * army.enemyAircraft + army.enemySubmarines : 0;
+            case SORYU -> army.enemyShips > 0 ? 2 + army.enemyShips : 0; // only worth it against a fleet
+            // filler: a few riflemen help, a horde of them does not
+            case INFANTRY -> army.infantry * 3 > army.combat ? 0.2 : 0.8 + 0.15 * army.enemySoft;
+            case ANTITANKTEAM -> 0.8 + 0.7 * army.enemyTanks;
+            case AHSIXTYFOURD -> airHeavy ? 0.5 : 1.6 + 0.6 * army.enemyTanks;
             case RADARSTATION -> army.combat >= 5 && army.radar == 0 ? 1 : 0;
             // bases are built on ruins by the recovery vehicles, never bought here
             case ARMYBASE, AIRFORCEBASE, NAVYBASE -> 0;
@@ -620,17 +692,18 @@ public class BotService {
 
     /** What both sides field, counted once per purchase decision. */
     private final class Army {
-        final long combat, antiAir, artillery, aircraft, ambulances, recon, recovery, radar;
-        final long enemyAircraft, enemyTanks, enemySoft;
-        final boolean claimableSite, hqDamaged;
+        final long combat, antiAir, artillery, infantry, aircraft, ambulances, recon, recovery, radar;
+        final long enemyAircraft, enemyTanks, enemySoft, enemyShips, enemySubmarines;
+        final boolean claimableSite, hqDamaged, usefulFleet;
         private final List<Unit> own;
 
         Army(Player botPlayer) {
             own = List.copyOf(botPlayer.getPlayerDeck().getUnits().values());
-            List<Unit> enemy = List.copyOf(enemy().getPlayerDeck().getUnits().values());
+            List<Unit> enemy = visibleEnemies();
             combat = count(own, AssaultClass.class);
-            antiAir = count(own, SelfPropelledAntiAir.class);
+            antiAir = count(own, AntiAir.class);
             artillery = count(own, SelfPropelledArtillery.class);
+            infantry = count(own, Infantry.class);
             aircraft = count(own, Aircraft.class);
             ambulances = count(own, ArmoredAmbulanceVehicle.class);
             recon = count(own, ArmoredReconaissanceVehicle.class);
@@ -638,11 +711,15 @@ public class BotService {
             radar = count(own, Radarstation.class);
             enemyAircraft = count(enemy, Aircraft.class);
             enemyTanks = count(enemy, AssaultTank.class);
+            enemyShips = count(enemy, Ship.class);
+            enemySubmarines = count(enemy, Submarine.class);
             enemySoft = enemy.stream().filter(unit -> unit instanceof AssaultClass
                     && !(unit instanceof AssaultTank) && !(unit instanceof Aircraft)).count();
             claimableSite = model.getBattlefield().getBaseSites().stream()
                     .anyMatch(site -> addCommand.isFreeSite(site) && !isThreatened(site));
             hqDamaged = healthRatio(botPlayer.getPlayerDeck().getBase()) < 0.7;
+            usefulFleet = botPlayer.getPlayerDeck().getBuildings().stream()
+                    .anyMatch(building -> building instanceof NavyBase && waterReachesEnemy(building.getPosition()));
         }
 
         long owned(String unitName) {
@@ -654,7 +731,7 @@ public class BotService {
 
     /** True if an enemy combat unit stands close to the point. */
     private boolean isThreatened(Point point) {
-        return enemy().getPlayerDeck().getUnits().values().stream()
+        return visibleEnemies().stream()
                 .anyMatch(enemy -> enemy instanceof AssaultClass && enemy.getPosition().distance(point) <= THREAT_RADIUS);
     }
 

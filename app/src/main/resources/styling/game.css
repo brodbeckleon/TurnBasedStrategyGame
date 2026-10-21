@@ -278,3 +278,19 @@
 
 .upgrade-button:hover { -fx-background-color: #34405e; }
 .upgrade-button:disabled { -fx-opacity: 0.4; }
+
+/* Attack forecast in the inspector */
+.preview-line { -fx-text-fill: #e8edf7; -fx-font-size: 11px; }
+.preview-good { -fx-text-fill: #5ed68a; -fx-font-size: 11px; -fx-font-weight: bold; }
+.preview-bad { -fx-text-fill: #ff7b72; -fx-font-size: 11px; }
+
+/* Ready units strip */
+.ready-unit {
+    -fx-background-color: #232b3d;
+    -fx-background-radius: 6;
+    -fx-border-color: #2e3850;
+    -fx-border-radius: 6;
+    -fx-padding: 2;
+    -fx-cursor: hand;
+}
+.ready-unit:hover { -fx-background-color: #2b3550; -fx-border-color: #4a587a; }

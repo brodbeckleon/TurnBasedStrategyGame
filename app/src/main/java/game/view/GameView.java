@@ -4,6 +4,8 @@ import game.enums.TerrainEnum;
 import game.enums.UnitEnum;
 import game.events.GameEvent;
 import game.game.Player;
+import game.game.commands.AttackPreview;
+import game.game.Vision;
 import game.game.map.Battlefield;
 import game.interfaces.MovableUnit;
 import game.model.Game;
@@ -48,6 +50,7 @@ import javafx.util.Duration;
 import java.awt.Point;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public class GameView {
@@ -61,6 +64,7 @@ public class GameView {
     private static final Color RANGE_HATCH = Color.rgb(255, 70, 70, 0.32);
     private static final Color TARGET_COLOR = Color.rgb(255, 70, 60);
     private static final Color SUPPORT_COLOR = Color.rgb(90, 235, 130);
+    private static final Color FOG_COLOR = Color.rgb(12, 16, 30, 0.45);
     private static final Color DEPLOY_FILL = Color.rgb(60, 230, 120, 0.42);
     private static final Color DEPLOY_EDGE = Color.rgb(170, 255, 190, 0.9);
     private static final Color SELECTION_COLOR = Color.rgb(255, 245, 170);
@@ -86,6 +90,9 @@ public class GameView {
     private final TextArea infoArea;
     private final Button skipTurnButton;
     private final CheckBox animationsBox;
+    private final CheckBox fogBox;
+    private final ComboBox<game.controller.Difficulty> difficultyBox = new ComboBox<>();
+    private Set<Point> visibleTiles = Set.of();
     private final int gridWidth;
     private final int gridHeight;
     private static final int CELL_SIZE = Cells.SIZE;
@@ -113,6 +120,12 @@ public class GameView {
     private Consumer<KeyEvent> keyHandler = event -> { };
     private Runnable onRestart;
     private Runnable onUpgrade = () -> { };
+    private Function<Point, AttackPreview> attackPreview = cell -> null;
+    private Runnable onUndo = () -> { };
+    private java.util.function.IntConsumer onPickReady = id -> { };
+    private int undoableUnitId = -1;
+    private final FlowPane readyStrip = new FlowPane(4, 4);
+    private final Label readyTitle = sectionTitle("READY");
 
     public GameView(int width, int height) {
         this.gridWidth = width;
@@ -192,6 +205,8 @@ public class GameView {
         animationsBox = new CheckBox("Animations");
         animationsBox.setSelected(true);
         animationsBox.setFocusTraversable(false);
+        fogBox = new CheckBox("Fog of war");
+        fogBox.setFocusTraversable(false);
 
         deployTabs = new HBox(4);
         deployCards = new GridPane();
@@ -219,10 +234,11 @@ public class GameView {
                 header,
                 playerCards,
                 skipTurnButton,
+                new VBox(4, readyTitle, readyStrip),
                 sectionTitle("DEPLOY"), deployBox,
                 sectionTitle("INSPECT"), inspector,
                 sectionTitle("LOG"), infoArea,
-                animationsBox);
+                bottomRow());
         controlPanel.getStyleClass().add("side-panel");
         controlPanel.setPadding(new Insets(14));
         controlPanel.setPrefWidth(SIDE_PANEL_WIDTH);
@@ -312,6 +328,7 @@ public class GameView {
 
         idleMotion.clear();
         unitNodes.clear();
+        visibleTiles = model.getVisibleTiles(model.getPlayerOne());
         drawTerrain(model.getBattlefield());
         drawRangeOverlays();
         drawPlayerUnits(model, model.getPlayerOne());
@@ -358,6 +375,22 @@ public class GameView {
                     terrainView.setSmooth(false);
                     cellPane.getChildren().add(terrainView);
                 }
+                if (battlefield.getGeographyOfPoint(pos) == TerrainEnum.FOREST) {
+                    Image trees = loadImage("/images/terrain/FOREST.png");
+                    if (trees != null) {
+                        ImageView treeView = new ImageView(trees);
+                        treeView.setFitWidth(CELL_SIZE);
+                        treeView.setFitHeight(CELL_SIZE);
+                        treeView.setSmooth(false);
+                        cellPane.getChildren().add(treeView);
+                    }
+                }
+                if (model.isFogOfWar() && !visibleTiles.contains(pos)) {
+                    Rectangle fog = new Rectangle(CELL_SIZE, CELL_SIZE, FOG_COLOR);
+                    fog.setMouseTransparent(true);
+                    fog.setViewOrder(-1); // above the units drawn in this cell later
+                    cellPane.getChildren().add(fog);
+                }
                 if (battlefield.isBaseSite(pos) && model.getUnitAt(pos) == null) {
                     cellPane.getChildren().add(createRuins());
                 }
@@ -386,7 +419,9 @@ public class GameView {
     private String getTerrainImagePath(Battlefield battlefield, Point pos) {
         StringBuilder path = new StringBuilder("/images/terrain/");
 
+        // a forest is grass with trees drawn on top (see drawTerrain)
         TerrainEnum centerTerrain = battlefield.getGeographyOfPoint(pos);
+        if (centerTerrain == TerrainEnum.FOREST) centerTerrain = TerrainEnum.PLAIN;
         path.append(centerTerrain);
 
         if (!isInsideBattlefield(battlefield, pos)) {
@@ -437,6 +472,7 @@ public class GameView {
             if (s.contains("M")) {
                 s = s.replace("M", "P");
             }
+            s = s.replace("F", "P"); // forest is grass underneath
 
             path.append(s);
 
@@ -464,6 +500,7 @@ public class GameView {
         // the base is one of the deck's units and is drawn with them
         for (Map.Entry<Integer, Unit> entry : player.getPlayerDeck().getUnits().entrySet()) {
             Unit unit = entry.getValue();
+            if (!isShown(unit)) continue; // hidden in the fog of war
             boolean spent = playersTurn && !(unit instanceof Infrastructure) && !unit.isAvailable();
             drawUnitWithHealthBar(unit, player.getPlayerID(), entry.getKey(), spent);
         }
@@ -789,6 +826,7 @@ public class GameView {
         Point cell = hoveredCell;
         if (cell != null) {
             unit = model.getUnitAt(cell);
+            if (unit != null && !isShown(unit)) unit = null;
         } else if (highlights.selectedUnitId() != -1) {
             unit = model.findUnitById(highlights.selectedUnitId());
             cell = unit == null ? null : unit.getPosition();
@@ -824,6 +862,9 @@ public class GameView {
                 Label actionLabel = new Label(action);
                 actionLabel.getStyleClass().add("inspect-action");
                 inspector.getChildren().add(actionLabel);
+            }
+            if (highlights.targets().contains(cell)) {
+                showAttackPreview(attackPreview.apply(cell));
             }
         }
     }
@@ -891,6 +932,14 @@ public class GameView {
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
 
         boolean selected = model.findUnitById(highlights.selectedUnitId()) == unit;
+        if (undoableUnitId != -1 && model.findUnitById(undoableUnitId) == unit && !inputLocked) {
+            Button undo = new Button("Undo move  [Z]");
+            undo.getStyleClass().add("upgrade-button");
+            undo.setMaxWidth(Double.MAX_VALUE);
+            undo.setFocusTraversable(false);
+            undo.setOnAction(event -> onUndo.run());
+            inspector.getChildren().add(undo);
+        }
         if (unit instanceof MilitaryBase base && unit.getPlayerID() == 1 && selected && unit.getHealthPoints() > 0) {
             Button upgrade = new Button(base.canUpgrade()
                     ? "Upgrade to level " + (base.getLevel() + 1) + "  ·  " + base.getUpgradeCost() + " RP  [U]"
@@ -939,12 +988,17 @@ public class GameView {
             case PLAIN -> "Plains";
             case WATER -> "Water";
             case MOUNTAIN -> "Mountains";
+            case FOREST -> "Forest";
         };
         String access = switch (terrain) {
-            case PLAIN -> "Open ground: vehicles and aircraft can enter.";
+            case PLAIN -> "Open ground: vehicles, infantry and aircraft can enter.";
             case WATER -> "Only ships and aircraft can enter.";
-            case MOUNTAIN -> "Impassable for vehicles; aircraft can fly over.";
+            case MOUNTAIN -> "Impassable for vehicles. Infantry climbs it slowly (2 movement); aircraft fly over.";
+            case FOREST -> "Vehicles need 2 movement to enter, infantry 1.";
         };
+        if (terrain.coverPercent() > 0) {
+            access += " Ground units here take " + terrain.coverPercent() + "% less damage.";
+        }
         Label title = new Label(name);
         title.getStyleClass().add("inspect-name");
         Label text = new Label(access);
@@ -960,9 +1014,107 @@ public class GameView {
         this.keyHandler = keyHandler;
     }
 
+    /** Where the inspector gets the forecast of an attack on a hovered target. */
+    public void setAttackPreview(Function<Point, AttackPreview> attackPreview) {
+        this.attackPreview = attackPreview;
+    }
+
+    /** The forecast of an attack: damage dealt, and what comes back. */
+    private void showAttackPreview(AttackPreview preview) {
+        if (preview == null) return;
+        Label dealt = new Label(preview.destroysTarget()
+                ? "Deals " + preview.damage() + " damage: destroys it!"
+                : "Deals " + preview.damage() + " damage (" + preview.targetHpAfter() + " HP left)");
+        dealt.getStyleClass().add(preview.destroysTarget() ? "preview-good" : "preview-line");
+        inspector.getChildren().add(dealt);
+        if (preview.counterDamage() > 0) {
+            Label counter = new Label("Strikes back for " + preview.counterDamage() + " damage");
+            counter.getStyleClass().add("preview-bad");
+            inspector.getChildren().add(counter);
+        }
+        if (preview.antiAirDamage() > 0) {
+            Label flak = new Label("Anti-air fire: " + preview.antiAirDamage() + " damage");
+            flak.getStyleClass().add("preview-bad");
+            inspector.getChildren().add(flak);
+        }
+        if (preview.attackerLost()) {
+            Label lost = new Label("Your unit would be destroyed!");
+            lost.getStyleClass().add("preview-bad");
+            inspector.getChildren().add(lost);
+        }
+    }
+
+    /** The units that can still act; each gets a small button that selects it. */
+    public void setReadyUnits(List<Integer> unitIds) {
+        readyStrip.getChildren().clear();
+        readyTitle.setText(unitIds.isEmpty() ? "READY  –  all units have acted" : "READY  (" + unitIds.size() + ")  ·  N: next");
+        if (model == null) return;
+        for (int id : unitIds) {
+            Unit unit = model.findUnitById(id);
+            if (unit == null) continue;
+            ImageView icon = new ImageView(unitImage(unit.getPlayerID(), unit.getUnitName()));
+            icon.setFitWidth(24);
+            icon.setFitHeight(24);
+            icon.setSmooth(false);
+            Button button = new Button();
+            button.setGraphic(icon);
+            button.getStyleClass().add("ready-unit");
+            button.setFocusTraversable(false);
+            button.setTooltip(new Tooltip(unit.getUnitName() + (unit.hasMoved() ? " (moved, can still act)" : "")));
+            if (id == highlights.selectedUnitId()) button.getStyleClass().add("armed-card");
+            button.setOnAction(event -> onPickReady.accept(id));
+            readyStrip.getChildren().add(button);
+        }
+    }
+
+    /** The unit whose last move can be taken back, or -1; its inspector shows an Undo button. */
+    public void setUndoableUnit(int unitId) {
+        undoableUnitId = unitId;
+        refreshInspector();
+    }
+
+    public void setOnUndo(Runnable onUndo) {
+        this.onUndo = onUndo;
+    }
+
+    public void setOnPickReady(java.util.function.IntConsumer onPickReady) {
+        this.onPickReady = onPickReady;
+    }
+
     /** What the upgrade button of a selected base does. */
     public void setOnUpgrade(Runnable onUpgrade) {
         this.onUpgrade = onUpgrade;
+    }
+
+    /** The settings under the log: animations and fog of war, then the bot's difficulty. */
+    private VBox bottomRow() {
+        difficultyBox.getItems().setAll(game.controller.Difficulty.values());
+        difficultyBox.setFocusTraversable(false);
+        difficultyBox.setMinWidth(Region.USE_PREF_SIZE);
+        difficultyBox.setTooltip(new Tooltip("How well the bot plays. It never cheats."));
+        Label botLabel = new Label("Bot difficulty");
+        botLabel.getStyleClass().add("muted");
+        HBox switches = new HBox(16, animationsBox, fogBox);
+        HBox level = new HBox(8, botLabel, difficultyBox);
+        level.setAlignment(Pos.CENTER_LEFT);
+        return new VBox(6, switches, level);
+    }
+
+    /** Shows the bot's difficulty picker; {@code onChange} gets the new level. */
+    public void setDifficulty(game.controller.Difficulty difficulty, Consumer<game.controller.Difficulty> onChange) {
+        difficultyBox.setValue(difficulty);
+        difficultyBox.valueProperty().addListener((observable, was, now) -> onChange.accept(now));
+    }
+
+    /** Shows the fog of war switch; {@code onChange} gets the new setting. */
+    public void setFogOfWar(boolean fog, Consumer<Boolean> onChange) {
+        fogBox.setSelected(fog);
+        fogBox.selectedProperty().addListener((observable, was, now) -> onChange.accept(now));
+    }
+
+    /** True if the player (player one) can see the unit: its own, buildings, and enemies outside the fog. */
+    private boolean isShown(Unit unit) {
+        return model == null || !model.isFogOfWar() || Vision.canSee(model.getPlayerOne(), unit, visibleTiles);
     }
 
     /** What the "Play again" button on the game over screen does. */
@@ -1032,12 +1184,17 @@ public class GameView {
 
     /** Shows a banner across the board; {@code onDone} runs exactly once, immediately if animations are off. */
     public void showBanner(String text, Runnable onDone) {
+        showBanner(text, null, onDone);
+    }
+
+    /** A banner with a smaller second line; {@code onDone} runs exactly once, immediately if animations are off. */
+    public void showBanner(String text, String subtitle, Runnable onDone) {
         finishPlayback();
         if (!isAnimationsEnabled()) {
             onDone.run();
             return;
         }
-        play(() -> director.banner(text), onDone);
+        play(() -> director.banner(text, subtitle), onDone);
     }
 
     private void play(Supplier<Transition> builder, Runnable onDone) {

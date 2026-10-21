@@ -1,6 +1,7 @@
 package game.balance;
 
 import game.controller.BotService;
+import game.controller.Difficulty;
 import game.enums.UnitEnum;
 import game.events.GameEvent;
 import game.game.UnitFactory;
@@ -19,8 +20,9 @@ import java.util.function.Predicate;
  * type, what it cost and what it achieved; optionally specialist bots (one unit family only) and ablations (the
  * full bot against one that may not buy a family) against the full bot.
  *
- * <pre>gradle balanceLab --args="400 40 120"   # mirror games, specialist games, ablation games</pre>
- * Set DUMP=1 to print the board of games that hit the round limit.
+ * <pre>gradle balanceLab --args="400 40 120 100"   # mirror, specialist, ablation and difficulty games</pre>
+ * Set DUMP=1 to print the board of games that hit the round limit; BALANCE_CHECK=1 makes it fail (exit 1) when one
+ * side wins more than 65 % of the games or more than 10 % hit the round limit (used by CI).
  */
 public class BalanceLab {
     static final int MAX_ROUNDS = 60;
@@ -38,6 +40,11 @@ public class BalanceLab {
     static List<String> log = new ArrayList<>();
 
     static Result play(long seed, Predicate<UnitEnum> roster1, Predicate<UnitEnum> roster2, boolean record) {
+        return play(seed, roster1, roster2, record, Difficulty.NORMAL, Difficulty.NORMAL);
+    }
+
+    static Result play(long seed, Predicate<UnitEnum> roster1, Predicate<UnitEnum> roster2, boolean record,
+                       Difficulty level1, Difficulty level2) {
         Game m = new Game();
         BotService[] bots = new BotService[3];
         for (int p = 1; p <= 2; p++) {
@@ -45,6 +52,7 @@ public class BalanceLab {
                     new UpgradeCommand(m), new Random(seed * 31 + p), p);
         }
         bots[1].setRoster(roster1); bots[2].setRoster(roster2);
+        bots[1].setDifficulty(level1); bots[2].setDifficulty(level2);
         Map<Integer, String> names = new HashMap<>();
         String lastAttacker = null, hqKiller = null;
         int round;
@@ -157,6 +165,16 @@ public class BalanceLab {
         out.printf("MIRROR %d games: P1 %d  P2 %d  timeout %d | rounds avg %.1f median %d min %d max %d%n", games,
                 wins[1], wins[2], wins[0], totalRounds / (double) games, lengths.get(games / 2), lengths.get(0), lengths.get(games - 1));
         out.println("HQ destroyed by: " + killers);
+        if (System.getenv("BALANCE_CHECK") != null) {
+            // CI smoke test: a side that wins far too often or games that never end mean something broke
+            double sideShare = Math.max(wins[1], wins[2]) / (double) games;
+            double stalemates = wins[0] / (double) games;
+            if (sideShare > 0.65 || stalemates > 0.10) {
+                out.printf("BALANCE CHECK FAILED: side share %.0f%%, stalemates %.0f%%%n", 100 * sideShare, 100 * stalemates);
+                System.exit(1);
+            }
+            out.println("balance check passed");
+        }
         out.printf("%-31s %6s %5s %8s %8s %7s %6s %5s %6s %7s %6s%n", "unit", "bought", "RP", "dmg", "hqDmg", "bldDmg", "kills", "lost", "dmg/RP", "kill/RP", "air/RP");
         for (var e : stats.entrySet()) {
             Stat s = e.getValue();
@@ -165,7 +183,22 @@ public class BalanceLab {
                     s.rp == 0 ? 0 : s.dmg / (double) s.rp, s.rp == 0 ? 0 : s.kills / (double) s.rp, s.rp == 0 ? 0 : s.airDmg / (double) s.rp);
         }
 
-        if (args.length > 2) {
+        if (args.length > 3) {
+            int n = Integer.parseInt(args[3]);
+            for (Difficulty level : List.of(Difficulty.EASY, Difficulty.HARD)) {
+                int levelWins = 0, normalWins = 0, draws = 0;
+                for (int g = 0; g < n; g++) {
+                    boolean first = g % 2 == 0;
+                    Result r = first ? play(3000 + g, t -> true, t -> true, false, level, Difficulty.NORMAL)
+                            : play(3000 + g, t -> true, t -> true, false, Difficulty.NORMAL, level);
+                    int id = first ? 1 : 2;
+                    if (r.winner == 0) draws++; else if (r.winner == id) levelWins++; else normalWins++;
+                }
+                out.printf("DIFFICULTY %-6s vs Normal: %3d wins, %3d losses, %3d timeouts%n", level, levelWins, normalWins, draws);
+            }
+        }
+
+        if (args.length > 2 && !args[2].equals("0")) {
             Map<String, Set<UnitEnum>> without = new LinkedHashMap<>();
             without.put("anti-air", EnumSet.of(UnitEnum.TYPEEIGHTYSEVEN, UnitEnum.TYPEEIGHTYONEC, UnitEnum.TYPENINETYTHREE));
             without.put("aircraft", EnumSet.of(UnitEnum.FFOUREJKAI, UnitEnum.FFIFTEEN, UnitEnum.FTWO, UnitEnum.FTHIRTYFIVE, UnitEnum.ATEN));

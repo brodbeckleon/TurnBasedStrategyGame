@@ -4,7 +4,13 @@ import game.events.GameEvent;
 import game.events.Weapon;
 import game.game.Command;
 import game.game.Player;
+import game.enums.TerrainEnum;
+import game.interfaces.AntiAir;
+import game.interfaces.TankHunter;
+import game.units.assaultClasses.Helicopter;
+import game.units.assaultClasses.Submarine;
 import game.model.Game;
+import game.units.assaultClasses.Ship;
 import game.tools.CircleGenerator;
 import game.units.AssaultClass;
 import game.units.Base;
@@ -94,14 +100,23 @@ public class AttackCommand extends Command {
         return defender instanceof AssaultClass fighter && defender.getHealthPoints() > 0 && attacker.getHealthPoints() > 0
                 && circleGenerator.getCoordinatesInRange(defender.getPosition(), getGameModel().getShootingRange(fighter))
                         .contains(attacker.getPosition())
-                && predictDamage(fighter, attacker) > 0;
+                && canTarget(defender, attacker) && counterDamage(fighter, attacker) > 0;
+    }
+
+    /**
+     * What a defender (or covering anti-air) deals when it strikes back: its normal damage, scaled by the share of
+     * health it has left, so a battered unit hits back weakly.
+     */
+    public int counterDamage(AssaultClass defender, Unit attacker) {
+        double strength = Math.max(0, (double) defender.getHealthPoints() / defender.getMaxHealthPoints());
+        return (int) Math.round(predictDamage(defender, attacker) * strength);
     }
 
     /** The ids of the defender's anti-air units, besides the attacked unit itself, that cover the aircraft. */
     public List<Integer> findInterceptors(Player defenderPlayer, Unit aircraft, int targetID) {
         List<Integer> interceptors = new ArrayList<>();
         for (var entry : defenderPlayer.getPlayerDeck().getUnits().entrySet()) {
-            if (entry.getKey() != targetID && entry.getValue() instanceof SelfPropelledAntiAir
+            if (entry.getKey() != targetID && entry.getValue() instanceof AntiAir
                     && canStrikeBack(entry.getValue(), aircraft)) {
                 interceptors.add(entry.getKey());
             }
@@ -111,7 +126,7 @@ public class AttackCommand extends Command {
 
     private List<GameEvent> strikeBack(Player attackerPlayer, int attackingUnitID, Unit attacker, int defenderID,
                                        AssaultClass defender) {
-        int damage = predictDamage(defender, attacker);
+        int damage = counterDamage(defender, attacker);
         int hpBefore = attacker.getHealthPoints();
         attacker.setHealthPoints(-damage);
         if (attacker.getHealthPoints() <= 0) {
@@ -125,7 +140,47 @@ public class AttackCommand extends Command {
         Point attackingPos = attackingUnit.getPosition();
         int range = getGameModel().getShootingRange((AssaultClass) attackingUnit);
 
-        return defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range);
+        return defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range).stream()
+                .distinct()
+                .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
+                .filter(id -> getGameModel().isVisibleTo(attacker, defender.getPlayerDeck().getUnit(id))) // fog of war
+                .toList();
+    }
+
+    /** What attacking the target would do, or null if the attack is not possible. */
+    public AttackPreview preview(Player attackerPlayer, int attackingUnitID, int targetID) {
+        Unit attacker = attackerPlayer.getPlayerDeck().getUnit(attackingUnitID);
+        if (!(attacker instanceof AssaultClass assault) || !findTargets(attackerPlayer, attackingUnitID).contains(targetID)) {
+            return null;
+        }
+        Player defenderPlayer = attackerPlayer.getPlayerID() == 1 ? getGameModel().getPlayerTwo() : getGameModel().getPlayerOne();
+        Unit target = defenderPlayer.getPlayerDeck().getUnit(targetID);
+        int damage = predictDamage(assault, target);
+        int targetHpAfter = target.getHealthPoints() - damage;
+        boolean destroys = targetHpAfter <= 0;
+
+        int counter = 0;
+        if (!destroys && target instanceof AssaultClass defender && canTarget(defender, attacker)
+                && circleGenerator.getCoordinatesInRange(target.getPosition(), getGameModel().getShootingRange(defender))
+                        .contains(attacker.getPosition())) {
+            counter = (int) Math.round(predictDamage(defender, attacker) * (double) targetHpAfter / target.getMaxHealthPoints());
+        }
+        int flak = 0;
+        if (attacker instanceof Aircraft) {
+            for (int interceptorID : findInterceptors(defenderPlayer, attacker, targetID)) {
+                flak += counterDamage((AssaultClass) defenderPlayer.getPlayerDeck().getUnit(interceptorID), attacker);
+            }
+        }
+        return new AttackPreview(damage, Math.max(0, targetHpAfter), destroys, counter, flak,
+                counter + flak >= attacker.getHealthPoints());
+    }
+
+    /** The ids of the enemies the player's unit could attack right now. */
+    public List<Integer> findTargets(Player attacker, int attackingUnitID) {
+        Unit unit = attacker.getPlayerDeck().getUnit(attackingUnitID);
+        if (!(unit instanceof AssaultClass)) return List.of();
+        Player defender = attacker.getPlayerID() == 1 ? getGameModel().getPlayerTwo() : getGameModel().getPlayerOne();
+        return scout(attackingUnitID, attacker, defender);
     }
 
     private List<GameEvent> attackBase(int attackingUnitID, Unit attackingUnit, Player defender) {
@@ -146,9 +201,7 @@ public class AttackCommand extends Command {
         if (defendingUnit == null) return List.of();
 
         AssaultClass attacker = (AssaultClass) attackingUnit;
-        int damage = defendingUnit instanceof Infrastructure building
-                ? structureDamage(attacker, building)
-                : unitDamage(attacker, defendingUnit);
+        int damage = predictDamage(attacker, defendingUnit);
 
         int hpBefore = defendingUnit.getHealthPoints();
         defendingUnit.setHealthPoints(-damage);
@@ -159,9 +212,25 @@ public class AttackCommand extends Command {
         return describeAttack(attackingUnitID, attackingUnit, defendingUnitID, defendingUnit, damage, hpBefore);
     }
 
-    /** The damage the attacker would deal to the target, without changing anything. */
-    public static int predictDamage(AssaultClass attacker, Unit target) {
-        return target instanceof Infrastructure building ? structureDamage(attacker, building) : unitDamage(attacker, target);
+    /** The damage the attacker would deal to the target where it stands, without changing anything. */
+    public int predictDamage(AssaultClass attacker, Unit target) {
+        return predictDamage(attacker, target, target.getPosition());
+    }
+
+    /** The damage the attacker would deal to the target if the target stood on the given tile (cover included). */
+    public int predictDamage(AssaultClass attacker, Unit target, Point targetPosition) {
+        if (target instanceof Infrastructure building) {
+            return structureDamage(attacker, building);
+        }
+        int damage = unitDamage(attacker, target);
+        return (int) Math.round(damage * (100 - coverPercent(target, targetPosition)) / 100.0);
+    }
+
+    /** Forests and mountains shelter units on the ground; aircraft and ships get no cover. */
+    public int coverPercent(Unit unit, Point position) {
+        if (unit instanceof Aircraft || unit instanceof Ship || unit instanceof Infrastructure) return 0;
+        TerrainEnum terrain = getGameModel().getBattlefield().getGeographyOfPoint(position);
+        return terrain == null ? 0 : terrain.coverPercent();
     }
 
     // How hard each kind of unit hits each kind of target; armour then takes its percentage off the result.
@@ -172,9 +241,11 @@ public class AttackCommand extends Command {
     private static final double ANTI_AIR_VS_AIRCRAFT = 2;
     private static final double GROUND_VS_AIRCRAFT = 0.75;
     private static final double ANTI_AIR_VS_GROUND = 0.5;
+    private static final double GROUND_VS_HELICOPTER = 1;
+    private static final double TORPEDO_VS_SHIP = 2;
 
     /** Artillery, tanks and aircraft are made to break buildings, everything else barely scratches them. */
-    public static int structureDamage(AssaultClass attacker, Infrastructure building) {
+    private static int structureDamage(AssaultClass attacker, Infrastructure building) {
         double multiplier;
         if (attacker instanceof SelfPropelledArtillery) multiplier = ARTILLERY_VS_STRUCTURE;
         else if (attacker instanceof AssaultTank) multiplier = TANK_VS_STRUCTURE;
@@ -187,16 +258,32 @@ public class AttackCommand extends Command {
      * Anti-air hits aircraft twice as hard but ground targets only half as hard; other ground and sea units only
      * graze aircraft. Tank armour takes its percentage off.
      */
-    public static int unitDamage(AssaultClass attacker, Unit target) {
+    private static int unitDamage(AssaultClass attacker, Unit target) {
         double damage = attacker.getDamage();
-        boolean antiAir = attacker instanceof SelfPropelledAntiAir;
         if (target instanceof Aircraft) {
-            if (antiAir) damage *= ANTI_AIR_VS_AIRCRAFT;
+            if (attacker instanceof AntiAir) damage *= ANTI_AIR_VS_AIRCRAFT;
+            else if (target instanceof Helicopter) damage *= GROUND_VS_HELICOPTER;
             else if (!(attacker instanceof Aircraft)) damage *= GROUND_VS_AIRCRAFT;
-        } else if (antiAir) {
+        } else if (attacker instanceof SelfPropelledAntiAir) {
             damage *= ANTI_AIR_VS_GROUND;
         }
+        if (attacker instanceof TankHunter hunter && target instanceof AssaultTank) {
+            damage *= hunter.antiTankMultiplier();
+        }
+        if (attacker instanceof Submarine && target instanceof Ship) {
+            damage *= TORPEDO_VS_SHIP;
+        }
         return afterArmor(damage, target instanceof AssaultTank tank ? tank.getArmorValue() : 0);
+    }
+
+    /**
+     * Whether the attacker's weapons can reach the target at all: a submarine only attacks ships, and only ships
+     * and aircraft can find a submarine.
+     */
+    public static boolean canTarget(Unit attacker, Unit target) {
+        if (attacker instanceof Submarine) return target instanceof Ship;
+        if (target instanceof Submarine) return attacker instanceof Ship || attacker instanceof Aircraft;
+        return true;
     }
 
     /** Armour is a percentage: 40 armour stops 40 % of the damage. */

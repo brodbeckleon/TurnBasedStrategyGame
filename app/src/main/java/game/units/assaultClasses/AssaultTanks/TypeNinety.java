@@ -7,7 +7,7 @@ import java.awt.*;
 public class TypeNinety extends AssaultTank {
 
     public TypeNinety(int playerID, Point position) {
-        super(playerID, "Type 90" ,position, 6, 750, 45, 4, 2, 400);
+        super(playerID, "Type 90", position, 6, 750, 45, 4, 2, 375);
     }
 
 }

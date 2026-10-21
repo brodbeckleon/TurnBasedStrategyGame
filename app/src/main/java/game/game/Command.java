@@ -2,8 +2,6 @@ package game.game;
 
 import game.enums.TerrainEnum;
 import game.game.map.Battlefield;
-import game.interfaces.MovableUnit;
-import game.interfaces.mobilityType.*;
 import game.model.Game; // Using the Game model directly
 import game.tools.CircleGenerator;
 import game.units.Base;
@@ -109,15 +107,6 @@ public class Command {
         return building.canDeploy(unit) ? building.getDeploymentRadius() : -1;
     }
 
-    public boolean checkIfPositionIsInRadius(Unit unit, Point newPosition) {
-        if (unit instanceof MovableUnit movableUnit) {
-            int radius = movableUnit.getMovingRange();
-            Point currentPosition = unit.getPosition();
-            ArrayList<Point> unitRadiusPoints = circleGenerator.getCoordinatesInRange(currentPosition, radius);
-            return unitRadiusPoints.contains(newPosition);
-        }
-        return false;
-    }
 
     public boolean checkIfTerrainIsDeployable(Unit unit, Point point) {
         Battlefield battlefield = gameModel.getBattlefield();
@@ -126,11 +115,8 @@ public class Command {
         // Buildings stand on open ground; a naval base also needs the water next to it.
         if (unit instanceof NavyBase) return terrain == TerrainEnum.PLAIN && bordersWater(point);
         if (unit instanceof Infrastructure) return terrain == TerrainEnum.PLAIN;
-        if (unit instanceof ByRoad && terrain == TerrainEnum.PLAIN) return true;
-        if (unit instanceof ByAir) return true;
-        if (unit instanceof ByWater && terrain == TerrainEnum.WATER) return true;
-        if (unit instanceof ByFoot && terrain != TerrainEnum.WATER) return true;
-        return false;
+        // a unit can stand wherever it could drive, walk, sail or fly to
+        return Movement.cost(unit, terrain) != Movement.IMPASSABLE;
     }
 
     /** True if one of the four tiles next to the point is water. */

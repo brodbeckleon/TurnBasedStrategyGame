@@ -1,6 +1,7 @@
 package game.model;
 
 import game.game.Player;
+import game.game.Vision;
 import game.game.map.Battlefield;
 import game.interfaces.Spotter;
 import game.tools.CircleGenerator;
@@ -9,7 +10,9 @@ import game.units.Infrastructure;
 import game.units.MilitaryBase;
 import game.units.Unit;
 import java.awt.Point;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Model: Represents the core game logic and state.
@@ -18,9 +21,9 @@ import java.util.Map;
 public class Game {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
     private final int maxResourcePoints = 20;
-    private static final int SECOND_PLAYER_BONUS = 2;
     private boolean isPlayerOneTurn = true;
     private boolean gameOver = false;
+    private boolean fogOfWar = true;
     private int winnerId = 0;
 
     private final Battlefield battlefield;
@@ -32,8 +35,6 @@ public class Game {
         battlefield = new Battlefield(circleGenerator, 16, 16, true);
         playerOne = new Player(circleGenerator, 1, new Point(0, 0));
         playerTwo = new Player(circleGenerator, 2, new Point(15, 15)); // Adjusted for 0-based index
-        // moving first is an advantage; the second player makes up for it with a few more resources to start with
-        playerTwo.addResourcePoints(SECOND_PLAYER_BONUS);
     }
 
     public Player getCurrentPlayer() {
@@ -99,6 +100,36 @@ public class Game {
     }
 
     /** True if nothing stands there and it is not base ruins (rubble no unit can stop on). */
+    public boolean isFogOfWar() {
+        return fogOfWar;
+    }
+
+    public void setFogOfWar(boolean fogOfWar) {
+        this.fogOfWar = fogOfWar;
+    }
+
+    /** True if the viewer can see the unit (always, without fog of war). */
+    public boolean isVisibleTo(Player viewer, Unit unit) {
+        return !fogOfWar || Vision.canSee(viewer, unit, Vision.visibleTiles(this, viewer));
+    }
+
+    /** The tiles the viewer can see: all of them without fog of war. */
+    public Set<Point> getVisibleTiles(Player viewer) {
+        if (!fogOfWar) {
+            return battlefield.getGeography().keySet();
+        }
+        return Vision.visibleTiles(this, viewer);
+    }
+
+    /** The viewer's enemies it can currently see. */
+    public List<Unit> getVisibleEnemies(Player viewer) {
+        Player enemy = viewer == playerOne ? playerTwo : playerOne;
+        Set<Point> tiles = fogOfWar ? Vision.visibleTiles(this, viewer) : Set.of();
+        return enemy.getPlayerDeck().getUnits().values().stream()
+                .filter(unit -> !fogOfWar || Vision.canSee(viewer, unit, tiles))
+                .toList();
+    }
+
     public boolean isPositionFree(Point position) {
         return !battlefield.isBaseSite(position) && playerOne.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize()) &&
                 playerTwo.getPlayerDeck().checkIfPositionIsAvailable(position, battlefield.getSize());

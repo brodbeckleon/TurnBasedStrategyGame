@@ -14,11 +14,12 @@ public final class Fixtures {
     private Fixtures() {
     }
 
-    /** A fresh game whose whole battlefield is plain terrain, without base ruins. */
+    /** A fresh game whose whole battlefield is plain terrain, without base ruins or fog of war. */
     public static Game plainGame() {
         Game game = new Game();
         game.getBattlefield().getGeography().replaceAll((point, terrain) -> TerrainEnum.PLAIN);
         game.getBattlefield().getBaseSites().clear();
+        game.setFogOfWar(false); // tests of other rules see everything; FogOfWarTest switches it on
         return game;
     }
 

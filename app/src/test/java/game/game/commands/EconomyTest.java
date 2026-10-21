@@ -139,11 +139,11 @@ class EconomyTest {
 
         assertTrue(first.wasSuccessful());
         int hp = new Base(1, 1, new Point()).getMaxHealthPoints();
-        int raised = hp + hp / 4;
+        int raised = hp + hp / 10;
         assertEquals(List.of(new BaseUpgraded(1, hq.getBaseID(), "Base", new Point(0, 0), 2, hp, hp, raised, raised)),
                 first.getEvents());
         assertEquals(3, hq.getIncome());
-        assertEquals(new Base(1, 1, new Point()).getArmorValue() + 10, hq.getArmorValue());
+        assertEquals(new Base(1, 1, new Point()).getArmorValue() + 5, hq.getArmorValue());
         assertEquals(20 - 6, player.getResourcePoints());
 
         assertTrue(upgrade.execute(player, hq.getBaseID()).wasSuccessful());

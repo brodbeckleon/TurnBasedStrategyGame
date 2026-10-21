@@ -83,6 +83,8 @@ public final class AnimationDirector {
     private static final double BANNER_HOLD_MS = 350;
     private static final double BANNER_FADE_MS = 200;
     private static final double BANNER_HEIGHT = 64;
+    private static final double BANNER_SUBTITLE_HEIGHT = 44;
+    private static final double BANNER_SUBTITLE_HOLD_MS = 1200;
     private static final double BANNER_MARGIN = 12;
 
     private final Node board;
@@ -132,27 +134,48 @@ public final class AnimationDirector {
 
     /** A bar that slides across the board centre, holds for a moment and fades out. */
     public Transition banner(String text) {
+        return banner(text, null);
+    }
+
+    /** A banner with a second, smaller line under the title (e.g. what the enemy did); it stays up longer. */
+    public Transition banner(String text, String subtitle) {
         Label label = new Label(text);
         label.setFont(Font.font("System", FontWeight.EXTRA_BOLD, 34));
         label.setTextFill(Color.WHITE);
         label.setEffect(new DropShadow(4, Color.BLACK));
 
         double width = boardWidth - 2 * BANNER_MARGIN;
-        StackPane bar = new StackPane(label);
-        bar.setPrefSize(width, BANNER_HEIGHT);
-        bar.setMinSize(width, BANNER_HEIGHT);
-        bar.setMaxSize(width, BANNER_HEIGHT);
+        javafx.scene.layout.VBox lines = new javafx.scene.layout.VBox(2, label);
+        lines.setAlignment(javafx.geometry.Pos.CENTER);
+        double height = BANNER_HEIGHT;
+        double hold = BANNER_HOLD_MS;
+        if (subtitle != null && !subtitle.isBlank()) {
+            Label small = new Label(subtitle);
+            small.setFont(Font.font("System", FontWeight.BOLD, 13));
+            small.setTextFill(Color.rgb(220, 228, 240));
+            small.setWrapText(true);
+            small.setMaxWidth(width - 24);
+            small.setAlignment(javafx.geometry.Pos.CENTER);
+            small.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
+            lines.getChildren().add(small);
+            height += BANNER_SUBTITLE_HEIGHT;
+            hold += BANNER_SUBTITLE_HOLD_MS;
+        }
+        StackPane bar = new StackPane(lines);
+        bar.setPrefSize(width, height);
+        bar.setMinSize(width, height);
+        bar.setMaxSize(width, height);
         bar.setStyle("-fx-background-color: rgba(10, 14, 28, 0.8); -fx-background-radius: 14;"
                 + "-fx-border-color: rgba(255, 255, 255, 0.45); -fx-border-width: 2; -fx-border-radius: 14;");
         bar.setLayoutX(BANNER_MARGIN);
-        bar.setLayoutY((boardHeight - BANNER_HEIGHT) / 2);
+        bar.setLayoutY((boardHeight - height) / 2);
         bar.setMouseTransparent(true);
         bar.setTranslateX(-boardWidth);
         textLayer.getChildren().add(bar);
 
         Schedule schedule = new Schedule();
         schedule.add(0, BANNER_SLIDE_MS, Interpolator.EASE_OUT, f -> bar.setTranslateX(-boardWidth * (1 - f)));
-        schedule.add(BANNER_SLIDE_MS + BANNER_HOLD_MS, BANNER_FADE_MS, Interpolator.LINEAR,
+        schedule.add(BANNER_SLIDE_MS + hold, BANNER_FADE_MS, Interpolator.LINEAR,
                 f -> bar.setOpacity(1 - f));
         return schedule;
     }
@@ -181,11 +204,26 @@ public final class AnimationDirector {
 
     private double move(Schedule schedule, double startMs, UnitMoved event) {
         UnitNode ghost = ghost(event.unitId(), event.playerId(), event.unitName(), event.from());
-        Point2D delta = Cells.center(event.to()).subtract(Cells.center(event.from()));
-        double duration = clamp(MOVE_MS_PER_TILE * event.from().distance(event.to()), MOVE_MIN_MS, MOVE_MAX_MS);
+        // the unit follows its path tile by tile (around water, mountains and enemies)
+        List<Point> path = event.path().size() >= 2 ? event.path() : List.of(event.from(), event.to());
+        Point2D origin = Cells.center(path.get(0));
+        double[] lengths = new double[path.size()];
+        for (int i = 1; i < path.size(); i++) {
+            lengths[i] = lengths[i - 1] + path.get(i - 1).distance(path.get(i));
+        }
+        double total = lengths[path.size() - 1];
+        double duration = clamp(MOVE_MS_PER_TILE * total, MOVE_MIN_MS, MOVE_MAX_MS);
         schedule.add(startMs, duration, Interpolator.EASE_BOTH, f -> {
-            ghost.setTranslateX(delta.getX() * f);
-            ghost.setTranslateY(delta.getY() * f);
+            double travelled = total * f;
+            int leg = 1;
+            while (leg < path.size() - 1 && lengths[leg] < travelled) leg++;
+            double legLength = lengths[leg] - lengths[leg - 1];
+            double t = legLength == 0 ? 1 : (travelled - lengths[leg - 1]) / legLength;
+            Point2D a = Cells.center(path.get(leg - 1));
+            Point2D b = Cells.center(path.get(leg));
+            Point2D at = a.add(b.subtract(a).multiply(t)).subtract(origin);
+            ghost.setTranslateX(at.getX());
+            ghost.setTranslateY(at.getY());
         });
         if (ghost.getKind() == UnitKind.GROUND) {
             dust(schedule, startMs, event.from());

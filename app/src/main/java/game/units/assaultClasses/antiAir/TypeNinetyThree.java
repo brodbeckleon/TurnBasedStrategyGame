@@ -7,6 +7,6 @@ import java.awt.*;
 
 public class TypeNinetyThree extends SelfPropelledAntiAir implements ActsAfterMoving {
     public TypeNinetyThree(int playerID, Point position) {
-        super(playerID, "Type 93", position, 3, 250, 4, 4, 300);
+        super(playerID, "Type 93", position, 3, 300, 4, 4, 300);
     }
 }

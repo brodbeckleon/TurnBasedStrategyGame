@@ -24,6 +24,7 @@ public class MapGenerator {
     private final CircleGenerator circleGenerator;
     private final double scale = 2.0; // Adjust for more or less detail in the noise
     private static final int SITE_PAIRS = 3;
+    private static final double FOREST_THRESHOLD = 0.25;
     private static final double MIN_SITE_DISTANCE_FROM_HQ = 6;
     private static final double MIN_SITE_SPACING = 4.5;
     private final Random random = new Random();
@@ -40,6 +41,7 @@ public class MapGenerator {
                 map.put(new Point(x, y), generateTerrain(x, y));
             }
         }
+        generateForests();
         generatePlainAroundBase();
         connectBases();
         return map;
@@ -62,7 +64,7 @@ public class MapGenerator {
             Point point = queue.poll();
             for (Point next : neighbours(point)) {
                 if (!map.containsKey(next)) continue;
-                int step = map.get(next) == TerrainEnum.PLAIN ? 0 : 1;
+                int step = isLand(map.get(next)) ? 0 : 1;
                 int nextCost = cost.get(point) + step;
                 if (nextCost < cost.getOrDefault(next, Integer.MAX_VALUE)) {
                     cost.put(next, nextCost);
@@ -72,7 +74,9 @@ public class MapGenerator {
             }
         }
         for (Point point = goal; point != null; point = previous.get(point)) {
-            map.put(point, TerrainEnum.PLAIN);
+            if (!isLand(map.get(point))) {
+                map.put(point, TerrainEnum.PLAIN);
+            }
         }
     }
 
@@ -133,6 +137,7 @@ public class MapGenerator {
             if (sites.size() >= SITE_PAIRS * 2) break;
             addPair(sites, candidate);
         }
+        sites.forEach(site -> map.put(site, TerrainEnum.PLAIN)); // ruins in a forest stand in a clearing
         return sites;
     }
 
@@ -151,14 +156,19 @@ public class MapGenerator {
         return new Point(width - 1 - point.x, height - 1 - point.y);
     }
 
-    /** Open ground with at least two open neighbours, so a vehicle can get next to it. */
+    /** Land with at least two land neighbours, so a vehicle can get next to it. */
     private boolean isGoodSite(HashMap<Point, TerrainEnum> map, Point point) {
-        if (map.get(point) != TerrainEnum.PLAIN) return false;
+        if (!isLand(map.get(point))) return false;
         int open = 0;
         for (Point neighbour : neighbours(point)) {
-            if (map.get(neighbour) == TerrainEnum.PLAIN) open++;
+            if (isLand(map.get(neighbour))) open++;
         }
         return open >= 2;
+    }
+
+    /** Ground that vehicles can drive over. */
+    private static boolean isLand(TerrainEnum terrain) {
+        return terrain == TerrainEnum.PLAIN || terrain == TerrainEnum.FOREST;
     }
 
     private boolean isCoastal(HashMap<Point, TerrainEnum> map, Point point) {
@@ -168,6 +178,20 @@ public class MapGenerator {
     private static List<Point> neighbours(Point point) {
         return List.of(new Point(point.x + 1, point.y), new Point(point.x - 1, point.y),
                 new Point(point.x, point.y + 1), new Point(point.x, point.y - 1));
+    }
+
+    /** Patches of forest on open ground, from a second, independent noise field. */
+    private void generateForests() {
+        double offset = 37.5 + random.nextInt(100);
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                Point point = new Point(x, y);
+                double noise = perlinNoise.noise((x + offset) * scale, (y + offset) * scale, 0.1, 13);
+                if (map.get(point) == TerrainEnum.PLAIN && noise > FOREST_THRESHOLD) {
+                    map.put(point, TerrainEnum.FOREST);
+                }
+            }
+        }
     }
 
     private TerrainEnum generateTerrain(int x, int y) {
