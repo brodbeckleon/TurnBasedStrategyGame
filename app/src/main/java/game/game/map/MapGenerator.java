@@ -115,21 +115,21 @@ public class MapGenerator {
      * coast when the map has one, so naval bases are possible.
      */
     public Set<Point> generateBaseSites(HashMap<Point, TerrainEnum> map) {
-        Set<Point> reachable = reachableLand(map);
-        List<Point> candidates = new ArrayList<>();
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                Point point = new Point(x, y);
-                Point mirror = mirror(point);
-                if (x + y < width - 1 && isGoodSite(map, point, reachable) && isGoodSite(map, mirror, reachable)
-                        && point.distance(0, 0) >= MIN_SITE_DISTANCE_FROM_HQ
-                        && point.distance(width - 1, height - 1) >= MIN_SITE_DISTANCE_FROM_HQ) {
-                    candidates.add(point);
-                }
-            }
+        Set<Point> sites = pickSites(map, candidateSites(map, true));
+        if (sites.isEmpty()) {
+            // no pair where both sides are good land: take pairs with one good side, the other is cleared below
+            sites = pickSites(map, candidateSites(map, false));
         }
-        Collections.shuffle(candidates, random);
+        sites.forEach(site -> map.put(site, TerrainEnum.PLAIN)); // ruins in a forest stand in a clearing
+        for (Point site : sites) {
+            connectToHq(map, site);
+        }
+        return sites;
+    }
 
+    /** Up to SITE_PAIRS well spaced pairs from the candidates, the first on the coast if possible. */
+    private Set<Point> pickSites(HashMap<Point, TerrainEnum> map, List<Point> candidates) {
+        Collections.shuffle(candidates, random);
         Set<Point> sites = new LinkedHashSet<>();
         for (Point candidate : candidates) {
             if (isCoastal(map, candidate) && isCoastal(map, mirror(candidate)) && addPair(sites, candidate)) break;
@@ -138,8 +138,26 @@ public class MapGenerator {
             if (sites.size() >= SITE_PAIRS * 2) break;
             addPair(sites, candidate);
         }
-        sites.forEach(site -> map.put(site, TerrainEnum.PLAIN)); // ruins in a forest stand in a clearing
         return sites;
+    }
+
+    /** Sites on the first player's half whose pair is far enough from both headquarters. */
+    private List<Point> candidateSites(HashMap<Point, TerrainEnum> map, boolean bothSidesGood) {
+        List<Point> candidates = new ArrayList<>();
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                Point point = new Point(x, y);
+                Point mirror = mirror(point);
+                boolean good = bothSidesGood ? isGoodSite(map, point) && isGoodSite(map, mirror)
+                        : isGoodSite(map, point) || isGoodSite(map, mirror);
+                if (x + y < width - 1 && good
+                        && point.distance(0, 0) >= MIN_SITE_DISTANCE_FROM_HQ
+                        && point.distance(width - 1, height - 1) >= MIN_SITE_DISTANCE_FROM_HQ) {
+                    candidates.add(point);
+                }
+            }
+        }
+        return candidates;
     }
 
     /** Adds the site and its mirror image, unless that would crowd the sites already chosen; true if added. */
@@ -158,23 +176,61 @@ public class MapGenerator {
         return new Point(width - 1 - point.x, height - 1 - point.y);
     }
 
-    /**
-     * Land with at least two land neighbours, one of the tiles around it reachable by a vehicle from the
-     * headquarters, so a recovery vehicle can actually get next to it and build there.
-     */
-    private boolean isGoodSite(HashMap<Point, TerrainEnum> map, Point point, Set<Point> reachable) {
+    /** Land with at least two land neighbours, so a vehicle can get next to it. */
+    private boolean isGoodSite(HashMap<Point, TerrainEnum> map, Point point) {
         if (!isLand(map.get(point))) return false;
         int open = 0;
         for (Point neighbour : neighbours(point)) {
             if (isLand(map.get(neighbour))) open++;
         }
-        if (open < 2) return false;
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                if ((dx != 0 || dy != 0) && reachable.contains(new Point(point.x + dx, point.y + dy))) return true;
+        return open >= 2;
+    }
+
+    /**
+     * Makes sure a recovery vehicle can drive from the headquarters to a tile next to the ruins: ruins on an
+     * island or behind mountains get the fewest tiles needed turned into open ground, as connectBases does.
+     */
+    private void connectToHq(HashMap<Point, TerrainEnum> map, Point site) {
+        Set<Point> reachable = reachableLand(map);
+        if (aroundSite(site).stream().anyMatch(reachable::contains)) return;
+        // 0-1 breadth-first search from the ruins to the land the headquarters reaches
+        Map<Point, Integer> cost = new HashMap<>();
+        Map<Point, Point> previous = new HashMap<>();
+        Deque<Point> queue = new ArrayDeque<>();
+        cost.put(site, 0);
+        queue.add(site);
+        Point end = null;
+        while (!queue.isEmpty()) {
+            Point point = queue.poll();
+            if (reachable.contains(point)) {
+                end = point;
+                break;
+            }
+            for (Point next : neighbours(point)) {
+                if (!map.containsKey(next)) continue;
+                int nextCost = cost.get(point) + (isLand(map.get(next)) ? 0 : 1);
+                if (nextCost < cost.getOrDefault(next, Integer.MAX_VALUE)) {
+                    cost.put(next, nextCost);
+                    previous.put(next, point);
+                    if (isLand(map.get(next))) queue.addFirst(next); else queue.addLast(next);
+                }
             }
         }
-        return false;
+        for (Point point = end; point != null; point = previous.get(point)) {
+            if (!isLand(map.get(point))) {
+                map.put(point, TerrainEnum.PLAIN);
+            }
+        }
+    }
+
+    private static List<Point> aroundSite(Point site) {
+        List<Point> around = new ArrayList<>();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                if (dx != 0 || dy != 0) around.add(new Point(site.x + dx, site.y + dy));
+            }
+        }
+        return around;
     }
 
     /**

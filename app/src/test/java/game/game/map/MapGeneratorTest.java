@@ -16,12 +16,13 @@ import static org.junit.jupiter.api.Assertions.*;
 class MapGeneratorTest {
 
     @Test
-    void everyBaseRuinCanBeReachedByARecoveryVehicle() {
-        for (int i = 0; i < 300; i++) {
+    void everyMapHasRuinsAndARecoveryVehicleCanReachThemAll() {
+        for (int i = 0; i < 1000; i++) {
             MapGenerator generator = new MapGenerator(new CircleGenerator(), 16, 16);
             HashMap<Point, TerrainEnum> map = generator.generate();
             Set<Point> sites = generator.generateBaseSites(map);
             Set<Point> land = landReachableFromHq(map);
+            assertFalse(sites.isEmpty(), "map " + i + " has no ruins");
             for (Point site : sites) {
                 boolean reachable = false;
                 for (int dx = -1; dx <= 1; dx++) {
