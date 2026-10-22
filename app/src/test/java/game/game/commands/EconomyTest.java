@@ -200,7 +200,7 @@ class EconomyTest {
         game.switchTurn();
         botTurn(service);
 
-        Unit built = game.getUnitAt(site);
+        Unit built = game.getUnitsAt(site).stream().filter(unit -> unit instanceof MilitaryBase).findFirst().orElse(null);
         assertInstanceOf(MilitaryBase.class, built);
         assertEquals(2, built.getPlayerID());
     }

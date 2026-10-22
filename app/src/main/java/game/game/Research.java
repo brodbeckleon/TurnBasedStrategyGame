@@ -28,7 +28,8 @@ public enum Research {
     COMPOSITE_ARMOUR(Branch.GROUND, "Composite Armour", 10, BOOT_CAMP, "Tanks get +10% armour."),
     THERMAL_SIGHTS(Branch.GROUND, "Thermal Sights", 8, BOOT_CAMP, "Ground units see 1 tile further."),
 
-    AEGIS_UPGRADE(Branch.AIR, "Aegis Upgrade", 8, null, "Anti-air units and destroyers shoot 1 tile further."),
+    AEGIS_UPGRADE(Branch.AIR, "Aegis Upgrade", 8, null,
+            "Anti-air units and destroyers shoot 1 tile further, and the Kongo's radar sees 2 tiles further."),
     PRECISION_MUNITIONS(Branch.AIR, "Precision Munitions", 10, AEGIS_UPGRADE,
             "Aircraft deal 25% more damage to buildings."),
     STEALTH_PROGRAM(Branch.AIR, "Stealth Program", 12, AEGIS_UPGRADE, "Unlocks the F-35 stealth fighter."),

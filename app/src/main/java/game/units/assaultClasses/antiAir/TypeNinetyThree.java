@@ -5,6 +5,7 @@ import game.units.assaultClasses.SelfPropelledAntiAir;
 
 import java.awt.*;
 
+/** Light, mobile anti-air that lies in ambush: hidden under the trees until an enemy comes right up to it. */
 public class TypeNinetyThree extends SelfPropelledAntiAir implements ActsAfterMoving {
     public TypeNinetyThree(int playerID, Point position) {
         super(playerID, "Type 93", position, 3, 300, 4, 4, 300);

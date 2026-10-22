@@ -1,5 +1,6 @@
 package game.game;
 
+import game.enums.TerrainEnum;
 import game.interfaces.militaryBranches.Army;
 import game.model.Game;
 import game.tools.CircleGenerator;
@@ -11,25 +12,30 @@ import game.units.assaultClasses.Helicopter;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.assaultClasses.Ship;
 import game.units.assaultClasses.Submarine;
+import game.units.assaultClasses.aircraft.FFourEJKai;
 import game.units.assaultClasses.aircraft.FThirtyFive;
+import game.units.assaultClasses.antiAir.TypeNinetyThree;
 import game.units.assaultClasses.ships.Kongo;
 import game.units.infrastructures.Radarstation;
 import game.units.supportClasses.ArmoredReconaissanceVehicle;
 
 import java.awt.Point;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 
 /**
  * Fog of war: what each side can see. Every unit and building sees the tiles around it; enemy units outside are
  * hidden. Buildings never hide (their positions are known), submarines only show up right next to an enemy unit
- * or within a destroyer's sonar, and the F-35 stealth fighter only within two tiles of one.
+ * or within a destroyer's sonar, the F-35 stealth fighter only within two tiles of one, and the Type 93 lies in
+ * ambush in a forest until an enemy unit comes right next to it.
  */
 public final class Vision {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
     private static final int SONAR_RANGE = 4;
     private static final int IMPROVED_SONAR_BONUS = 2;
     private static final int THERMAL_SIGHTS_BONUS = 1;
+    private static final int AEGIS_RADAR_BONUS = 2;
     private static final int STEALTH_RANGE = 2;
 
     private Vision() {
@@ -39,6 +45,7 @@ public final class Vision {
     public static int range(Unit unit) {
         if (unit instanceof Radarstation) return 6;
         if (unit instanceof ArmoredReconaissanceVehicle) return 5;
+        if (unit instanceof FFourEJKai) return 6;
         if (unit instanceof Submarine) return 2;
         if (unit instanceof Helicopter) return 3;
         if (unit instanceof Aircraft || unit instanceof Ship || unit instanceof TransportShip) return 4;
@@ -55,9 +62,11 @@ public final class Vision {
     public static Set<Point> visibleTiles(Game game, Player player) {
         Set<Point> tiles = new HashSet<>(player.getRevealedTiles());
         boolean thermal = player.hasResearched(Research.THERMAL_SIGHTS);
+        boolean aegis = player.hasResearched(Research.AEGIS_UPGRADE);
         for (Unit unit : player.getPlayerDeck().getUnits().values()) {
             if (unit.getHealthPoints() > 0) {
-                int range = range(unit) + (thermal && isGround(unit) ? THERMAL_SIGHTS_BONUS : 0);
+                int range = range(unit) + (thermal && isGround(unit) ? THERMAL_SIGHTS_BONUS : 0)
+                        + (aegis && unit instanceof Kongo ? AEGIS_RADAR_BONUS : 0);
                 tiles.addAll(circleGenerator.getCoordinatesInRange(unit.getPosition(), range));
             }
         }
@@ -65,12 +74,12 @@ public final class Vision {
     }
 
     /** True if the player can see the unit, given the tiles it sees. */
-    public static boolean canSee(Player viewer, Unit unit, Set<Point> visibleTiles) {
-        return canSee(viewer, unit, unit.getPosition(), visibleTiles);
+    public static boolean canSee(Game game, Player viewer, Unit unit, Set<Point> visibleTiles) {
+        return canSee(game, viewer, unit, unit.getPosition(), visibleTiles);
     }
 
     /** True if the player could see the unit if it stood on the given tile. */
-    public static boolean canSee(Player viewer, Unit unit, Point position, Set<Point> visibleTiles) {
+    public static boolean canSee(Game game, Player viewer, Unit unit, Point position, Set<Point> visibleTiles) {
         if (unit.getPlayerID() == viewer.getPlayerID() || unit instanceof Infrastructure) {
             return true;
         }
@@ -78,19 +87,28 @@ public final class Vision {
             int sonar = SONAR_RANGE + (viewer.hasResearched(Research.IMPROVED_SONAR) ? IMPROVED_SONAR_BONUS : 0);
             for (Unit own : viewer.getPlayerDeck().getUnits().values()) {
                 double distance = own.getPosition().distance(position);
-                if (distance < 1.5 || (own instanceof Kongo && distance <= sonar + 0.4)) {
+                if (isNextTo(own, position) || (own instanceof Kongo && distance <= sonar + 0.4)) {
                     return true;
                 }
             }
             return false;
         }
         if (unit instanceof FThirtyFive) {
-            // a stealth fighter only shows up close by
-            for (Unit own : viewer.getPlayerDeck().getUnits().values()) {
-                if (own.getPosition().distance(position) <= STEALTH_RANGE + 0.4) return true;
-            }
-            return false;
+            return spotsStealth(viewer.getPlayerDeck().getUnits().values(), position);
+        }
+        if (unit instanceof TypeNinetyThree && game.getBattlefield().getGeographyOfPoint(position) == TerrainEnum.FOREST) {
+            // light anti-air waits in ambush under the trees: only a unit right next to it finds it
+            return viewer.getPlayerDeck().getUnits().values().stream().anyMatch(own -> isNextTo(own, position));
         }
         return visibleTiles.contains(position);
+    }
+
+    /** True if one of the units is close enough to the tile to spot a stealth fighter there: it only shows up close by. */
+    public static boolean spotsStealth(Collection<Unit> watchers, Point position) {
+        return watchers.stream().anyMatch(watcher -> watcher.getPosition().distance(position) <= STEALTH_RANGE + 0.4);
+    }
+
+    private static boolean isNextTo(Unit unit, Point position) {
+        return unit.getPosition().distance(position) < 1.5;
     }
 }

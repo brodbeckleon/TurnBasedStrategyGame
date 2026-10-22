@@ -11,7 +11,7 @@ import game.units.Unit;
 import game.units.assaultClasses.AssaultTanks.TypeNinety;
 import game.units.assaultClasses.AssaultTanks.TypeTen;
 import game.units.assaultClasses.aircraft.FFourEJKai;
-import game.units.assaultClasses.antiAir.TypeEightyOneC;
+import game.units.assaultClasses.antiAir.TypeEightySeven;
 import game.units.assaultClasses.antiAir.TypeNinetyThree;
 import game.units.assaultClasses.infantry.AntiTankTeam;
 import org.junit.jupiter.api.BeforeEach;
@@ -74,7 +74,7 @@ class AttackPreviewTest {
     @Test
     void anAircraftUnderAnAntiAirUmbrella() {
         int jet = Fixtures.place(game, 1, new FFourEJKai(1, new Point(5, 5)));
-        int target = Fixtures.place(game, 2, new TypeEightyOneC(2, new Point(7, 5)));
+        int target = Fixtures.place(game, 2, new TypeEightySeven(2, new Point(7, 5))); // survives the jet, strikes back
         Fixtures.place(game, 2, new TypeNinetyThree(2, new Point(7, 7)));
 
         AttackPreview preview = attack.preview(player, jet, target);
@@ -84,7 +84,7 @@ class AttackPreviewTest {
 
     @Test
     void coverIsPartOfTheForecast() {
-        int tank = Fixtures.place(game, 1, new TypeTen(1, new Point(5, 5)));
+        int tank = Fixtures.place(game, 1, new TypeNinety(1, new Point(5, 5)));
         int target = Fixtures.place(game, 2, new TypeNinety(2, new Point(8, 5)));
         int open = attack.preview(player, tank, target).damage();
         Fixtures.setTerrain(game, new Point(8, 5), TerrainEnum.FOREST);

@@ -400,10 +400,10 @@ public class BotService {
         if (gain <= 0) return 0;
         int damage = attackCommand.predictDamage(attacker, target);
         boolean survives = damage < target.getHealthPoints();
-        if (survives && target instanceof AssaultClass defender
-                && from.distance(target.getPosition()) <= model.getShootingRange(defender) + 0.4) {
+        if (survives && target instanceof AssaultClass defender && !AttackCommand.isStandoff(attacker, target)
+                && attackCommand.couldStrikeBack(defender, attacker, from)) {
             // it strikes back with the health it has left after our hit
-            double left = (double) (target.getHealthPoints() - damage) / target.getMaxHealthPoints();
+            double left = AttackCommand.counterStrength(defender, target.getHealthPoints() - damage);
             int counter = (int) Math.round(attackCommand.predictDamage(defender, attacker, from) * left);
             gain -= COUNTER_WEIGHT * valueOf(attacker) * Math.min(1, (double) counter / attacker.getHealthPoints());
         }
@@ -412,7 +412,7 @@ public class BotService {
             int flak = 0;
             for (Unit enemy : visibleEnemies()) {
                 if (enemy != target && enemy instanceof AntiAir && enemy instanceof AssaultClass antiAir
-                        && from.distance(enemy.getPosition()) <= model.getShootingRange(antiAir) + 0.4) {
+                        && attackCommand.couldStrikeBack(antiAir, attacker, from)) {
                     flak += attackCommand.counterDamage(antiAir, attacker);
                 }
             }
@@ -442,8 +442,8 @@ public class BotService {
     }
 
     /**
-     * Where the unit is heading: anti-air hunts aircraft (or escorts the army), aircraft go for the most valuable
-     * target, everything else for the nearest enemy unit close by it can fight, or else the enemy base.
+     * Where the unit is heading: anti-air hunts aircraft (or escorts the army), aircraft go for the target most worth
+     * their weapons, everything else for the nearest enemy unit close by it can fight, or else the enemy base.
      */
     private Point goalFor(AssaultClass unit) {
         Point position = unit.getPosition();
@@ -458,8 +458,10 @@ public class BotService {
                     .map(Unit::getPosition).orElse(enemyBase);
         }
         if (unit instanceof Aircraft) {
+            // each jet has its prey: the F-15 other aircraft, the F-2 ships, the A-10 armour
             return enemies.stream()
-                    .max(Comparator.comparingDouble(enemy -> valueOf(enemy) / (1 + enemy.getPosition().distance(position) / 6)))
+                    .filter(enemy -> AttackCommand.canTarget(unit, enemy) && attackScore(unit, enemy) > 0)
+                    .max(Comparator.comparingDouble(enemy -> attackScore(unit, enemy) / (1 + enemy.getPosition().distance(position) / 6)))
                     .map(Unit::getPosition).orElse(enemyBase);
         }
         // a ground unit only chases what it can fight from land: not a ship out at sea, nor what its guns cannot hit
@@ -841,7 +843,7 @@ public class BotService {
                 // only units that can act after moving threaten tiles beyond their shooting range
                 int reach = attacker.getShootingRange()
                         + (enemy instanceof ActsAfterMoving && enemy instanceof MovableUnit movable ? movable.getMovingRange() : 0);
-                if (tile.distance(enemy.getPosition()) <= reach + 0.4) {
+                if (tile.distance(enemy.getPosition()) <= reach + 0.4 && !AttackCommand.isTooClose(attacker, enemy.getPosition(), tile)) {
                     expected += Math.min(1, (double) attackCommand.predictDamage(attacker, unit, tile) / unit.getHealthPoints());
                 }
             }
@@ -1087,23 +1089,28 @@ public class BotService {
         return switch (type) {
             case TYPETEN -> 2 + 0.6 * army.enemyTanks + defence;
             case TYPENINETY -> 2 + 0.5 * army.enemyTanks + 1.5 * defence;
-            case TYPESIXTEEN -> 1.5 + 0.4 * army.enemySoft;
-            case TYPEEIGHTYNINE -> 1.5 + 0.4 * army.enemySoft;
+            case TYPESIXTEEN -> 1.5 + 0.4 * (army.enemySoft - army.enemyInfantry);
+            case TYPEEIGHTYNINE -> 1.2 + 0.6 * army.enemyInfantry;
             // artillery needs a front line to hide behind
             case TYPENINETYNINESPH -> army.combat - army.artillery < 3 ? 0 : army.artillery * 5 < army.combat ? 2 + defence : 0;
             case TYPEEIGHTYONEC, TYPENINETYTHREE, TYPEEIGHTYSEVEN -> {
-                // one anti-air unit covers about two aircraft
+                // one anti-air unit covers about two aircraft; the missiles reach furthest, the guns also fight infantry
                 double base = army.enemyAircraft > 2 * army.antiAir ? 3 + army.enemyAircraft - 2 * army.antiAir
                         : army.antiAir == 0 && army.combat >= 4 ? 0.8 : 0;
-                yield base == 0 ? 0 : base + (type == UnitEnum.TYPEEIGHTYONEC ? 0.3 : 0);
+                yield base == 0 ? 0 : base + switch (type) {
+                    case TYPEEIGHTYONEC -> 0.3;
+                    case TYPEEIGHTYSEVEN -> Math.min(0.6, 0.1 * army.enemySoft);
+                    default -> 0;
+                };
             }
             case ARMOREDAMBULANCE -> army.combat >= 3 && army.ambulances == 0 ? 2.2 : 0;
             case ARMOREDRECOVERYVEHICLE -> army.recovery > 0 ? 0
                     : army.claimableSite && army.combat >= 1 ? 3.5 : army.hqDamaged ? 2.5 : 0;
             case ARMOREDRECONNAISSANCE -> army.combat >= 4 && army.recon == 0 ? 1.2 : 0;
-            case FFOUREJKAI -> airHeavy ? 0.4 : 1.3 + 0.3 * army.enemySoft;
-            case FFIFTEEN -> airHeavy ? 0.5 : 1.8 + 0.5 * army.enemyAircraft;
-            case FTWO -> airHeavy ? 0.6 : 2 + 0.3 * army.enemyTanks;
+            // one reconnaissance jet spots for the army
+            case FFOUREJKAI -> airHeavy ? 0.3 : army.combat >= 3 && army.owned("F-4EJ Kai") == 0 ? 1.3 : 0.3;
+            case FFIFTEEN -> airHeavy ? 0.5 : army.enemyAircraft > 0 ? 1.5 + 0.7 * army.enemyAircraft : 0.5;
+            case FTWO -> airHeavy ? 0.6 : army.enemyShips > 0 ? 2 + 0.8 * army.enemyShips : 0.4;
             case FTHIRTYFIVE -> airHeavy ? 0.5 : 1.8;
             case ATEN -> airHeavy ? 0.6 : 1.5 + 0.6 * army.enemyTanks;
             case YAMATO -> army.usefulFleet ? 2.5 : 0;
@@ -1130,7 +1137,7 @@ public class BotService {
         final long combat, antiAir, artillery, infantry, aircraft, ambulances, recon, recovery, radar, carriers, amphibious;
         final long stranded;
         final boolean cutOff;
-        final long enemyAircraft, enemyTanks, enemySoft, enemyShips, enemySubmarines;
+        final long enemyAircraft, enemyTanks, enemySoft, enemyInfantry, enemyShips, enemySubmarines;
         final boolean claimableSite, hqDamaged, usefulFleet;
         private final List<Unit> own;
 
@@ -1154,6 +1161,7 @@ public class BotService {
             enemyTanks = count(enemy, AssaultTank.class);
             enemyShips = count(enemy, Ship.class);
             enemySubmarines = count(enemy, Submarine.class);
+            enemyInfantry = count(enemy, Infantry.class);
             enemySoft = enemy.stream().filter(unit -> unit instanceof AssaultClass
                     && !(unit instanceof AssaultTank) && !(unit instanceof Aircraft)).count();
             claimableSite = model.getBattlefield().getBaseSites().stream()
