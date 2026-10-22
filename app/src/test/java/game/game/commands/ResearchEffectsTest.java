@@ -141,6 +141,18 @@ class ResearchEffectsTest {
     }
 
     @Test
+    void aegisUpgradeLetsTheKongosRadarSeeFurther() {
+        game.setFogOfWar(true);
+        Fixtures.place(game, 1, new Kongo(1, new Point(5, 5)));
+        FTwo jet = new FTwo(2, new Point(5, 11)); // six tiles off: two past a ship's sight
+        Fixtures.place(game, 2, jet);
+        assertFalse(game.isVisibleTo(player, jet));
+
+        research(Research.AEGIS_UPGRADE);
+        assertTrue(game.isVisibleTo(player, jet));
+    }
+
+    @Test
     void precisionMunitionsMakeAircraftBetterAtBreakingBuildings() {
         FTwo jet = new FTwo(1, new Point(5, 5));
         Fixtures.place(game, 1, jet);

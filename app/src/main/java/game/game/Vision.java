@@ -35,6 +35,7 @@ public final class Vision {
     private static final int SONAR_RANGE = 4;
     private static final int IMPROVED_SONAR_BONUS = 2;
     private static final int THERMAL_SIGHTS_BONUS = 1;
+    private static final int AEGIS_RADAR_BONUS = 2;
     private static final int STEALTH_RANGE = 2;
 
     private Vision() {
@@ -61,9 +62,11 @@ public final class Vision {
     public static Set<Point> visibleTiles(Game game, Player player) {
         Set<Point> tiles = new HashSet<>(player.getRevealedTiles());
         boolean thermal = player.hasResearched(Research.THERMAL_SIGHTS);
+        boolean aegis = player.hasResearched(Research.AEGIS_UPGRADE);
         for (Unit unit : player.getPlayerDeck().getUnits().values()) {
             if (unit.getHealthPoints() > 0) {
-                int range = range(unit) + (thermal && isGround(unit) ? THERMAL_SIGHTS_BONUS : 0);
+                int range = range(unit) + (thermal && isGround(unit) ? THERMAL_SIGHTS_BONUS : 0)
+                        + (aegis && unit instanceof Kongo ? AEGIS_RADAR_BONUS : 0);
                 tiles.addAll(circleGenerator.getCoordinatesInRange(unit.getPosition(), range));
             }
         }
