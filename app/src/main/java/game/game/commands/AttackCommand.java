@@ -5,6 +5,7 @@ import game.events.Weapon;
 import game.game.Command;
 import game.game.Player;
 import game.game.Research;
+import game.game.Vision;
 import game.interfaces.Host;
 import game.enums.TerrainEnum;
 import game.interfaces.AntiAir;
@@ -20,10 +21,22 @@ import game.units.Infrastructure;
 import game.units.TransportShip;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.AssaultTank;
+import game.units.assaultClasses.Infantry;
 import game.units.assaultClasses.SelfPropelledAntiAir;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.Unit;
+import game.units.assaultClasses.AssaultTanks.TypeNinety;
+import game.units.assaultClasses.AssaultTanks.TypeSixteen;
+import game.units.assaultClasses.AssaultTanks.TypeTen;
+import game.units.assaultClasses.aircraft.ATen;
+import game.units.assaultClasses.aircraft.FFifteen;
 import game.units.assaultClasses.aircraft.FThirtyFive;
+import game.units.assaultClasses.aircraft.FTwo;
+import game.units.assaultClasses.antiAir.TypeEightyOneC;
+import game.units.assaultClasses.antiAir.TypeEightySeven;
+import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
+import game.units.assaultClasses.ships.Kongo;
+import game.units.assaultClasses.ships.Yamato;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -84,9 +97,9 @@ public class AttackCommand extends Command {
         // Mark attacker as unavailable
         attackingUnit.setIsAvailable(false);
 
-        // A surviving defender that has the attacker in its own range strikes back at once
+        // A surviving defender that has the attacker in its own range strikes back at once (not at standoff missiles)
         Unit defender = defenderPlayer.getPlayerDeck().getUnit(targetID);
-        if (defender != null && canStrikeBack(defender, attackingUnit)) {
+        if (defender != null && !isStandoff(attackingUnit, defender) && canStrikeBack(defender, attackingUnit)) {
             events = new ArrayList<>(events);
             events.addAll(strikeBack(attackerPlayer, attackingUnitID, attackingUnit, targetID, (AssaultClass) defender));
         }
@@ -104,21 +117,57 @@ public class AttackCommand extends Command {
         return new CommandResult(true, "Unit " + attackingUnitID + " attacked target " + targetID + ".", events);
     }
 
-    /** True if the defender survived, can fight, has the attacker in range and would actually hurt it. */
+    /** True if the defender survived, can fight, has the attacker in range, sees it and would actually hurt it. */
     public boolean canStrikeBack(Unit defender, Unit attacker) {
-        return defender instanceof AssaultClass fighter && defender.getHealthPoints() > 0 && attacker.getHealthPoints() > 0
-                && circleGenerator.getCoordinatesInRange(defender.getPosition(), getGameModel().getShootingRange(fighter))
-                        .contains(attacker.getPosition())
-                && canTarget(defender, attacker) && counterDamage(fighter, attacker) > 0;
+        return defender instanceof AssaultClass fighter && attacker.getHealthPoints() > 0
+                && couldStrikeBack(fighter, attacker, attacker.getPosition()) && counterDamage(fighter, attacker) > 0;
+    }
+
+    /**
+     * True if the defender could fire at the attacker standing on the tile: it is alive, not artillery (which never
+     * strikes back), has the tile in range, its weapons reach the attacker, and it sees it (a stealth fighter its side
+     * cannot see strikes unanswered).
+     */
+    public boolean couldStrikeBack(AssaultClass defender, Unit attacker, Point from) {
+        return inReach(defender, attacker, from) && !(attacker instanceof FThirtyFive
+                && !getGameModel().isVisibleTo(getGameModel().getOwner(defender), attacker, from));
+    }
+
+    private boolean inReach(AssaultClass defender, Unit attacker, Point from) {
+        return defender.getHealthPoints() > 0 && !(defender instanceof SelfPropelledArtillery) && canTarget(defender, attacker)
+                && !isTooClose(defender, defender.getPosition(), from)
+                && circleGenerator.getCoordinatesInRange(defender.getPosition(), getGameModel().getShootingRange(defender))
+                        .contains(from);
+    }
+
+    /**
+     * True if the attacker hits the target from beyond the reach of its answer: artillery's indirect fire, and the
+     * F-2's missiles against a ship.
+     */
+    public static boolean isStandoff(Unit attacker, Unit target) {
+        return attacker instanceof SelfPropelledArtillery || attacker instanceof FTwo && isVessel(target);
+    }
+
+    /**
+     * True if the target tile is too close for the attacker standing on the tile: artillery and the Yamato's big guns
+     * cannot fire point-blank.
+     */
+    public static boolean isTooClose(Unit attacker, Point from, Point target) {
+        return (attacker instanceof SelfPropelledArtillery || attacker instanceof Yamato) && from.distance(target) < 1.5;
     }
 
     /**
      * What a defender (or covering anti-air) deals when it strikes back: its normal damage, scaled by the share of
-     * health it has left, so a battered unit hits back weakly.
+     * health it has left, so a battered unit hits back weakly (except the Type 90).
      */
     public int counterDamage(AssaultClass defender, Unit attacker) {
-        double strength = Math.max(0, (double) defender.getHealthPoints() / defender.getMaxHealthPoints());
-        return (int) Math.round(predictDamage(defender, attacker) * strength);
+        return (int) Math.round(predictDamage(defender, attacker) * counterStrength(defender, defender.getHealthPoints()));
+    }
+
+    /** The share of its damage the defender strikes back with at the given health: the heavy Type 90 always all of it. */
+    public static double counterStrength(AssaultClass defender, int healthLeft) {
+        if (defender instanceof TypeNinety) return 1;
+        return Math.max(0, (double) healthLeft / defender.getMaxHealthPoints());
     }
 
     /** The ids of the defender's anti-air units, besides the attacked unit itself, that cover the aircraft. */
@@ -167,6 +216,7 @@ public class AttackCommand extends Command {
             defender.getPlayerDeck().getUnitIDsInRange(from, range).stream()
                     .distinct()
                     .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
+                    .filter(id -> !isTooClose(attackingUnit, from, defender.getPlayerDeck().getUnit(id).getPosition()))
                     .filter(id -> !isShielded(defender.getPlayerDeck().getUnit(id), attackingUnit))
                     .filter(id -> getGameModel().isVisibleTo(attacker, defender.getPlayerDeck().getUnit(id))) // fog of war
                     .forEach(targets::add);
@@ -206,16 +256,21 @@ public class AttackCommand extends Command {
         int targetHpAfter = target.getHealthPoints() - damage;
         boolean destroys = targetHpAfter <= 0;
 
+        // a stealth fighter is only answered by a side that spots it: judged by the enemies the attacker can see, so the
+        // forecast does not give away what hides in the fog
+        boolean answered = !(attacker instanceof FThirtyFive) || !getGameModel().isFogOfWar()
+                || Vision.spotsStealth(getGameModel().getVisibleEnemies(attackerPlayer).stream()
+                        .filter(unit -> unit.getPlayerID() == defenderPlayer.getPlayerID()).toList(), attacker.getPosition());
         int counter = 0;
-        if (!destroys && target instanceof AssaultClass defender && canTarget(defender, attacker)
-                && circleGenerator.getCoordinatesInRange(target.getPosition(), getGameModel().getShootingRange(defender))
-                        .contains(attacker.getPosition())) {
-            counter = (int) Math.round(predictDamage(defender, attacker) * (double) targetHpAfter / target.getMaxHealthPoints());
+        if (!destroys && answered && target instanceof AssaultClass defender && !isStandoff(attacker, target)
+                && inReach(defender, attacker, attacker.getPosition())) {
+            counter = (int) Math.round(predictDamage(defender, attacker) * counterStrength(defender, targetHpAfter));
         }
         // only the anti-air the attacker can see: the forecast must not give away what hides in the fog
         int flak = 0;
-        if (attacker instanceof Aircraft) {
+        if (attacker instanceof Aircraft && answered) {
             for (int interceptorID : findInterceptors(defenderPlayer, attacker, targetID)) {
+                if (counter + flak >= attacker.getHealthPoints()) break; // shot down: the rest hold their fire
                 Unit interceptor = defenderPlayer.getPlayerDeck().getUnit(interceptorID);
                 if (getGameModel().isVisibleTo(attackerPlayer, interceptor)) {
                     flak += counterDamage((AssaultClass) interceptor, attacker);
@@ -308,7 +363,8 @@ public class AttackCommand extends Command {
             return structureDamage(attacker, building);
         }
         int damage = unitDamage(attacker, target);
-        return (int) Math.round(damage * (100 - coverPercent(target, targetPosition)) / 100.0);
+        int cover = attacker instanceof TypeTen ? 0 : coverPercent(target, targetPosition); // its fire control sees through
+        return (int) Math.round(damage * (100 - cover) / 100.0);
     }
 
     /**
@@ -339,51 +395,82 @@ public class AttackCommand extends Command {
     private static final double GROUND_VS_AIRCRAFT = 0.75;
     private static final double ANTI_AIR_VS_GROUND = 0.5;
     private static final double GROUND_VS_HELICOPTER = 1;
+    private static final double ARMOURED_COCKPIT = 0.5;
+    private static final double RAIDER_VS_LIGHT_VEHICLE = 1.5;
+    private static final double AUTOCANNON_VS_INFANTRY = 1.75;
+    private static final double MISSILE_VS_SHIP = 2;
     private static final double TORPEDO_VS_SHIP = 2;
+    private static final double ANTI_SUBMARINE_VS_SUBMARINE = 2;
     private static final double PRECISION_MUNITIONS_BONUS = 1.25;
 
     /**
-     * Artillery, tanks and aircraft are made to break buildings (aircraft better with Precision Munitions),
-     * everything else barely scratches them.
+     * Artillery, tanks, the Yamato's shore bombardment and aircraft are made to break buildings (aircraft better with
+     * Precision Munitions, except the F-15, which is built to fight in the air), everything else barely scratches them.
      */
     private int structureDamage(AssaultClass attacker, Infrastructure building) {
         double multiplier;
         if (attacker instanceof SelfPropelledArtillery) multiplier = ARTILLERY_VS_STRUCTURE;
-        else if (attacker instanceof AssaultTank) multiplier = TANK_VS_STRUCTURE;
-        else if (attacker instanceof Aircraft) multiplier = AIRCRAFT_VS_STRUCTURE
+        else if (attacker instanceof AssaultTank || attacker instanceof Yamato) multiplier = TANK_VS_STRUCTURE;
+        else if (attacker instanceof Aircraft && !(attacker instanceof FFifteen)) multiplier = AIRCRAFT_VS_STRUCTURE
                 * (getGameModel().getOwner(attacker).hasResearched(Research.PRECISION_MUNITIONS) ? PRECISION_MUNITIONS_BONUS : 1);
         else multiplier = OTHER_VS_STRUCTURE;
         return afterArmor(attacker.getDamage() * multiplier, getGameModel().getArmorValue(building));
     }
 
     /**
-     * Anti-air hits aircraft twice as hard but ground targets only half as hard; other ground and sea units only
-     * graze aircraft. Tank armour takes its percentage off.
+     * Anti-air hits aircraft twice as hard (the A-10's armoured cockpit halves that) but what does not fly only half as
+     * hard; other ground and sea units only graze aircraft. The specialists hit their prey harder: tank hunters tanks,
+     * the Type 16 light vehicles, the Type 89 infantry, the F-2 and the submarine ships, the Kongo submarines. Tank armour takes its percentage off, except
+     * against the A-10's cannon.
      */
     private int unitDamage(AssaultClass attacker, Unit target) {
         double damage = attacker.getDamage();
         if (target instanceof Aircraft) {
-            if (attacker instanceof AntiAir) damage *= ANTI_AIR_VS_AIRCRAFT;
+            if (attacker instanceof AntiAir) damage *= ANTI_AIR_VS_AIRCRAFT * (target instanceof ATen ? ARMOURED_COCKPIT : 1);
             else if (target instanceof Helicopter) damage *= GROUND_VS_HELICOPTER;
             else if (!(attacker instanceof Aircraft)) damage *= GROUND_VS_AIRCRAFT;
-        } else if (attacker instanceof SelfPropelledAntiAir) {
+        } else if (weakAgainstGround(attacker, target)) {
             damage *= ANTI_AIR_VS_GROUND;
         }
         if (attacker instanceof TankHunter hunter && target instanceof AssaultTank) {
             damage *= hunter.antiTankMultiplier();
         }
+        if (attacker instanceof TypeSixteen && Vision.isGround(target) && !(target instanceof AssaultTank)
+                && !(target instanceof Infantry)) {
+            damage *= RAIDER_VS_LIGHT_VEHICLE;
+        }
+        if (attacker instanceof TypeEightyNine && target instanceof Infantry) {
+            damage *= AUTOCANNON_VS_INFANTRY;
+        }
+        if (attacker instanceof FTwo && isVessel(target)) {
+            damage *= MISSILE_VS_SHIP;
+        }
         if (attacker instanceof Submarine && isVessel(target)) {
             damage *= TORPEDO_VS_SHIP;
         }
-        return afterArmor(damage, getGameModel().getArmorValue(target));
+        if (attacker instanceof Kongo && target instanceof Submarine) {
+            damage *= ANTI_SUBMARINE_VS_SUBMARINE;
+        }
+        return afterArmor(damage, attacker instanceof ATen ? 0 : getGameModel().getArmorValue(target));
+    }
+
+    /**
+     * True if the attacker is made for aircraft and loses its punch against the target on the ground or at sea: anti-air
+     * vehicles and the F-15. The Type 87's guns only bounce off tanks.
+     */
+    private static boolean weakAgainstGround(AssaultClass attacker, Unit target) {
+        if (attacker instanceof TypeEightySeven) return target instanceof AssaultTank;
+        return attacker instanceof SelfPropelledAntiAir || attacker instanceof FFifteen;
     }
 
     /**
      * Whether the attacker's weapons can reach the target at all: a submarine only attacks ships, and only ships
-     * and aircraft can find a submarine.
+     * and aircraft can find a submarine. The Type 81's missiles only hit aircraft, the A-10's cannon never does.
      */
     public static boolean canTarget(Unit attacker, Unit target) {
         if (attacker instanceof Submarine) return isVessel(target);
+        if (attacker instanceof TypeEightyOneC) return target instanceof Aircraft;
+        if (attacker instanceof ATen && target instanceof Aircraft) return false;
         if (target instanceof Submarine) return attacker instanceof Ship || attacker instanceof Aircraft;
         return true;
     }

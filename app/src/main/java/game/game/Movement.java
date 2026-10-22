@@ -120,7 +120,7 @@ public final class Movement {
         // every unit on the tile counts: an aircraft parked on an enemy base does not open the way through it
         for (Unit other : game.getUnitsAt(point)) {
             if (other.getPlayerID() != unit.getPlayerID() && !(other instanceof ByAir)
-                    && (!game.isFogOfWar() || Vision.canSee(owner, other, seen))) {
+                    && (!game.isFogOfWar() || Vision.canSee(game, owner, other, seen))) {
                 return true;
             }
         }
@@ -147,7 +147,7 @@ public final class Movement {
         if (!game.isFogOfWar()) return false;
         Unit other = game.getUnitAt(point);
         return other != null && other.getPlayerID() != mover.getPlayerID()
-                && game.getUnitSeenAt(point, unit -> Vision.canSee(owner, unit, seen)) == null;
+                && game.getUnitSeenAt(point, unit -> Vision.canSee(game, owner, unit, seen)) == null;
     }
 
     private static List<Point> path(Map<Point, Point> previous, Point start, Point end) {

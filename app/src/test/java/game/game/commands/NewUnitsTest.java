@@ -113,9 +113,12 @@ class NewUnitsTest {
         assertEquals(submarine.getDamage() * 2, attack.predictDamage(submarine, destroyer), "torpedoes");
         assertFalse(AttackCommand.canTarget(submarine, new TypeTen(1, new Point())));
 
-        // the submarine strikes back at the destroyer, never at the tank
+        // the submarine could strike back at the destroyer, never at the tank, but the destroyer's salvo sinks it first
+        assertTrue(attack.canStrikeBack(submarine, destroyer));
+        assertFalse(attack.canStrikeBack(submarine, game.findUnitById(tank)));
         List<GameEvent> events = attack.execute(player, destroyerId, subId).getEvents();
-        assertTrue(events.stream().anyMatch(e -> e instanceof UnitAttacked a && a.attackerId() == subId));
+        assertTrue(events.stream().anyMatch(e -> e instanceof GameEvent.UnitDestroyed d && d.unitId() == subId));
+        assertTrue(events.stream().noneMatch(e -> e instanceof UnitAttacked a && a.attackerId() == subId));
     }
 
     @Test

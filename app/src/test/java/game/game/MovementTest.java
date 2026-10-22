@@ -126,7 +126,7 @@ class MovementTest {
     @Test
     void unitsInForestOrOnMountainsTakeLessDamage() {
         AttackCommand attack = new AttackCommand(game);
-        TypeTen attacker = new TypeTen(1, new Point(5, 5));
+        TypeNinety attacker = new TypeNinety(1, new Point(5, 5));
         TypeNinety target = new TypeNinety(2, new Point(7, 5));
         int open = attack.predictDamage(attacker, target);
 

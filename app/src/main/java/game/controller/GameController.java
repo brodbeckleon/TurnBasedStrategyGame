@@ -156,21 +156,24 @@ public class GameController {
         return stats.toString();
     }
 
+    private static final String JET = " Flies over any terrain; ground fire only deals three quarters of its damage to it.";
+
     /** One or two sentences on what the unit does and where it can be deployed. */
     private static String describe(Unit unit) {
         String text = switch (unit.getUnitName()) {
-            case "Type 10" -> "Medium main battle tank: hard-hitting and quick.";
-            case "Type 90" -> "Heavy main battle tank: the toughest armour, an anchor for your line.";
-            case "Type 16" -> "Wheeled tank destroyer: fast and cheap, lightly armoured.";
-            case "Type 89" -> "Infantry fighting vehicle: tough and cheap.";
-            case "Type 99 SPH" -> "Self-propelled howitzer: shoots very far and wrecks buildings, but is fragile.";
-            case "Type 87", "Type 81 (C)" -> "Heavy anti-air: double damage to aircraft, half to ground targets. Fires at every enemy aircraft that attacks within its range.";
-            case "Type 93" -> "Light anti-air: double damage to aircraft, half to ground targets. Fires at every enemy aircraft that attacks within its range.";
+            case "Type 10" -> "Medium main battle tank: hard-hitting and quick. Its fire control ignores the cover of forests and mountains.";
+            case "Type 90" -> "Heavy main battle tank: the toughest armour, an anchor for your line. Strikes back at full strength however damaged.";
+            case "Type 16" -> "Wheeled raider: fast and cheap, lightly armoured. 1.5x damage to unarmoured vehicles (IFVs, artillery, anti-air, support).";
+            case "Type 89" -> "Infantry fighting vehicle: tough and cheap. Its autocannon deals 1.75x damage to infantry.";
+            case "Type 99 SPH" -> "Self-propelled howitzer: shoots very far and wrecks buildings. Indirect fire: its targets cannot strike back, but it cannot fire at adjacent units and never strikes back itself. Fragile and short-sighted.";
+            case "Type 87" -> "Gun anti-air: double damage to aircraft, short-ranged. Its 35 mm guns also hit infantry and light vehicles at full strength (tanks at half). Fires at every enemy aircraft that attacks within its range.";
+            case "Type 81 (C)" -> "Missile anti-air: double damage to aircraft at long range, but cannot attack anything on the ground. Fires at every enemy aircraft that attacks within its range.";
+            case "Type 93" -> "Light anti-air: double damage to aircraft, half to ground targets. Hidden in a forest until an enemy comes right next to it. Fires at every enemy aircraft that attacks within its range.";
             case "Armored Ambulance" -> "Heals an adjacent friendly unit by 300 HP.";
             case "Armored Recovery Vehicle" -> "Builds new bases on base ruins it stands next to, and repairs an adjacent friendly building (your base too) by 600 HP.";
             case "Armored Reconnaissance Vehicle" -> "Unarmed scout: friendly units within 3 tiles shoot 1 tile further.";
-            case "Yamato" -> "Battleship with a huge punch and a thick hull.";
-            case "Kongo" -> "Aegis destroyer: double damage to aircraft, covers the fleet from air attacks, and hunts submarines.";
+            case "Yamato" -> "Battleship with a huge punch and a thick hull. Shore bombardment: 1.5x damage to buildings. Its big guns cannot fire at adjacent units, not even to strike back.";
+            case "Kongo" -> "Aegis destroyer, the fleet's escort: double damage to aircraft and submarines, covers the fleet from air attacks, and its sonar finds submarines 4 tiles away. Survives one torpedo. With the Aegis Upgrade its radar sees 6 tiles.";
             case "Soryu" -> "Submarine: torpedoes deal double damage to ships. Attacks only ships; only ships and aircraft can attack it.";
             case "Izumo" -> "Aircraft carrier, a mobile air base: aircraft are deployed onto its deck and can land on it. Unarmed.";
             case "Osumi" -> "Amphibious assault ship: carries one ground unit across the water (drive onto it, then off at another shore). Docked at the coast it deploys infantry and light vehicles. Unarmed.";
@@ -181,7 +184,12 @@ public class GameController {
             case "Air Base" -> "Airfield: +2 RP per round, deploys aircraft on top of it (so does a carrier at sea). Built on base ruins by a Recovery Vehicle.";
             case "Naval Base" -> "Harbour: +2 RP per round, launches ships onto the water next to it. Built on base ruins next to water by a Recovery Vehicle.";
             case "Radar Station" -> "Friendly units within 4 tiles shoot 1 tile further.";
-            default -> unit instanceof Aircraft ? "Flies over any terrain; ground fire only deals three quarters of its damage to it." : "";
+            case "F-15" -> "Air-superiority fighter: double damage to aircraft, half to everything else. Fires at every enemy aircraft that attacks within its range." + JET;
+            case "F-2" -> "Anti-ship fighter: double damage to ships, and the ship it attacks cannot strike back (other ships' anti-air still can)." + JET;
+            case "F-4EJ Kai" -> "Reconnaissance jet: sees 6 tiles far, and friendly units within 3 tiles shoot 1 tile further. Hits lightly." + JET;
+            case "A-10" -> "Ground-attack jet: its cannon ignores tank armour and anti-air only deals it half damage, but it cannot attack aircraft." + JET;
+            case "F-35" -> "Stealth fighter: enemies only see it within 2 tiles, and what cannot see it cannot strike back at it." + JET;
+            default -> "";
         };
         if (unit instanceof Infrastructure) {
             return text;
@@ -365,7 +373,7 @@ public class GameController {
         seen.addAll(model.getVisibleTiles(model.getPlayerOne()));
         java.util.function.BiPredicate<Integer, Point> sees = (id, pos) -> {
             Unit unit = enemies.get(id);
-            return unit == null ? seen.contains(pos) : Vision.canSee(model.getPlayerOne(), unit, pos, seen);
+            return unit == null ? seen.contains(pos) : Vision.canSee(model, model.getPlayerOne(), unit, pos, seen);
         };
         List<GameEvent> visible = new ArrayList<>();
         for (GameEvent event : events) {

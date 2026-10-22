@@ -11,6 +11,7 @@ import game.game.map.Battlefield;
 import game.model.Game;
 import game.testing.Fixtures;
 import game.units.assaultClasses.AssaultTanks.TypeNinety;
+import game.units.assaultClasses.AssaultTanks.TypeSixteen;
 import game.units.assaultClasses.AssaultTanks.TypeTen;
 import game.units.assaultClasses.aircraft.FFourEJKai;
 import game.units.assaultClasses.aircraft.FTwo;
@@ -132,12 +133,12 @@ class CombatRulesTest {
 
     @Test
     void aBatteredDefenderStrikesBackWeaker() {
-        TypeTen fresh = new TypeTen(1, new Point(5, 5));
-        TypeTen other = new TypeTen(1, new Point(5, 9));
+        TypeSixteen fresh = new TypeSixteen(1, new Point(5, 5));
+        TypeSixteen other = new TypeSixteen(1, new Point(5, 9));
         int freshId = Fixtures.place(game, 1, fresh);
         int otherId = Fixtures.place(game, 1, other);
-        TypeNinety healthy = new TypeNinety(2, new Point(8, 5));
-        TypeNinety battered = new TypeNinety(2, new Point(8, 9));
+        TypeTen healthy = new TypeTen(2, new Point(8, 5)); // not a Type 90: it would strike back at full strength
+        TypeTen battered = new TypeTen(2, new Point(8, 9));
         int healthyId = Fixtures.place(game, 2, healthy);
         int batteredId = Fixtures.place(game, 2, battered);
         battered.setHealthPoints(-battered.getMaxHealthPoints() / 2);
