@@ -349,4 +349,15 @@ class UnitRolesTest {
         attack.execute(player, otherSub, further);
         assertTrue(other.getHealthPoints() < other.getMaxHealthPoints());
     }
+
+    @Test
+    void theKongoHuntsSubmarinesAndSurvivesATorpedo() {
+        Kongo destroyer = new Kongo(1, new Point(5, 5));
+        Soryu submarine = new Soryu(2, new Point(7, 5));
+
+        assertEquals(2 * destroyer.getDamage(), attack.predictDamage(destroyer, submarine));
+        assertTrue(attack.predictDamage(destroyer, submarine) >= submarine.getMaxHealthPoints(), "one salvo sinks it");
+        assertEquals(destroyer.getDamage(), attack.predictDamage(destroyer, new Yamato(2, new Point(7, 5))));
+        assertTrue(attack.predictDamage(submarine, destroyer) < destroyer.getMaxHealthPoints(), "a torpedo does not sink it");
+    }
 }

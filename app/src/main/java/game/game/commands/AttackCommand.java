@@ -35,6 +35,7 @@ import game.units.assaultClasses.aircraft.FTwo;
 import game.units.assaultClasses.antiAir.TypeEightyOneC;
 import game.units.assaultClasses.antiAir.TypeEightySeven;
 import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
+import game.units.assaultClasses.ships.Kongo;
 import game.units.assaultClasses.ships.Yamato;
 
 import java.awt.*;
@@ -399,6 +400,7 @@ public class AttackCommand extends Command {
     private static final double AUTOCANNON_VS_INFANTRY = 1.75;
     private static final double MISSILE_VS_SHIP = 2;
     private static final double TORPEDO_VS_SHIP = 2;
+    private static final double ANTI_SUBMARINE_VS_SUBMARINE = 2;
     private static final double PRECISION_MUNITIONS_BONUS = 1.25;
 
     /**
@@ -418,7 +420,7 @@ public class AttackCommand extends Command {
     /**
      * Anti-air hits aircraft twice as hard (the A-10's armoured cockpit halves that) but what does not fly only half as
      * hard; other ground and sea units only graze aircraft. The specialists hit their prey harder: tank hunters tanks,
-     * the Type 16 light vehicles, the Type 89 infantry, the F-2 and the submarine ships. Tank armour takes its percentage off, except
+     * the Type 16 light vehicles, the Type 89 infantry, the F-2 and the submarine ships, the Kongo submarines. Tank armour takes its percentage off, except
      * against the A-10's cannon.
      */
     private int unitDamage(AssaultClass attacker, Unit target) {
@@ -445,6 +447,9 @@ public class AttackCommand extends Command {
         }
         if (attacker instanceof Submarine && isVessel(target)) {
             damage *= TORPEDO_VS_SHIP;
+        }
+        if (attacker instanceof Kongo && target instanceof Submarine) {
+            damage *= ANTI_SUBMARINE_VS_SUBMARINE;
         }
         return afterArmor(damage, attacker instanceof ATen ? 0 : getGameModel().getArmorValue(target));
     }
