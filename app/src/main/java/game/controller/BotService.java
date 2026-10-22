@@ -154,9 +154,11 @@ public class BotService {
         return model.getPlayer(playerId);
     }
 
-    /** The enemies the bot can see: it plays by the fog of war like the player. */
+    /** The enemies the bot can see: it plays by the fog of war like the player. The ruins of the knocked out don't count. */
     private List<Unit> visibleEnemies() {
-        return model.getVisibleEnemies(me());
+        return model.getVisibleEnemies(me()).stream()
+                .filter(enemy -> !model.isEliminated(model.getOwner(enemy)))
+                .toList();
     }
 
     /**

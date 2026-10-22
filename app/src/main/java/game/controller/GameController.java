@@ -382,7 +382,8 @@ public class GameController {
                     }
                 }
                 case GameEvent.UnitAttacked e -> {
-                    if (e.playerId() == 1 ? sees.test(e.targetId(), e.to()) : sees.test(e.attackerId(), e.from())) {
+                    // a shot from the fog shows only by its damage; a shot into the fog not at all
+                    if (sees.test(e.targetId(), e.to()) && (e.playerId() == 1 || sees.test(e.attackerId(), e.from()))) {
                         visible.add(e);
                     }
                 }
@@ -393,7 +394,10 @@ public class GameController {
                     if (e.ownerId() == 1 || sees.test(e.unitId(), e.pos())) visible.add(e);
                 }
                 case GameEvent.UnitHealed e -> {
-                    if (e.playerId() == 1 || sees.test(e.targetId(), e.pos())) visible.add(e);
+                    // the animation shows the supporter too, so a repair from the fog stays unseen
+                    if (e.playerId() == 1 || (sees.test(e.supporterId(), e.from()) && sees.test(e.targetId(), e.pos()))) {
+                        visible.add(e);
+                    }
                 }
                 case GameEvent.BaseUpgraded e -> {
                     if (e.playerId() == 1 || seen.contains(e.pos())) visible.add(e);
@@ -534,8 +538,8 @@ public class GameController {
     }
 
     private void finishPlayerAction() {
+        checkWinCondition(); // first: a knocked-out enemy's units leave the board before it is redrawn
         unlockInput();
-        checkWinCondition();
         if (model.isGameOver()) {
             view.showWinner(model.getWinnerId());
             refreshStatus();
@@ -545,7 +549,8 @@ public class GameController {
     /** Logs what a command did, or why it was refused. */
     private void logResult(CommandResult result) {
         if (result.wasSuccessful() && !result.getEvents().isEmpty()) {
-            logEvents(result.getEvents());
+            // the shells and shots of the player's own action may hit enemies it cannot see
+            logEvents(sightBefore == null ? result.getEvents() : seenEvents(result.getEvents(), sightBefore));
             if (result.getMessage().startsWith("Ambush!")) {
                 view.logInfo(result.getMessage());
             }
@@ -820,7 +825,7 @@ public class GameController {
                 }
                 animated = playPlayerAction(result);
             } else if (clickedUnit != null && highlights.supportTargets().contains(clickedPoint)) {
-                CommandResult result = healCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
+                CommandResult result = healCommand.execute(currentPlayer, selectedUnitId, supportTargetAt(clickedPoint));
                 logResult(result);
                 if (result.wasSuccessful()) {
                     resetSelection();
@@ -927,6 +932,13 @@ public class GameController {
             supportTargets.add(model.findUnitById(targetId).getPosition());
         }
         return new BoardHighlights(selectedUnitId, moves, range, targets, supportTargets, Set.of());
+    }
+
+    /** The unit on the tile the selected support unit would heal or repair: the top one, else the building under it. */
+    private int supportTargetAt(Point point) {
+        List<Integer> targets = healCommand.findTargets(model.getCurrentPlayer(), selectedUnitId);
+        return model.getStackAt(point).stream().map(model::getUnitID).filter(targets::contains)
+                .findFirst().orElseThrow();
     }
 
     private Set<Point> deployTiles(UnitEnum type) {

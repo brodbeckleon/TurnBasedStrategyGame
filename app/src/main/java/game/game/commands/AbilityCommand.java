@@ -94,14 +94,15 @@ public class AbilityCommand extends Command {
                     : "Pick an enemy unit or building you can see.";
         }
         if (ability == Ability.PARATROOPERS) {
-            if (isHiddenEnemy(player, target)) {
-                return "An enemy hidden in the fog is in the way!";
-            }
             if (!canDrop(player, target)) {
                 return "Paratroopers need a free tile that infantry can stand on.";
             }
             if (getGameModel().getArmySize(player) >= getGameModel().getArmyLimit(player)) {
                 return "Your army is at its limit (" + getGameModel().getArmyLimit(player) + " units).";
+            }
+            // last, on a tile the drop could otherwise land on: a refusal anywhere else would scout the fog for free
+            if (isHiddenEnemy(player, target)) {
+                return "An enemy hidden in the fog is in the way!";
             }
         }
         return null;

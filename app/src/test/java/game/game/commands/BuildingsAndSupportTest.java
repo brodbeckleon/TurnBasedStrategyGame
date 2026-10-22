@@ -279,4 +279,15 @@ class BuildingsAndSupportTest {
         assertFalse(destroyed.isBase());
         assertNull(game.findUnitById(radarId));
     }
+
+    @Test
+    void supportReachesTheDiagonalNeighboursToo() {
+        int ambulance = Fixtures.place(game, 1, new ArmoredAmbulanceVehicle(1, new Point(5, 5)));
+        TypeNinety tank = new TypeNinety(1, new Point(6, 6));
+        int tankId = Fixtures.place(game, 1, tank);
+        tank.setHealthPoints(-100);
+
+        assertEquals(List.of(tankId), heal.findTargets(player, ambulance));
+        assertTrue(heal.execute(player, ambulance, tankId).wasSuccessful());
+    }
 }

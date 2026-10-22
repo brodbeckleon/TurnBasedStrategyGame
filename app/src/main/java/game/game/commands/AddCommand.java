@@ -51,9 +51,7 @@ public class AddCommand extends Command {
             if (findBuilder(player, position).isEmpty()) {
                 return new CommandResult(false, "Move a ready Armored Recovery Vehicle next to the ruins first.");
             }
-        } else if (isHiddenEnemy(player, position)) {
-            return new CommandResult(false, "An enemy hidden in the fog is in the way!");
-        } else if (unit instanceof Infrastructure && !checkIfPositionIsFree(position)) {
+        } else if (unit instanceof Infrastructure && !looksFree(player, position)) {
             return new CommandResult(false, "Position is not free!");
         }
 
@@ -75,6 +73,11 @@ public class AddCommand extends Command {
         // Check resource cost
         if (player.getResourcePoints() < unit.getResourceCost()) {
             return new CommandResult(false, "Not enough resource points!");
+        }
+
+        // Only now, where the unit could otherwise go: a refusal anywhere else would scout the fog for free
+        if (!isSiteBuilding(unit) && isHiddenEnemy(player, position)) {
+            return new CommandResult(false, "An enemy hidden in the fog is in the way!");
         }
 
         // All checks passed, perform the action; building a base takes the recovery vehicle's turn

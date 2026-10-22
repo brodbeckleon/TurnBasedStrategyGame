@@ -2,9 +2,10 @@ package game.game;
 
 import game.controller.BotService;
 import game.enums.TerrainEnum;
-import game.events.GameEvent;
 import game.events.GameEvent.UnitAttacked;
 import game.events.GameEvent.UnitMoved;
+import game.events.GameEvent;
+import game.game.commands.AbilityCommand;
 import game.game.commands.AddCommand;
 import game.game.commands.AttackCommand;
 import game.game.commands.CommandResult;
@@ -251,5 +252,35 @@ class FogOfWarTest {
         assertNotNull(preview);
         assertEquals(0, preview.antiAirDamage());
         assertFalse(attack.findInterceptors(game.getPlayerTwo(), helicopter, target).isEmpty(), "it does fire, though");
+    }
+
+    @Test
+    void deployingFarOutInTheFogDoesNotGiveAHiddenEnemyAway() {
+        player.addResourcePoints(100);
+        Fixtures.place(game, 2, new TypeNinety(2, new Point(12, 12))); // far from anything of player one's
+        AddCommand add = new AddCommand(game);
+
+        for (String type : List.of("RADARSTATION", "INFANTRY")) {
+            CommandResult occupied = add.execute(player, type, new Point(12, 12));
+            CommandResult empty = add.execute(player, type, new Point(12, 10));
+            assertFalse(occupied.wasSuccessful());
+            assertEquals(empty.getMessage(), occupied.getMessage(), type + ": the refusal is the same either way");
+        }
+    }
+
+    @Test
+    void aimingParatroopersAtTheWaterDoesNotGiveAHiddenSubmarineAway() {
+        player.completeResearch(Research.PARATROOPERS);
+        player.addResourcePoints(100);
+        Fixtures.setTerrain(game, new Point(8, 8), TerrainEnum.WATER);
+        Fixtures.setTerrain(game, new Point(9, 8), TerrainEnum.WATER);
+        Soryu submarine = new Soryu(2, new Point(8, 8));
+        Fixtures.place(game, 2, submarine);
+        Fixtures.place(game, 1, new TypeTen(1, new Point(6, 8))); // sees both tiles, but not the submarine
+        assertFalse(game.isVisibleTo(player, submarine));
+        AbilityCommand abilities = new AbilityCommand(game);
+
+        assertEquals(abilities.refusal(player, Ability.PARATROOPERS, new Point(9, 8)),
+                abilities.refusal(player, Ability.PARATROOPERS, new Point(8, 8)));
     }
 }
