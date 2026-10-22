@@ -24,7 +24,9 @@ import game.units.assaultClasses.artillery.TypeNinetyNineSPH;
 import game.units.assaultClasses.infantry.AntiTankTeam;
 import game.units.assaultClasses.infantry.RifleSquad;
 import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
+import game.units.infrastructures.Radarstation;
 import game.units.assaultClasses.ships.Kongo;
+import game.units.assaultClasses.ships.Soryu;
 import game.units.assaultClasses.ships.Yamato;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -307,5 +309,44 @@ class UnitRolesTest {
         assertEquals(0, attack.preview(player, tankId, howitzer).counterDamage());
         attack.execute(player, tankId, howitzer);
         assertEquals(tank.getMaxHealthPoints(), tank.getHealthPoints());
+    }
+
+    // --- Ships ---
+
+    @Test
+    void theYamatoBombardsTheShore() {
+        Yamato battleship = new Yamato(1, new Point(5, 5));
+        Fixtures.place(game, 1, battleship);
+        int radar = Fixtures.place(game, 2, new Radarstation(2, new Point(8, 5)));
+        Radarstation building = (Radarstation) game.findUnitById(radar);
+
+        assertEquals(Math.round(battleship.getDamage() * 1.5 * (100 - building.getArmorValue()) / 100.0),
+                attack.predictDamage(battleship, building));
+    }
+
+    @Test
+    void theYamatosBigGunsCannotFireAtAdjacentUnits() {
+        int battleship = Fixtures.place(game, 1, new Yamato(1, new Point(5, 5)));
+        Fixtures.place(game, 2, new Kongo(2, new Point(6, 5)));
+        int far = Fixtures.place(game, 2, new Kongo(2, new Point(8, 5)));
+
+        assertEquals(List.of(far), attack.findTargets(player, battleship));
+    }
+
+    @Test
+    void theYamatoCannotStrikeBackAtAnAdjacentAttacker() {
+        Soryu submarine = new Soryu(1, new Point(5, 5));
+        int sub = Fixtures.place(game, 1, submarine);
+        int close = Fixtures.place(game, 2, new Yamato(2, new Point(6, 5)));
+
+        assertEquals(0, attack.preview(player, sub, close).counterDamage());
+        attack.execute(player, sub, close);
+        assertEquals(submarine.getMaxHealthPoints(), submarine.getHealthPoints());
+
+        Soryu other = new Soryu(1, new Point(9, 9));
+        int otherSub = Fixtures.place(game, 1, other);
+        int further = Fixtures.place(game, 2, new Yamato(2, new Point(9, 11))); // two tiles off: in reach of its guns
+        attack.execute(player, otherSub, further);
+        assertTrue(other.getHealthPoints() < other.getMaxHealthPoints());
     }
 }

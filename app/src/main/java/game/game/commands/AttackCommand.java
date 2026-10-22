@@ -35,6 +35,7 @@ import game.units.assaultClasses.aircraft.FTwo;
 import game.units.assaultClasses.antiAir.TypeEightyOneC;
 import game.units.assaultClasses.antiAir.TypeEightySeven;
 import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
+import game.units.assaultClasses.ships.Yamato;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -133,6 +134,7 @@ public class AttackCommand extends Command {
 
     private boolean inReach(AssaultClass defender, Unit attacker, Point from) {
         return defender.getHealthPoints() > 0 && !(defender instanceof SelfPropelledArtillery) && canTarget(defender, attacker)
+                && !isTooClose(defender, defender.getPosition(), from)
                 && circleGenerator.getCoordinatesInRange(defender.getPosition(), getGameModel().getShootingRange(defender))
                         .contains(from);
     }
@@ -145,9 +147,12 @@ public class AttackCommand extends Command {
         return attacker instanceof SelfPropelledArtillery || attacker instanceof FTwo && isVessel(target);
     }
 
-    /** True if the target tile is too close for the attacker standing on the tile: artillery cannot fire point-blank. */
+    /**
+     * True if the target tile is too close for the attacker standing on the tile: artillery and the Yamato's big guns
+     * cannot fire point-blank.
+     */
     public static boolean isTooClose(Unit attacker, Point from, Point target) {
-        return attacker instanceof SelfPropelledArtillery && from.distance(target) < 1.5;
+        return (attacker instanceof SelfPropelledArtillery || attacker instanceof Yamato) && from.distance(target) < 1.5;
     }
 
     /**
@@ -397,13 +402,13 @@ public class AttackCommand extends Command {
     private static final double PRECISION_MUNITIONS_BONUS = 1.25;
 
     /**
-     * Artillery, tanks and aircraft are made to break buildings (aircraft better with Precision Munitions, except the
-     * F-15, which is built to fight in the air), everything else barely scratches them.
+     * Artillery, tanks, the Yamato's shore bombardment and aircraft are made to break buildings (aircraft better with
+     * Precision Munitions, except the F-15, which is built to fight in the air), everything else barely scratches them.
      */
     private int structureDamage(AssaultClass attacker, Infrastructure building) {
         double multiplier;
         if (attacker instanceof SelfPropelledArtillery) multiplier = ARTILLERY_VS_STRUCTURE;
-        else if (attacker instanceof AssaultTank) multiplier = TANK_VS_STRUCTURE;
+        else if (attacker instanceof AssaultTank || attacker instanceof Yamato) multiplier = TANK_VS_STRUCTURE;
         else if (attacker instanceof Aircraft && !(attacker instanceof FFifteen)) multiplier = AIRCRAFT_VS_STRUCTURE
                 * (getGameModel().getOwner(attacker).hasResearched(Research.PRECISION_MUNITIONS) ? PRECISION_MUNITIONS_BONUS : 1);
         else multiplier = OTHER_VS_STRUCTURE;

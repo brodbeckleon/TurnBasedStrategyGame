@@ -172,7 +172,7 @@ public class GameController {
             case "Armored Ambulance" -> "Heals an adjacent friendly unit by 300 HP.";
             case "Armored Recovery Vehicle" -> "Builds new bases on base ruins it stands next to, and repairs an adjacent friendly building (your base too) by 600 HP.";
             case "Armored Reconnaissance Vehicle" -> "Unarmed scout: friendly units within 3 tiles shoot 1 tile further.";
-            case "Yamato" -> "Battleship with a huge punch and a thick hull.";
+            case "Yamato" -> "Battleship with a huge punch and a thick hull. Shore bombardment: 1.5x damage to buildings. Its big guns cannot fire at adjacent units, not even to strike back.";
             case "Kongo" -> "Aegis destroyer: double damage to aircraft, covers the fleet from air attacks, and hunts submarines.";
             case "Soryu" -> "Submarine: torpedoes deal double damage to ships. Attacks only ships; only ships and aircraft can attack it.";
             case "Izumo" -> "Aircraft carrier, a mobile air base: aircraft are deployed onto its deck and can land on it. Unarmed.";
