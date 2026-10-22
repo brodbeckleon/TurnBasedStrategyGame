@@ -164,6 +164,26 @@ class FogOfWarTest {
     }
 
     @Test
+    void aHiddenUnitOnABaseStillShieldsItTheTileCannotBeAttackedUntilItIsSeen() {
+        // a Type 10 shoots 4 tiles but sees only 3: from 4 tiles off it sees the base, not the infantry on it
+        int tank = Fixtures.place(game, 2, new TypeTen(2, new Point(4, 0)));
+        var guard = new game.units.assaultClasses.infantry.RifleSquad(1, new Point(0, 0));
+        int guardId = Fixtures.place(game, 1, guard);
+        Player enemy = game.getPlayerTwo();
+        assertFalse(game.isVisibleTo(enemy, guard));
+
+        assertFalse(attack.findTargets(enemy, tank).contains(1), "the unit on top takes the hits first, seen or not");
+        var refused = attack.execute(enemy, tank, 1);
+        assertFalse(refused.wasSuccessful());
+        assertTrue(refused.getMessage().contains("on top"), refused.getMessage());
+        assertEquals(game.getPlayerOne().getPlayerDeck().getBase().getMaxHealthPoints(),
+                game.getPlayerOne().getPlayerDeck().getBase().getHealthPoints());
+
+        game.getPlayerTwo().getPlayerDeck().moveUnit(tank, new Point(3, 0)); // now in sight
+        assertEquals(List.of(guardId), attack.findTargets(enemy, tank));
+    }
+
+    @Test
     void aSpottedStealthFighterOnItsAirBaseStillTakesTheAttackFirst() {
         int tank = Fixtures.place(game, 1, new TypeTen(1, new Point(6, 5)));
         int base = Fixtures.place(game, 2, new AirForceBase(2, new Point(8, 5)));

@@ -11,6 +11,7 @@ import game.units.Infrastructure;
 import game.units.TransportShip;
 import game.units.Unit;
 import game.units.assaultClasses.Submarine;
+import game.units.assaultClasses.aircraft.FThirtyFive;
 
 import java.awt.Point;
 import java.util.ArrayList;
@@ -51,7 +52,7 @@ public class AbilityCommand extends Command {
                     }
                 }
             }
-            case AIRSTRIKE -> events.addAll(strike(ability, getGameModel().getUnitSeenAt(target, player)));
+            case AIRSTRIKE -> events.addAll(strike(ability, airstrikeTarget(player, target)));
         }
         return new CommandResult(true, ability.label() + " called in.", events);
     }
@@ -71,8 +72,11 @@ public class AbilityCommand extends Command {
         if (!getGameModel().getVisibleTiles(player).contains(target)) {
             return "Pick a tile you can see: the guns and bombers need eyes on the target.";
         }
-        if (ability == Ability.AIRSTRIKE && !isEnemyTarget(player, getGameModel().getUnitSeenAt(target, player))) {
-            return "Pick an enemy unit or building you can see.";
+        if (ability == Ability.AIRSTRIKE && !isEnemyTarget(player, airstrikeTarget(player, target))) {
+            Unit host = getGameModel().getUnitSeenAt(target, player);
+            return host != null && getGameModel().getGuestOf(host) != null
+                    ? "A unit on top of the " + host.getUnitName() + " takes the strike first: you need to see it."
+                    : "Pick an enemy unit or building you can see.";
         }
         return null;
     }
@@ -103,7 +107,7 @@ public class AbilityCommand extends Command {
         }
         Set<Point> targets = new LinkedHashSet<>();
         for (Point tile : visible) {
-            if (isEnemyTarget(player, getGameModel().getUnitSeenAt(tile, player))) {
+            if (isEnemyTarget(player, airstrikeTarget(player, tile))) {
                 targets.add(tile);
             }
         }
@@ -139,9 +143,23 @@ public class AbilityCommand extends Command {
         return hit;
     }
 
+    /** True for a standing enemy the player can see. */
     private boolean isEnemyTarget(Player player, Unit unit) {
         return unit != null && unit.getHealthPoints() > 0 && unit.getPlayerID() != player.getPlayerID()
-                && !getGameModel().isEliminated(getGameModel().getOwner(unit));
+                && !getGameModel().isEliminated(getGameModel().getOwner(unit)) && getGameModel().isVisibleTo(player, unit);
+    }
+
+    /**
+     * What an airstrike on the tile hits, by the rule of attacks: a unit on top of a building or ship takes it first,
+     * seen or not; only a stealth fighter the player cannot see shields nothing.
+     */
+    public Unit airstrikeTarget(Player player, Point tile) {
+        Unit top = getGameModel().getUnitAt(tile);
+        Unit host = top == null ? null : getGameModel().getHostOf(top);
+        if (host != null && top instanceof FThirtyFive && !getGameModel().isVisibleTo(player, top)) {
+            return host;
+        }
+        return top;
     }
 
     /** The damage the ability would do to the unit, after armour and cover. */

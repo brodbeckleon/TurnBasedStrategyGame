@@ -16,6 +16,7 @@ import game.game.commands.HealCommand;
 import game.game.commands.MoveCommand;
 import game.model.Game;
 import game.testing.Fixtures;
+import game.units.Base;
 import game.units.Infrastructure;
 import game.units.Unit;
 import game.units.assaultClasses.AssaultTanks.TypeNinety;
@@ -371,5 +372,22 @@ class BotServiceTest {
         assertEquals(Ability.AIRSTRIKE, ((GameEvent.AbilityUsed) steps.get(0).get(0)).ability());
         assertNull(game.findUnitById(batteredId));
         assertTrue(botPlayer.getCooldown(Ability.AIRSTRIKE) > 0);
+    }
+
+    @Test
+    void theBotAttacksTheUnitOnTopOfABaseNotTheBase() {
+        Base base = game.getPlayerOne().getPlayerDeck().getBase();
+        base.setHealthPoints(-(base.getMaxHealthPoints() - 300)); // one shot from falling: the bot's favourite target
+        int baseHp = base.getHealthPoints();
+        TypeEightyNine guard = new TypeEightyNine(1, new Point(0, 0)); // just deployed on the headquarters
+        Fixtures.place(game, 1, guard);
+        Fixtures.place(game, 2, new TypeTen(2, new Point(2, 1)));
+
+        List<GameEvent> events = runSteps(bot).stream().flatMap(List::stream).toList();
+
+        assertTrue(events.stream().anyMatch(e -> e instanceof UnitAttacked a && a.targetId() == game.getUnitID(guard)),
+                "the bot goes for the unit on top: " + events);
+        assertEquals(baseHp, base.getHealthPoints());
+        assertTrue(guard.getHealthPoints() < guard.getMaxHealthPoints());
     }
 }

@@ -157,14 +157,6 @@ public class BotService {
         return model.getVisibleEnemies(me());
     }
 
-    private List<Map.Entry<Integer, Unit>> visibleEnemyEntries() {
-        java.util.Set<Unit> visible = new java.util.HashSet<>(visibleEnemies());
-        return model.getEnemies(me()).stream()
-                .flatMap(enemy -> enemy.getPlayerDeck().getUnits().entrySet().stream())
-                .filter(entry -> visible.contains(entry.getValue()))
-                .toList();
-    }
-
     /**
      * The headquarters the bot marches on: in a free-for-all the nearest enemy base still standing (bases never
      * hide, so this is no cheating).
@@ -331,7 +323,7 @@ public class BotService {
      * aus sich der Schuss am meisten lohnt. Ohne lohnendes Ziel zieht die Einheit auf das beste Feld.
      */
     private List<GameEvent> attackOrReposition(AssaultClass attacker, int unitId, Player botPlayer) {
-        Optional<Strike> strike = bestStrike(attacker);
+        Optional<Strike> strike = bestStrike(attacker, unitId);
         if (strike.isPresent() && strike.get().tile().equals(attacker.getPosition())) {
             System.out.println("Bot: Unit " + unitId + " attacks Unit " + strike.get().targetId());
             return attackCommand.execute(botPlayer, unitId, strike.get().targetId()).getEvents();
@@ -353,25 +345,24 @@ public class BotService {
 
     /**
      * The best worthwhile attack: from where the unit stands, or, for units that can act after moving, from any
-     * tile it can reach. A strike is worthwhile if the damage dealt outweighs the counterattack.
+     * tile it can reach. A strike is worthwhile if the damage dealt outweighs the counterattack. The targets come
+     * from the attack command, so the bot plays by exactly the rules the player's clicks do.
      */
-    private Optional<Strike> bestStrike(AssaultClass attacker) {
+    private Optional<Strike> bestStrike(AssaultClass attacker, int unitId) {
         boolean mayMoveFirst = attacker instanceof ActsAfterMoving && !attacker.hasMoved();
         List<Point> tiles = mayMoveFirst ? candidateTiles(attacker) : List.of(attacker.getPosition());
         Strike best = null;
         List<Strike> worthwhile = new ArrayList<>();
         for (Point tile : tiles) {
             boolean here = tile.equals(attacker.getPosition());
-            double range = (here ? model.getShootingRange(attacker) : attacker.getShootingRange()) + 0.4;
             double exposure = here ? 0 : danger(attacker, tile) - danger(attacker, attacker.getPosition());
-            for (Map.Entry<Integer, Unit> entry : visibleEnemyEntries()) {
-                Unit target = entry.getValue();
-                if (target.getPosition().distance(tile) > range || !AttackCommand.canTarget(attacker, target)) continue;
+            for (int targetId : attackCommand.findTargetsFrom(me(), unitId, tile)) {
+                Unit target = model.findUnitById(targetId);
                 double trade = tradeScore(attacker, tile, target);
                 if (trade <= 0) continue;
                 // on a tie: the weaker target, then the tile the unit already stands on
                 double score = trade - Math.max(0, exposure) - target.getHealthPoints() * 1e-6 + (here ? 1e-3 : 0);
-                Strike strike = new Strike(tile, entry.getKey(), score);
+                Strike strike = new Strike(tile, targetId, score);
                 worthwhile.add(strike);
                 if (best == null || score > best.score()) {
                     best = strike;
@@ -633,7 +624,7 @@ public class BotService {
      */
     private List<GameEvent> disembark(Unit unit, int unitId, Player botPlayer) {
         if (unit instanceof AssaultClass attacker) {
-            Optional<Strike> strike = bestStrike(attacker);
+            Optional<Strike> strike = bestStrike(attacker, unitId);
             if (strike.isPresent() && strike.get().tile().equals(attacker.getPosition())) {
                 return attackCommand.execute(botPlayer, unitId, strike.get().targetId()).getEvents();
             }
@@ -748,13 +739,17 @@ public class BotService {
      * how close it gets to the goal (if any), plus the extra score, minus the enemy fire it would face.
      */
     private Point bestTile(Unit unit, Point goal, java.util.function.ToDoubleFunction<Point> extra) {
-        return candidateTiles(unit).stream()
-                .max(Comparator.comparingDouble((Point tile) -> {
-                    double score = extra.applyAsDouble(tile) - danger(unit, tile);
-                    if (unit instanceof AssaultClass attacker) score += NEXT_TURN_WEIGHT * bestShotFrom(attacker, tile);
-                    if (goal != null) score -= GOAL_WEIGHT * tile.distance(goal);
-                    return score;
-                }).thenComparing(tile -> tile.equals(unit.getPosition()) ? 0 : 1)) // move rather than idle on a tie
+        int unitId = model.getUnitID(unit);
+        Map<Point, Double> scores = new java.util.HashMap<>(); // each tile is scored once
+        for (Point tile : candidateTiles(unit)) {
+            double score = extra.applyAsDouble(tile) - danger(unit, tile);
+            if (unit instanceof AssaultClass attacker) score += NEXT_TURN_WEIGHT * bestShotFrom(attacker, unitId, tile);
+            if (goal != null) score -= GOAL_WEIGHT * tile.distance(goal);
+            scores.putIfAbsent(tile, score);
+        }
+        return scores.keySet().stream()
+                .max(Comparator.comparingDouble((Point tile) -> scores.get(tile))
+                        .thenComparing(tile -> tile.equals(unit.getPosition()) ? 0 : 1)) // move rather than idle on a tie
                 .orElse(unit.getPosition());
     }
 
@@ -769,13 +764,11 @@ public class BotService {
         return tiles;
     }
 
-    private double bestShotFrom(AssaultClass attacker, Point tile) {
-        double range = attacker.getShootingRange() + 0.4;
+    /** The best shot the unit would have from the tile, by the same rules as an actual attack. */
+    private double bestShotFrom(AssaultClass attacker, int unitId, Point tile) {
         double best = 0;
-        for (Unit enemy : visibleEnemies()) {
-            if (enemy.getPosition().distance(tile) <= range && AttackCommand.canTarget(attacker, enemy)) {
-                best = Math.max(best, attackScore(attacker, enemy));
-            }
+        for (int targetId : attackCommand.findTargetsFrom(me(), unitId, tile)) {
+            best = Math.max(best, attackScore(attacker, model.findUnitById(targetId)));
         }
         return best;
     }
@@ -954,7 +947,7 @@ public class BotService {
                 Point tile = enemy.getPosition();
                 if (abilityCommand.refusal(botPlayer, ability, tile) != null) continue;
                 double score = 0;
-                for (Unit hit : ability == Ability.AIRSTRIKE ? List.of(model.getUnitSeenAt(tile, botPlayer))
+                for (Unit hit : ability == Ability.AIRSTRIKE ? List.of(abilityCommand.airstrikeTarget(botPlayer, tile))
                         : enemiesSeenIn(abilityCommand.area(ability, tile), enemies)) {
                     score += strikeScore(ability, hit);
                 }

@@ -1,5 +1,6 @@
 package game.view.anim;
 
+import game.units.AssaultClass;
 import game.view.PixelFonts;
 
 import game.events.GameEvent;
@@ -367,10 +368,10 @@ public final class AnimationDirector {
         return startMs + HEAL_MS;
     }
 
-    /** A gold spark on the unit and its new rank floating up. */
+    /** A gold spark on the unit and the name of its new rank floating up. */
     private double promote(Schedule schedule, double startMs, UnitPromoted event) {
         effects.frames(schedule, startMs, HEAL_SPARK_FRAME_MS, sprites.spark(), Cells.center(event.pos()), 1, Point2D.ZERO);
-        floatingNumber(schedule, startMs, "RANK " + event.rank(), UPGRADE_TEXT, event.pos());
+        floatingNumber(schedule, startMs, AssaultClass.rankTitle(event.rank()).toUpperCase(), UPGRADE_TEXT, event.pos());
         return startMs + HEAL_MS;
     }
 

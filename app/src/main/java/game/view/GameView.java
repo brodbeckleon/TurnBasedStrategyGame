@@ -604,28 +604,19 @@ public class GameView {
             cellPane.getChildren().add(badge);
         }
         if (unit instanceof AssaultClass veteran && veteran.getRank() > 0 && unit.getHealthPoints() > 0) {
-            cellPane.getChildren().add(rankPips(veteran.getRank()));
+            cellPane.getChildren().add(rankBadge(veteran.getRank()));
         }
         unitNodes.put(unitId, unitStack);
         addIdleMotion(unitStack, unitId);
     }
 
-    /** One small gold square per veterancy rank, in a row just under the unit's health bar. */
-    private static Node rankPips(int rank) {
-        HBox pips = new HBox(1);
-        for (int i = 0; i < rank; i++) {
-            Rectangle pip = new Rectangle(3, 3, Color.rgb(245, 197, 66));
-            pip.setStroke(Color.rgb(14, 11, 22));
-            pip.setStrokeWidth(1);
-            pip.setStrokeType(StrokeType.OUTSIDE);
-            pips.getChildren().add(pip);
-        }
-        pips.setMouseTransparent(true);
-        pips.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
-        pips.setTranslateX(5);
-        pips.setTranslateY(9);
-        StackPane.setAlignment(pips, Pos.TOP_LEFT);
-        return pips;
+    /** The veteran's rank sign, in the top left corner just under its health bar. */
+    private static Node rankBadge(int rank) {
+        ImageView badge = RankInsignia.of(rank, 1);
+        badge.setTranslateX(2);
+        badge.setTranslateY(6);
+        StackPane.setAlignment(badge, Pos.TOP_LEFT);
+        return badge;
     }
 
     /** The one place that builds a unit sprite with its health bar, for the board and for animation ghosts. */
@@ -1035,11 +1026,13 @@ public class GameView {
 
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
         if (unit instanceof AssaultClass veteran && veteran.getRank() > 0) {
-            Label rank = new Label("Veteran rank " + veteran.getRank() + "  ·  +"
+            Label rank = new Label(AssaultClass.rankTitle(veteran.getRank()) + "  ·  +"
                     + Math.round(veteran.getRank() * AssaultClass.DAMAGE_PER_RANK * 100) + "% damage"
                     + (veteran.getRank() == AssaultClass.MAX_RANK ? " (highest rank)" : ""));
             rank.getStyleClass().add("veteran");
-            inspector.getChildren().add(rank);
+            HBox row = new HBox(8, RankInsignia.of(veteran.getRank(), 2), rank);
+            row.setAlignment(Pos.CENTER_LEFT);
+            inspector.getChildren().add(row);
         }
         if (unit instanceof Infrastructure building && building.isUnderFire() && unit.getHealthPoints() > 0) {
             Label underFire = new Label("Under fire: no repairs until a round passes without an attack on it");

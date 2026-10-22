@@ -21,6 +21,7 @@ import game.units.assaultClasses.AssaultTank;
 import game.units.assaultClasses.SelfPropelledAntiAir;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.Unit;
+import game.units.assaultClasses.aircraft.FThirtyFive;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -57,8 +58,13 @@ public class AttackCommand extends Command {
         }
 
         // Determine possible targets in range (includes the enemy bases)
-        List<Integer> targetsInRange = scout(attackingUnitID, attackerPlayer);
+        List<Integer> targetsInRange = findTargets(attackerPlayer, attackingUnitID);
         if (!targetsInRange.contains(targetID)) {
+            Unit target = getGameModel().findUnitById(targetID);
+            if (target != null && isShielded(target, attackingUnit)) {
+                return new CommandResult(false, "A unit on top of the " + target.getUnitName()
+                        + " takes the attacks first: attack that unit (you need to see it).");
+            }
             return new CommandResult(false, "Target is not in range.");
         }
         Player defenderPlayer = getGameModel().getOwner(getGameModel().findUnitById(targetID));
@@ -147,15 +153,16 @@ public class AttackCommand extends Command {
         return List.of();
     }
 
-    /** The enemies of every other player the unit can hit right now. */
-    private List<Integer> scout(int attackingUnitID, Player attacker) {
-        Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
-        Point attackingPos = attackingUnit.getPosition();
-        int range = getGameModel().getShootingRange((AssaultClass) attackingUnit);
+    /**
+     * The enemies of every other player the unit could hit from the tile (its own: right now). The one place that
+     * decides what can be attacked: the player's clicks, the board's markers and the bot all go through it.
+     */
+    private List<Integer> scout(Player attacker, Unit attackingUnit, Point from) {
+        int range = getGameModel().getShootingRange((AssaultClass) attackingUnit, from);
 
         List<Integer> targets = new ArrayList<>();
         for (Player defender : getGameModel().getEnemies(attacker)) {
-            defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range).stream()
+            defender.getPlayerDeck().getUnitIDsInRange(from, range).stream()
                     .distinct()
                     .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
                     .filter(id -> !isShielded(defender.getPlayerDeck().getUnit(id), attackingUnit))
@@ -166,13 +173,14 @@ public class AttackCommand extends Command {
     }
 
     /**
-     * True if a unit the attacker could hit stands on top of the building or ship: it takes the attack first. One the
-     * attacker's side cannot see (a stealth fighter on its air base) shields nothing, the building is a fair target.
+     * True if a unit the attacker could hit stands on top of the building or ship: it takes the attacks first, seen
+     * or not (an attacker that cannot see it cannot attack the tile until it does). Only a stealth fighter the
+     * attacker's side cannot see shields nothing: parked on its air base, the base is a fair target.
      */
     public boolean isShielded(Unit target, Unit attacker) {
         Unit guest = getGameModel().getGuestOf(target);
-        return guest != null && canTarget(attacker, guest)
-                && getGameModel().isVisibleTo(getGameModel().getOwner(attacker), guest);
+        if (guest == null || !canTarget(attacker, guest)) return false;
+        return !(guest instanceof FThirtyFive) || getGameModel().isVisibleTo(getGameModel().getOwner(attacker), guest);
     }
 
     /** What attacking the target would do, or null if the attack is not possible. */
@@ -210,8 +218,14 @@ public class AttackCommand extends Command {
     /** The ids of the enemies the player's unit could attack right now. */
     public List<Integer> findTargets(Player attacker, int attackingUnitID) {
         Unit unit = attacker.getPlayerDeck().getUnit(attackingUnitID);
+        return unit == null ? List.of() : findTargetsFrom(attacker, attackingUnitID, unit.getPosition());
+    }
+
+    /** The ids of the enemies the player's unit could attack if it stood on the tile (for the bot's planning). */
+    public List<Integer> findTargetsFrom(Player attacker, int attackingUnitID, Point from) {
+        Unit unit = attacker.getPlayerDeck().getUnit(attackingUnitID);
         if (!(unit instanceof AssaultClass)) return List.of();
-        return scout(attackingUnitID, attacker);
+        return scout(attacker, unit, from);
     }
 
     private List<GameEvent> attackBase(int attackingUnitID, Unit attackingUnit, Player defender) {

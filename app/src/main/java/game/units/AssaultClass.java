@@ -44,6 +44,18 @@ public abstract class AssaultClass extends Unit implements MovableUnit {
         return Math.min(kills, MAX_RANK);
     }
 
+    /** The name of a veterancy rank: the enlisted ranks, up to an ace. */
+    public static String rankTitle(int rank) {
+        return switch (Math.min(rank, MAX_RANK)) {
+            case 1 -> "Private First Class";
+            case 2 -> "Corporal";
+            case 3 -> "Sergeant";
+            case 4 -> "Staff Sergeant";
+            case 5 -> "Ace";
+            default -> "Recruit";
+        };
+    }
+
     /** Counts a kill; returns true if it raised the unit's rank. */
     public boolean addKill() {
         kills++;

@@ -170,10 +170,15 @@ public class Game {
 
     /** The range the unit shoots at right now: one tile further while a friendly spotter covers it. */
     public int getShootingRange(AssaultClass unit) {
+        return getShootingRange(unit, unit.getPosition());
+    }
+
+    /** The range the unit would shoot at from the tile: one tile further where a friendly spotter covers it. */
+    public int getShootingRange(AssaultClass unit, Point from) {
         Player owner = getOwner(unit);
         for (Unit friend : owner.getPlayerDeck().getUnits().values()) {
             if (friend != unit && friend instanceof Spotter spotter && friend.getHealthPoints() > 0
-                    && circleGenerator.getCoordinatesInRange(friend.getPosition(), spotter.getSpottingRange()).contains(unit.getPosition())) {
+                    && circleGenerator.getCoordinatesInRange(friend.getPosition(), spotter.getSpottingRange()).contains(from)) {
                 return unit.getShootingRange() + Spotter.SPOTTING_BONUS;
             }
         }

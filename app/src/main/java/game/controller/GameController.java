@@ -566,8 +566,9 @@ public class GameController {
                         + e.amount() + " HP to " + e.targetName() + ".";
                 case GameEvent.BaseUpgraded e -> owner(e.playerId()) + " " + (e.unitName().equals("Base") ? "base" : e.unitName())
                         + " was upgraded to level " + e.level() + ".";
-                case GameEvent.UnitPromoted e -> owner(e.playerId()) + " " + e.unitName() + " reached rank " + e.rank()
-                        + " (+" + Math.round(e.rank() * AssaultClass.DAMAGE_PER_RANK * 100) + "% damage).";
+                case GameEvent.UnitPromoted e -> owner(e.playerId()) + " " + e.unitName() + " was promoted to "
+                        + AssaultClass.rankTitle(e.rank()) + " (+" + Math.round(e.rank() * AssaultClass.DAMAGE_PER_RANK * 100)
+                        + "% damage).";
                 case GameEvent.ResearchCompleted e -> e.playerId() == 1 ? "Research complete: " + e.researchName() + "."
                         : model.getPlayerName(e.playerId()) + " researched " + e.researchName() + ".";
                 case GameEvent.AbilityUsed e -> (e.playerId() == 1 ? "You call" : model.getPlayerName(e.playerId()) + " calls")
@@ -637,7 +638,9 @@ public class GameController {
     /** What the selected unit's attack on the unit at the cell would do, for the inspector; null if none. */
     private AttackPreview attackPreview(Point cell) {
         if (currentState == ControllerState.AWAITING_ABILITY_TARGET && canAct() && armedAbility != Ability.RADAR_SWEEP) {
-            Unit target = model.getUnitSeenAt(cell, model.getCurrentPlayer());
+            Unit target = armedAbility == Ability.AIRSTRIKE ? abilityCommand.airstrikeTarget(model.getCurrentPlayer(), cell)
+                    : model.getUnitSeenAt(cell, model.getCurrentPlayer());
+            if (target == null || !model.isVisibleTo(model.getCurrentPlayer(), target)) return null;
             if (target == null || model.isUnitOwnedByCurrentPlayer(model.getUnitID(target))) return null;
             int damage = abilityCommand.predictDamage(armedAbility, target);
             int hpAfter = target.getHealthPoints() - damage;
