@@ -1336,7 +1336,7 @@ public class GameView {
 
     /** True if the player (player one) can see the unit: its own, buildings, and enemies outside the fog. */
     private boolean isShown(Unit unit) {
-        return model == null || !model.isFogOfWar() || Vision.canSee(model.getPlayerOne(), unit, visibleTiles);
+        return model == null || !model.isFogOfWar() || Vision.canSee(model, model.getPlayerOne(), unit, visibleTiles);
     }
 
     /** What the "Main menu" button on the game over screen does. */

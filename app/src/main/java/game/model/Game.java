@@ -9,6 +9,7 @@ import game.interfaces.Spotter;
 import game.tools.CircleGenerator;
 import game.interfaces.AntiAir;
 import game.units.AssaultClass;
+import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.AssaultTank;
 import game.units.transports.Osumi;
 import game.units.Infrastructure;
@@ -207,7 +208,7 @@ public class Game {
     public int getShootingRange(AssaultClass unit, Point from) {
         Player owner = getOwner(unit);
         int range = unit.getShootingRange();
-        if (unit instanceof AntiAir && owner.hasResearched(Research.AEGIS_UPGRADE)) {
+        if (unit instanceof AntiAir && !(unit instanceof Aircraft) && owner.hasResearched(Research.AEGIS_UPGRADE)) {
             range += AEGIS_RANGE_BONUS;
         }
         for (Unit friend : owner.getPlayerDeck().getUnits().values()) {
@@ -229,7 +230,12 @@ public class Game {
 
     /** True if the viewer can see the unit (always, without fog of war). */
     public boolean isVisibleTo(Player viewer, Unit unit) {
-        return !fogOfWar || Vision.canSee(viewer, unit, Vision.visibleTiles(this, viewer));
+        return isVisibleTo(viewer, unit, unit.getPosition());
+    }
+
+    /** True if the viewer could see the unit if it stood on the given tile (always, without fog of war). */
+    public boolean isVisibleTo(Player viewer, Unit unit, Point position) {
+        return !fogOfWar || Vision.canSee(this, viewer, unit, position, Vision.visibleTiles(this, viewer));
     }
 
     /** The tiles the viewer can see: all of them without fog of war. */
@@ -246,7 +252,7 @@ public class Game {
         return players.stream()
                 .filter(enemy -> enemy != viewer)
                 .flatMap(enemy -> enemy.getPlayerDeck().getUnits().values().stream())
-                .filter(unit -> !fogOfWar || Vision.canSee(viewer, unit, tiles))
+                .filter(unit -> !fogOfWar || Vision.canSee(this, viewer, unit, tiles))
                 .toList();
     }
 

@@ -243,7 +243,7 @@ class FogOfWarTest {
         var helicopter = new game.units.assaultClasses.helicopters.AHSixtyFourD(1, new Point(5, 5)); // sees 3 tiles
         int id = Fixtures.place(game, 1, helicopter);
         int target = Fixtures.place(game, 2, new TypeNinety(2, new Point(7, 5)));
-        var antiAir = new game.units.assaultClasses.antiAir.TypeEightySeven(2, new Point(9, 5)); // reaches 4
+        var antiAir = new game.units.assaultClasses.antiAir.TypeNinetyThree(2, new Point(9, 5)); // reaches 4
         Fixtures.place(game, 2, antiAir);
         assertFalse(game.isVisibleTo(player, antiAir));
 
