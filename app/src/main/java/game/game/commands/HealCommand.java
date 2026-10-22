@@ -83,8 +83,10 @@ public class HealCommand extends Command {
         return owner.hasResearched(Research.FIELD_WORKSHOPS) ? points * 3 / 2 : points;
     }
 
+    /** Within its support circle, and always on the eight tiles around it: "next to" includes the diagonals. */
     private static boolean isInSupportRange(SupportClass support, Unit target) {
-        return circleGenerator.getCoordinatesInRange(support.getPosition(), support.getSupportRange())
+        return isNextTo(support.getPosition(), target.getPosition())
+                || circleGenerator.getCoordinatesInRange(support.getPosition(), support.getSupportRange())
                 .contains(target.getPosition());
     }
 }

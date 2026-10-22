@@ -62,6 +62,11 @@ public class MoveCommand extends Command {
             // the units on deck sail along (the view plays the moves together)
             int passengerId = getGameModel().getUnitID(passenger);
             player.getPlayerDeck().moveUnit(passengerId, position);
+            // being carried counts as the passenger's move: it cannot drive on (or a heavy one shoot) this turn
+            passenger.setHasMoved(true);
+            if (!(passenger instanceof ActsAfterMoving)) {
+                passenger.setIsAvailable(false);
+            }
             events.add(new GameEvent.UnitMoved(player.getPlayerID(), passengerId, passenger.getUnitName(), from, position, path));
         }
         return new CommandResult(true, ambushed ? "Ambush! " + unit.getUnitName() + " ran into a hidden enemy."

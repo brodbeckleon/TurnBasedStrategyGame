@@ -1,12 +1,12 @@
 package game.controller;
 
 import game.enums.TerrainEnum;
-import game.events.GameEvent;
 import game.events.GameEvent.UnitAttacked;
 import game.events.GameEvent.UnitDamaged;
 import game.events.GameEvent.UnitDeployed;
 import game.events.GameEvent.UnitDestroyed;
 import game.events.GameEvent.UnitMoved;
+import game.events.GameEvent;
 import game.game.Ability;
 import game.game.Player;
 import game.game.Research;
@@ -14,13 +14,17 @@ import game.game.commands.AddCommand;
 import game.game.commands.AttackCommand;
 import game.game.commands.HealCommand;
 import game.game.commands.MoveCommand;
+import game.game.map.MapSize;
+import game.game.map.MapType;
 import game.model.Game;
+import game.model.GameSettings;
 import game.testing.Fixtures;
 import game.units.Base;
 import game.units.Infrastructure;
 import game.units.Unit;
 import game.units.assaultClasses.AssaultTanks.TypeNinety;
 import game.units.assaultClasses.AssaultTanks.TypeTen;
+import game.units.assaultClasses.aircraft.FTwo;
 import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
 import game.units.assaultClasses.ships.Yamato;
 import game.units.infrastructures.NavyBase;
@@ -407,5 +411,22 @@ class BotServiceTest {
         assertEquals(Ability.CRUISE_MISSILE, used.ability());
         assertEquals(base.getPosition(), used.target());
         assertTrue(base.getHealthPoints() < base.getMaxHealthPoints());
+    }
+
+    @Test
+    void aircraftLeaveTheRuinsOfAKnockedOutPlayerAlone() {
+        Game game = new Game(new GameSettings(MapType.CONTINENTS, MapSize.MEDIUM, 2)); // bases at (0,0), (15,15), (15,0)
+        game.setFogOfWar(false);
+        Base ruins = game.getPlayer(3).getPlayerDeck().getBase();
+        ruins.setHealthPoints(-ruins.getHealthPoints());
+        game.checkWinCondition();
+        FTwo jet = new FTwo(2, new Point(14, 4)); // far closer to the ruins than to player one's base
+        Fixtures.place(game, 2, jet);
+        game.switchTurn();
+        double before = jet.getPosition().distance(new Point(0, 0));
+
+        runSteps(newBot(game));
+
+        assertTrue(jet.getPosition().distance(new Point(0, 0)) < before, "it heads for the enemy still in the game: " + jet.getPosition());
     }
 }

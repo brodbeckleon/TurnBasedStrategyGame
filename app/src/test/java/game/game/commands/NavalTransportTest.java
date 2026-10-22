@@ -173,4 +173,18 @@ class NavalTransportTest {
         assertTrue(Movement.reachable(game, jet).containsKey(new Point(1, 3)));
         assertFalse(Movement.reachable(game, jet).containsKey(new Point(3, 3)));
     }
+
+    @Test
+    void beingCarriedIsThePassengersMoveForTheTurn() {
+        int shipId = Fixtures.place(game, 1, new Osumi(1, new Point(5, 3)));
+        TypeTen tank = new TypeTen(1, new Point(3, 3));
+        int tankId = Fixtures.place(game, 1, tank);
+        assertTrue(move.execute(player, tankId, new Point(5, 3)).wasSuccessful());
+
+        nextTurn();
+        assertTrue(move.execute(player, shipId, new Point(9, 3)).wasSuccessful());
+
+        assertTrue(tank.hasMoved());
+        assertFalse(move.execute(player, tankId, new Point(10, 4)).wasSuccessful(), "no driving on after the crossing");
+    }
 }
