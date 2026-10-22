@@ -3,7 +3,10 @@ package game.view.anim;
 import game.view.PixelFonts;
 
 import game.events.GameEvent;
+import game.events.GameEvent.AbilityUsed;
 import game.events.GameEvent.BaseUpgraded;
+import game.events.GameEvent.ResearchCompleted;
+import game.events.GameEvent.UnitPromoted;
 import game.events.GameEvent.UnitAttacked;
 import game.events.GameEvent.UnitDamaged;
 import game.events.GameEvent.UnitDeployed;
@@ -64,6 +67,10 @@ public final class AnimationDirector {
     private static final double HEAL_SPARK_FRAME_MS = 70;
     private static final Color HEAL_TEXT = Color.rgb(120, 245, 150);
     private static final Color UPGRADE_TEXT = Color.rgb(255, 214, 90);
+    private static final Color SWEEP_TEXT = Color.rgb(140, 200, 255);
+    private static final double BARRAGE_STAGGER_MS = 60;
+    private static final double AIRSTRIKE_SCALE = 1.7;
+    private static final double AIRSTRIKE_SHAKE_PX = 3;
     private static final double UPGRADE_HOP_PX = 4;
     private static final double DAMAGE_NUMBER_RISE_PX = 18;
     /** Keeps the number and its outline inside the board. */
@@ -143,6 +150,9 @@ public final class AnimationDirector {
                 case UnitDestroyed e -> destroy(schedule, cursor, e);
                 case UnitHealed e -> heal(schedule, cursor, e);
                 case BaseUpgraded e -> upgrade(schedule, cursor, e);
+                case UnitPromoted e -> promote(schedule, cursor, e);
+                case AbilityUsed e -> ability(schedule, cursor, e);
+                case ResearchCompleted e -> cursor; // nothing to show on the board
             };
         }
         return schedule;
@@ -355,6 +365,50 @@ public final class AnimationDirector {
         effects.frames(schedule, startMs, HEAL_SPARK_FRAME_MS, sprites.spark(), Cells.center(event.pos()), 1.2, Point2D.ZERO);
         floatingNumber(schedule, startMs, "LEVEL " + event.level(), UPGRADE_TEXT, event.pos());
         return startMs + HEAL_MS;
+    }
+
+    /** A gold spark on the unit and its new rank floating up. */
+    private double promote(Schedule schedule, double startMs, UnitPromoted event) {
+        effects.frames(schedule, startMs, HEAL_SPARK_FRAME_MS, sprites.spark(), Cells.center(event.pos()), 1, Point2D.ZERO);
+        floatingNumber(schedule, startMs, "RANK " + event.rank(), UPGRADE_TEXT, event.pos());
+        return startMs + HEAL_MS;
+    }
+
+    /**
+     * A radar sweep pings the target, a barrage drops shells all over its area one after the other, an airstrike
+     * hits its target with one big blast that shakes the board. The damage follows as its own events.
+     */
+    private double ability(Schedule schedule, double startMs, AbilityUsed event) {
+        Point2D center = Cells.center(event.target());
+        return switch (event.ability()) {
+            case RADAR_SWEEP -> {
+                effects.frames(schedule, startMs, HEAL_SPARK_FRAME_MS, sprites.spark(), center, 2.5, Point2D.ZERO);
+                floatingNumber(schedule, startMs, "SWEEP", SWEEP_TEXT, event.target());
+                yield startMs + HEAL_MS;
+            }
+            case ARTILLERY_BARRAGE -> {
+                // a scattered order (the same for the same target), so the shells do not land in rows
+                List<Point> area = new java.util.ArrayList<>(event.area());
+                java.util.Collections.shuffle(area, new java.util.Random(event.target().hashCode()));
+                double end = startMs;
+                for (int i = 0; i < area.size(); i++) {
+                    Point tile = area.get(i);
+                    double at = startMs + i * BARRAGE_STAGGER_MS;
+                    effects.frames(schedule, at, EXPLOSION_FRAME_MS, sprites.explosion(), Cells.center(tile), 0.9, Point2D.ZERO);
+                    end = at + EXPLOSION_MS;
+                }
+                yield end;
+            }
+            case AIRSTRIKE -> {
+                effects.frames(schedule, startMs, EXPLOSION_FRAME_MS, sprites.explosion(), center, AIRSTRIKE_SCALE, Point2D.ZERO);
+                schedule.add(startMs, BASE_SHAKE_MS, Interpolator.LINEAR, f -> {
+                    double strength = AIRSTRIKE_SHAKE_PX * (1 - f);
+                    board.setTranslateX(Math.round(strength * Math.sin(10 * Math.PI * f)));
+                    board.setTranslateY(Math.round(strength * Math.sin(8 * Math.PI * f) * 0.6));
+                });
+                yield startMs + EXPLOSION_MS;
+            }
+        };
     }
 
     private void damageNumber(Schedule schedule, double startMs, UnitDamaged event) {

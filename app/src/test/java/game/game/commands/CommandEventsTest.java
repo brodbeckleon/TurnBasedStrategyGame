@@ -152,7 +152,7 @@ class CommandEventsTest {
     }
 
     @Test
-    void attackThatKillsEmitsDestroyedLastAndRemovesTheUnit() {
+    void attackThatKillsEmitsDestroyedThenThePromotionAndRemovesTheUnit() {
         int attacker = Fixtures.place(game, 1, new TypeTen(1, new Point(5, 5)));
         TypeNinety victim = new TypeNinety(2, new Point(7, 5));
         int target = Fixtures.place(game, 2, victim);
@@ -162,10 +162,11 @@ class CommandEventsTest {
         CommandResult result = attack.execute(game.getPlayerOne(), attacker, target);
 
         List<GameEvent> events = result.getEvents();
-        assertEquals(3, events.size());
+        assertEquals(4, events.size());
         assertInstanceOf(UnitAttacked.class, events.get(0));
         assertEquals(new UnitDamaged(2, target, "Type 90", new Point(7, 5), hit, 100, 100 - hit, 750, false), events.get(1));
         assertEquals(new UnitDestroyed(2, target, "Type 90", new Point(7, 5), false), events.get(2));
+        assertEquals(new GameEvent.UnitPromoted(1, attacker, "Type 10", new Point(5, 5), 1), events.get(3));
         assertNull(game.findUnitById(target));
     }
 
@@ -217,9 +218,10 @@ class CommandEventsTest {
 
         List<GameEvent> events = attack.execute(game.getPlayerOne(), attacker, 2).getEvents();
 
-        assertEquals(3, events.size());
+        assertEquals(4, events.size());
         assertEquals(new UnitDamaged(2, 2, "Base", new Point(15, 15), hit, 300, 300 - hit, hp, true), events.get(1));
         assertEquals(new UnitDestroyed(2, 2, "Base", new Point(15, 15), true), events.get(2));
+        assertInstanceOf(GameEvent.UnitPromoted.class, events.get(3), "taking the base counts as a kill");
         assertSame(base, game.getPlayerTwo().getPlayerDeck().getBase());
     }
 

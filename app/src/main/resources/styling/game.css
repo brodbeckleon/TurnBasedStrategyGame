@@ -441,3 +441,16 @@
     -fx-font-size: 20px;
     -fx-padding: 4 12 3 12;
 }
+
+/* The research tree, over the board like the game over panel */
+.research-panel {
+    -fx-background-color: #0e0b16, #5a6488, #1a1e2c, #2b3045;
+    -fx-background-insets: 0, 4, 8 4 4 8, 8;
+    -fx-background-radius: 0;
+    -fx-padding: 18 20 20 20;
+    -fx-effect: dropshadow(one-pass-box, #05040a, 0, 1, 8, 8);
+}
+
+.research-card { -fx-alignment: top-left; }
+
+.veteran { -fx-text-fill: #f5c542; }

@@ -130,10 +130,21 @@ public class AttackCommand extends Command {
         int damage = counterDamage(defender, attacker);
         int hpBefore = attacker.getHealthPoints();
         attacker.setHealthPoints(-damage);
+        List<GameEvent> events = describeAttack(defenderID, defender, attackingUnitID, attacker, damage, hpBefore);
         if (attacker.getHealthPoints() <= 0) {
             attackerPlayer.getPlayerDeck().removeUnit(attackingUnitID);
+            events.addAll(creditKill(defenderID, defender));
         }
-        return describeAttack(defenderID, defender, attackingUnitID, attacker, damage, hpBefore);
+        return events;
+    }
+
+    /** Counts a kill for the unit; returns its promotion if the kill raised its rank. */
+    private static List<GameEvent> creditKill(int unitId, Unit unit) {
+        if (unit instanceof AssaultClass veteran && unit.getHealthPoints() > 0 && veteran.addKill()) {
+            return List.of(new GameEvent.UnitPromoted(unit.getPlayerID(), unitId, unit.getUnitName(), unit.getPosition(),
+                    veteran.getRank()));
+        }
+        return List.of();
     }
 
     /** The enemies of every other player the unit can hit right now. */
@@ -209,11 +220,13 @@ public class AttackCommand extends Command {
         int damage = structureDamage((AssaultClass) attackingUnit, base);
 
         base.setHealthPoints(-damage);
+        base.markUnderFire();
 
+        List<GameEvent> events = describeAttack(attackingUnitID, attackingUnit, base.getBaseID(), base, damage, hpBefore);
         if (base.getHealthPoints() <= 0) {
-            //Todo:
+            events.addAll(creditKill(attackingUnitID, attackingUnit));
         }
-        return describeAttack(attackingUnitID, attackingUnit, base.getBaseID(), base, damage, hpBefore);
+        return events;
     }
 
     private List<GameEvent> attackUnit(int attackingUnitID, Unit attackingUnit, Player defender, int defendingUnitID) {
@@ -226,6 +239,9 @@ public class AttackCommand extends Command {
         int hpBefore = defendingUnit.getHealthPoints();
         Unit passenger = getGameModel().getGuestOf(defendingUnit);
         defendingUnit.setHealthPoints(-damage);
+        if (defendingUnit instanceof Infrastructure building) {
+            building.markUnderFire();
+        }
 
         if (defendingUnit.getHealthPoints() <= 0) {
             defender.getPlayerDeck().removeUnit(defendingUnitID);
@@ -238,6 +254,10 @@ public class AttackCommand extends Command {
             events = new ArrayList<>(events);
             events.add(new GameEvent.UnitDestroyed(passenger.getPlayerID(), passengerId, passenger.getUnitName(),
                     passenger.getPosition(), false));
+        }
+        if (defendingUnit.getHealthPoints() <= 0) {
+            events = new ArrayList<>(events);
+            events.addAll(creditKill(attackingUnitID, attackingUnit));
         }
         return events;
     }
@@ -254,6 +274,18 @@ public class AttackCommand extends Command {
         }
         int damage = unitDamage(attacker, target);
         return (int) Math.round(damage * (100 - coverPercent(target, targetPosition)) / 100.0);
+    }
+
+    /**
+     * What a strike of the given strength that comes from no unit (an ability) does to the target: armour takes its
+     * share off, and on the ground cover does too.
+     */
+    public int strikeDamage(double damage, Unit target) {
+        if (target instanceof Infrastructure building) {
+            return afterArmor(damage, building.getArmorValue());
+        }
+        int dealt = afterArmor(damage, target instanceof AssaultTank tank ? tank.getArmorValue() : 0);
+        return (int) Math.round(dealt * (100 - coverPercent(target, target.getPosition())) / 100.0);
     }
 
     /** Forests and mountains shelter units on the ground; aircraft and ships get no cover. */

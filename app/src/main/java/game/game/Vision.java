@@ -43,9 +43,9 @@ public final class Vision {
         return 3;
     }
 
-    /** Every tile the player's units and buildings can see. */
+    /** Every tile the player's units and buildings can see, and what its radar sweep reveals. */
     public static Set<Point> visibleTiles(Game game, Player player) {
-        Set<Point> tiles = new HashSet<>();
+        Set<Point> tiles = new HashSet<>(player.getRevealedTiles());
         for (Unit unit : player.getPlayerDeck().getUnits().values()) {
             if (unit.getHealthPoints() > 0) {
                 tiles.addAll(circleGenerator.getCoordinatesInRange(unit.getPosition(), range(unit)));

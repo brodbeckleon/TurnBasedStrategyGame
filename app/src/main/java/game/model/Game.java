@@ -1,6 +1,7 @@
 package game.model;
 
 import game.game.Player;
+import game.game.Research;
 import game.game.Vision;
 import game.game.map.Battlefield;
 import game.interfaces.Host;
@@ -27,6 +28,10 @@ import java.util.function.Predicate;
  * of the game; the last one standing wins.
  */
 public class Game {
+    public static final int BASE_ARMY_LIMIT = 6;
+    public static final int ARMY_LIMIT_PER_BASE = 3; // the headquarters included
+    public static final int SUPPLY_LINES_BONUS = 2;
+    public static final int MASS_MOBILISATION_BONUS = 3;
     private static final CircleGenerator circleGenerator = new CircleGenerator();
     private final GameSettings settings;
     private int currentIndex = 0;
@@ -100,7 +105,7 @@ public class Game {
         do {
             currentIndex = (currentIndex + 1) % players.size();
         } while (eliminated.contains(getCurrentPlayer()) && eliminated.size() < players.size());
-        getCurrentPlayer().getPlayerDeck().setUnitsAvailable();
+        getCurrentPlayer().startTurn();
     }
 
     /** Resource points have no upper limit: whatever is not spent is saved. */
@@ -117,6 +122,28 @@ public class Game {
             }
         }
         return income;
+    }
+
+    /**
+     * How many units (buildings aside) the player may field: a few to start with, more for every base it holds,
+     * and more with the logistics research.
+     */
+    public int getArmyLimit(Player player) {
+        int bases = 0;
+        for (Infrastructure building : player.getPlayerDeck().getBuildings()) {
+            if (building instanceof MilitaryBase) bases++;
+        }
+        int limit = BASE_ARMY_LIMIT + ARMY_LIMIT_PER_BASE * bases;
+        if (player.hasResearched(Research.SUPPLY_LINES)) limit += SUPPLY_LINES_BONUS;
+        if (player.hasResearched(Research.MASS_MOBILISATION)) limit += MASS_MOBILISATION_BONUS;
+        return limit;
+    }
+
+    /** How many units (buildings aside) the player fields right now. */
+    public int getArmySize(Player player) {
+        return (int) player.getPlayerDeck().getUnits().values().stream()
+                .filter(unit -> !(unit instanceof Infrastructure) && unit.getHealthPoints() > 0)
+                .count();
     }
 
     /**

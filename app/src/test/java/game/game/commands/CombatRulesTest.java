@@ -1,5 +1,6 @@
 package game.game.commands;
 
+import game.units.AssaultClass;
 import game.enums.TerrainEnum;
 import game.events.GameEvent;
 import game.events.GameEvent.UnitAttacked;
@@ -120,7 +121,7 @@ class CombatRulesTest {
         int doomedId = Fixtures.place(game, 2, doomed);
         doomed.setHealthPoints(-(doomed.getMaxHealthPoints() - 1));
         List<GameEvent> kill = attack.execute(player, killerId, doomedId).getEvents();
-        assertInstanceOf(UnitDestroyed.class, kill.get(kill.size() - 1));
+        assertInstanceOf(UnitDestroyed.class, kill.get(kill.size() - 2));
         assertEquals(killer.getMaxHealthPoints(), killer.getHealthPoints(), "the dead do not strike back");
 
         TypeTen raider = new TypeTen(1, new Point(10, 12));
@@ -161,8 +162,11 @@ class CombatRulesTest {
 
         List<GameEvent> events = attack.execute(player, attackerId, defenderId).getEvents();
 
-        assertEquals(new UnitDestroyed(1, attackerId, "Type 10", new Point(5, 5), false), events.get(events.size() - 1));
+        assertEquals(new UnitDestroyed(1, attackerId, "Type 10", new Point(5, 5), false), events.get(events.size() - 2));
         assertNull(game.findUnitById(attackerId));
+        // the kill counts for the defender
+        assertInstanceOf(GameEvent.UnitPromoted.class, events.get(events.size() - 1));
+        assertEquals(1, ((AssaultClass) game.findUnitById(defenderId)).getRank());
     }
 
     // --- Anti-air cover ---

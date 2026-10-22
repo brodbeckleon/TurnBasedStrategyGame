@@ -1,5 +1,6 @@
 package game.game.commands;
 
+import game.game.Research;
 import game.enums.TerrainEnum;
 import game.enums.UnitEnum;
 import game.events.GameEvent.UnitDamaged;
@@ -69,6 +70,9 @@ class BuildingsAndSupportTest {
             Fixtures.place(game, 1, new ArmoredRecoveryVehicle(1, new Point(site.x - 1, site.y - 1)));
         }
         giveResources(1000);
+        for (Research research : Research.values()) {
+            player.completeResearch(research); // the heaviest units are locked until then
+        }
 
         for (UnitEnum type : UnitEnum.values()) {
             Set<Point> positions = deployable(type);

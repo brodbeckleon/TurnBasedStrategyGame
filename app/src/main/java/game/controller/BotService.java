@@ -1,15 +1,19 @@
 package game.controller;
 
 import game.events.GameEvent;
+import game.game.Ability;
 import game.game.Command;
 import game.game.Movement;
 import game.enums.TerrainEnum;
 import game.game.Player;
+import game.game.Research;
 import game.game.UnitFactory;
+import game.game.commands.AbilityCommand;
 import game.game.commands.AddCommand;
 import game.game.commands.AttackCommand;
 import game.game.commands.HealCommand;
 import game.game.commands.MoveCommand;
+import game.game.commands.ResearchCommand;
 import game.game.commands.UpgradeCommand;
 import game.interfaces.ActsAfterMoving;
 import game.interfaces.AntiAir;
@@ -76,6 +80,7 @@ public class BotService {
     private static final double MIN_CAUTION = 0.3;
     private static final double MAX_CAUTION = 1.5;
     private static final double FERRY_BONUS = 6;
+    private static final double ABILITY_WORTH = 0.8; // what an ability's score must reach per resource point it costs
     private static final int MAX_PURCHASES = 4; // units bought per turn at most
     private static final int RICH = 20; // resource points beyond which the bot upgrades even with little to spare
     private static final int EXTRA_PURCHASE_BUDGET = 12; // savings needed to buy more than one unit a turn
@@ -88,6 +93,8 @@ public class BotService {
     private final AttackCommand attackCommand;
     private final HealCommand healCommand;
     private final UpgradeCommand upgradeCommand;
+    private final ResearchCommand researchCommand;
+    private final AbilityCommand abilityCommand;
     private final Random random;
     private final int playerId;
     private Predicate<UnitEnum> roster = type -> true;
@@ -96,6 +103,8 @@ public class BotService {
 
     private final Deque<Integer> pendingUnitIds = new ArrayDeque<>();
     private boolean upgradePending = false;
+    private boolean researchPending = false;
+    private boolean abilitiesPending = false;
     private double boldness = 1;
     private boolean purchasePending = false;
     private int purchases = 0;
@@ -121,6 +130,8 @@ public class BotService {
         this.attackCommand = attack;
         this.healCommand = heal;
         this.upgradeCommand = upgrade;
+        this.researchCommand = new ResearchCommand(model);
+        this.abilityCommand = new AbilityCommand(model);
         this.random = random;
     }
 
@@ -178,7 +189,8 @@ public class BotService {
 
     /**
      * Starts a new bot turn that is then executed step by step with {@link #performNextStep()}: first the units
-     * (long-range fire first, the builders last), then at most one upgrade and one purchase.
+     * (after the abilities, long-range fire first, the builders last), then at most one upgrade, one research
+     * project and a few purchases.
      */
     public void startTurn() {
         pendingUnitIds.clear();
@@ -187,6 +199,8 @@ public class BotService {
                         .thenComparing(Map.Entry::getKey))
                 .forEach(entry -> pendingUnitIds.add(entry.getKey()));
         upgradePending = true;
+        researchPending = true;
+        abilitiesPending = true;
         purchasePending = true;
         purchases = 0;
         boldness = boldness();
@@ -194,10 +208,13 @@ public class BotService {
     }
 
     /**
-     * How much the bot may ignore enemy fire this turn: cautious while outgunned, bold with the stronger army,
-     * so evenly matched armies do not just wait for each other forever.
+     * How much the bot may ignore enemy fire this turn: cautious while outgunned, bold with the stronger army or a
+     * full one it can afford to replace, so evenly matched armies do not just wait for each other forever.
      */
     private double boldness() {
+        if (addCommand.isArmyFull(me()) && me().getResourcePoints() > RICH) {
+            return MIN_CAUTION; // a full army with money in the bank replaces its losses at once: nothing to save
+        }
         double own = strength(me().getPlayerDeck().getUnits().values());
         double enemy = strength(visibleEnemies());
         if (own + enemy == 0) return 1;
@@ -230,6 +247,15 @@ public class BotService {
     public Optional<List<GameEvent>> performNextStep() {
         Player botPlayer = me();
 
+        // shells and bombs first, so the units can finish off what they leave
+        if (abilitiesPending) {
+            List<GameEvent> events = useAbility(botPlayer);
+            if (!events.isEmpty()) {
+                return Optional.of(events);
+            }
+            abilitiesPending = false;
+        }
+
         while (!pendingUnitIds.isEmpty()) {
             int unitId = pendingUnitIds.poll();
             Unit unit = botPlayer.getPlayerDeck().getUnit(unitId);
@@ -250,6 +276,14 @@ public class BotService {
         if (upgradePending) {
             upgradePending = false;
             List<GameEvent> events = upgradeBase(botPlayer);
+            if (!events.isEmpty()) {
+                return Optional.of(events);
+            }
+        }
+
+        if (researchPending) {
+            researchPending = false;
+            List<GameEvent> events = research(botPlayer);
             if (!events.isEmpty()) {
                 return Optional.of(events);
             }
@@ -834,9 +868,11 @@ public class BotService {
         double bestNext = 0;
         UnitEnum best = null;
         double bestScore = 0;
+        boolean armyFull = addCommand.isArmyFull(botPlayer);
         for (UnitEnum type : UnitEnum.values()) {
             int cost = cost(type);
-            if (cost > nextBudget || !roster.test(type)) continue;
+            if (cost > nextBudget || !roster.test(type) || !botPlayer.hasUnlocked(type)) continue;
+            if (armyFull && !(unitFactory.createUnit(playerId, type, new Point()) instanceof Infrastructure)) continue;
             // every copy the bot already has makes another one less attractive, so the army stays mixed
             double desire = desire(type, army, threatened) / (1 + REPEAT_PENALTY * army.owned(unitName(type)));
             if (army.cutOff && isGround(unitFactory.createUnit(playerId, type, new Point())) && type != UnitEnum.ARMOREDRECOVERYVEHICLE) {
@@ -865,6 +901,89 @@ public class BotService {
             System.out.println("Bot: Adding new " + type + " at " + pos.x + ", " + pos.y);
             return addCommand.execute(botPlayer, type.name(), pos).getEvents();
         }).orElse(List.of());
+    }
+
+    /**
+     * Researches the next project of its plan, but only once the army is (nearly) at its limit or the money piles
+     * up anyway: until then units are worth more.
+     */
+    private List<GameEvent> research(Player botPlayer) {
+        int rp = botPlayer.getResourcePoints();
+        boolean crowded = model.getArmySize(botPlayer) >= model.getArmyLimit(botPlayer) - 1;
+        boolean rich = rp + model.getIncome(botPlayer) > RICH;
+        if (!crowded && !rich) {
+            return List.of();
+        }
+        int keep = reserve(botPlayer) + (crowded ? 0 : difficulty.upgradeSpareRp);
+        for (Research project : researchPlan(botPlayer)) {
+            if (researchCommand.refusal(botPlayer, project) == null && rp - project.cost() >= keep) {
+                System.out.println("Bot: Researching " + project.label());
+                return researchCommand.execute(botPlayer, project).getEvents();
+            }
+        }
+        return List.of();
+    }
+
+    /** The order the bot researches in: more room for units, then the abilities, the stealth fighter, the fleet. */
+    private List<Research> researchPlan(Player botPlayer) {
+        List<Research> plan = new ArrayList<>(List.of(Research.SUPPLY_LINES, Research.RADAR_SWEEP,
+                Research.ARTILLERY_BARRAGE, Research.AIRSTRIKE, Research.STEALTH_PROGRAM, Research.FIELD_WORKSHOPS,
+                Research.MASS_MOBILISATION));
+        boolean usefulFleet = botPlayer.getPlayerDeck().getBuildings().stream()
+                .anyMatch(building -> building instanceof NavyBase && waterReachesEnemy(building.getPosition()));
+        if (usefulFleet) {
+            plan.addAll(List.of(Research.CARRIER_AVIATION, Research.BATTLESHIPS));
+        }
+        return plan;
+    }
+
+    /**
+     * Calls in the airstrike or the barrage where it pays: on a target worth at least what it costs, judged by
+     * what the bot can see (it never aims at units hidden from it). The radar sweep it leaves to the player.
+     */
+    private List<GameEvent> useAbility(Player botPlayer) {
+        int spare = botPlayer.getResourcePoints() - reserve(botPlayer);
+        List<Unit> enemies = visibleEnemies().stream()
+                .filter(enemy -> enemy.getHealthPoints() > 0 && !model.isEliminated(model.getOwner(enemy)))
+                .toList();
+        for (Ability ability : List.of(Ability.AIRSTRIKE, Ability.ARTILLERY_BARRAGE)) {
+            if (abilityCommand.notReady(botPlayer, ability) != null || spare < ability.cost()) continue;
+            Point bestTile = null;
+            double bestScore = ability.cost() * ABILITY_WORTH;
+            for (Unit enemy : enemies) {
+                Point tile = enemy.getPosition();
+                if (abilityCommand.refusal(botPlayer, ability, tile) != null) continue;
+                double score = 0;
+                for (Unit hit : ability == Ability.AIRSTRIKE ? List.of(model.getUnitSeenAt(tile, botPlayer))
+                        : enemiesSeenIn(abilityCommand.area(ability, tile), enemies)) {
+                    score += strikeScore(ability, hit);
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestTile = tile;
+                }
+            }
+            if (bestTile != null) {
+                System.out.println("Bot: " + ability.label() + " on " + bestTile.x + ", " + bestTile.y);
+                return abilityCommand.execute(botPlayer, ability, bestTile).getEvents();
+            }
+        }
+        return List.of();
+    }
+
+    private static List<Unit> enemiesSeenIn(List<Point> area, List<Unit> enemies) {
+        return enemies.stream().filter(enemy -> !(enemy instanceof Submarine) && area.contains(enemy.getPosition())).toList();
+    }
+
+    /** What an ability's hit on the unit is worth, scored like an attack. */
+    private double strikeScore(Ability ability, Unit target) {
+        if (target.getHealthPoints() <= 0) return 0;
+        int damage = abilityCommand.predictDamage(ability, target);
+        if (damage <= 0) return 0;
+        if (damage >= target.getHealthPoints()) {
+            return valueOf(target) * KILL_BONUS + 2;
+        }
+        return valueOf(target) * damage / target.getMaxHealthPoints();
     }
 
     /** How much the bot wants another one of these, given both armies; 0 means not at all. */
