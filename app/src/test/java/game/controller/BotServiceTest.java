@@ -390,4 +390,22 @@ class BotServiceTest {
         assertEquals(baseHp, base.getHealthPoints());
         assertTrue(guard.getHealthPoints() < guard.getMaxHealthPoints());
     }
+
+    @Test
+    void theBotFiresACruiseMissileAtTheEnemyHeadquarters() {
+        Player botPlayer = game.getPlayerTwo();
+        for (Research project : List.of(Research.RADAR_SWEEP, Research.ARTILLERY_BARRAGE, Research.AIRSTRIKE,
+                Research.CRUISE_MISSILE)) {
+            botPlayer.completeResearch(project);
+        }
+        botPlayer.addResourcePoints(30);
+        Base base = game.getPlayerOne().getPlayerDeck().getBase();
+
+        List<List<GameEvent>> steps = runSteps(bot);
+
+        GameEvent.AbilityUsed used = assertInstanceOf(GameEvent.AbilityUsed.class, steps.get(0).get(0));
+        assertEquals(Ability.CRUISE_MISSILE, used.ability());
+        assertEquals(base.getPosition(), used.target());
+        assertTrue(base.getHealthPoints() < base.getMaxHealthPoints());
+    }
 }

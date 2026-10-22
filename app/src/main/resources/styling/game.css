@@ -442,15 +442,72 @@
     -fx-padding: 4 12 3 12;
 }
 
-/* The research tree, over the board like the game over panel */
+/* The research tree, over the whole game (outside .game-root, so it brings the game's font along) */
+.research-screen {
+    -fx-base: #2b3045;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+    -fx-font-family: "VT323";
+    -fx-font-size: 18px;
+    -fx-font-smoothing-type: gray;
+}
+
 .research-panel {
     -fx-background-color: #0e0b16, #5a6488, #1a1e2c, #2b3045;
     -fx-background-insets: 0, 4, 8 4 4 8, 8;
     -fx-background-radius: 0;
-    -fx-padding: 18 20 20 20;
+    -fx-padding: 16 18 18 18;
     -fx-effect: dropshadow(one-pass-box, #05040a, 0, 1, 8, 8);
 }
 
-.research-card { -fx-alignment: top-left; }
+.research-scroll,
+.research-scroll > .viewport {
+    -fx-background-color: #151925;
+    -fx-background: #151925;
+    -fx-padding: 0;
+}
+
+.research-tree { -fx-background-color: #151925; }
+
+.research-node-name {
+    -fx-text-fill: #e9e2cc;
+    -fx-font-size: 16px;
+}
+
+.research-branch {
+    -fx-font-family: "Silkscreen";
+    -fx-font-weight: bold;
+    -fx-font-size: 10px;
+}
+
+.research-rp { -fx-text-fill: #f5c542; }
+
+.research-done-tag {
+    -fx-background-color: #0e0b16, #1f3a2a;
+    -fx-background-insets: 0, 1;
+    -fx-padding: 0 4 0 4;
+    -fx-text-fill: #5ed68a;
+    -fx-font-size: 15px;
+}
+
+/* open, but more than the player has */
+.research-cost-short {
+    -fx-background-color: #0e0b16, #3a1a1e;
+    -fx-background-insets: 0, 1;
+    -fx-padding: 0 4 0 4;
+    -fx-text-fill: #ff7b72;
+    -fx-font-size: 16px;
+}
+
+.research-description {
+    -fx-text-fill: #e9e2cc;
+    -fx-font-size: 18px;
+}
+
+.research-details {
+    -fx-background-color: #0e0b16, #23283a;
+    -fx-background-insets: 0, 1;
+    -fx-padding: 12;
+}
 
 .veteran { -fx-text-fill: #f5c542; }

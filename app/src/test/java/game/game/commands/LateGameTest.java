@@ -158,6 +158,8 @@ class LateGameTest {
         assertFalse(locked.wasSuccessful());
         assertTrue(locked.getMessage().contains("Stealth Program"), locked.getMessage());
 
+        player.completeResearch(Research.AEGIS_UPGRADE);
+        nextRound();
         research.execute(player, Research.STEALTH_PROGRAM);
         assertTrue(add.execute(player, UnitEnum.FTHIRTYFIVE.name(), new Point(3, 3)).wasSuccessful());
         assertTrue(player.hasUnlocked(UnitEnum.TYPETEN), "everything else is open from the start");

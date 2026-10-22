@@ -72,6 +72,9 @@ public final class AnimationDirector {
     private static final double BARRAGE_STAGGER_MS = 60;
     private static final double AIRSTRIKE_SCALE = 1.7;
     private static final double AIRSTRIKE_SHAKE_PX = 3;
+    private static final double CRUISE_FLIGHT_MS = 650;
+    private static final double CRUISE_TRAIL_MS = 50;
+    private static final double CRUISE_RUN_IN_PX = 120;
     private static final double UPGRADE_HOP_PX = 4;
     private static final double DAMAGE_NUMBER_RISE_PX = 18;
     /** Keeps the number and its outline inside the board. */
@@ -377,7 +380,8 @@ public final class AnimationDirector {
 
     /**
      * A radar sweep pings the target, a barrage drops shells all over its area one after the other, an airstrike
-     * hits its target with one big blast that shakes the board. The damage follows as its own events.
+     * hits its target with one big blast that shakes the board, a cruise missile flies in from beyond the board
+     * first, paratroopers come down on their tile. The damage (or the new squad) follows as its own events.
      */
     private double ability(Schedule schedule, double startMs, AbilityUsed event) {
         Point2D center = Cells.center(event.target());
@@ -400,16 +404,36 @@ public final class AnimationDirector {
                 }
                 yield end;
             }
-            case AIRSTRIKE -> {
-                effects.frames(schedule, startMs, EXPLOSION_FRAME_MS, sprites.explosion(), center, AIRSTRIKE_SCALE, Point2D.ZERO);
-                schedule.add(startMs, BASE_SHAKE_MS, Interpolator.LINEAR, f -> {
-                    double strength = AIRSTRIKE_SHAKE_PX * (1 - f);
-                    board.setTranslateX(Math.round(strength * Math.sin(10 * Math.PI * f)));
-                    board.setTranslateY(Math.round(strength * Math.sin(8 * Math.PI * f) * 0.6));
-                });
-                yield startMs + EXPLOSION_MS;
+            case AIRSTRIKE -> blast(schedule, startMs, center);
+            case CRUISE_MISSILE -> {
+                // the missile comes in from beyond the board's top edge, trailing smoke, and hits hard
+                Point2D launch = new Point2D(center.getX() - CRUISE_RUN_IN_PX, -Cells.SIZE);
+                for (double age = CRUISE_TRAIL_MS; age < CRUISE_FLIGHT_MS; age += CRUISE_TRAIL_MS) {
+                    Point2D puff = launch.add(center.subtract(launch).multiply(age / CRUISE_FLIGHT_MS));
+                    effects.frames(schedule, startMs + age, SMOKE_FRAME_MS, sprites.smoke(), puff, 0.7, Point2D.ZERO);
+                }
+                effects.projectile(schedule, startMs, CRUISE_FLIGHT_MS, sprites.missile(), launch, center, 0, 1.4);
+                yield blast(schedule, startMs + CRUISE_FLIGHT_MS, center);
+            }
+            case PARATROOPERS -> {
+                // the canopy opens over the tile; the squad's own drop follows as its deploy
+                floatingNumber(schedule, startMs, "PARADROP", SWEEP_TEXT, event.target());
+                effects.frames(schedule, startMs, HEAL_SPARK_FRAME_MS, sprites.spark(), center.add(0, -Cells.SIZE / 2.0),
+                        1.5, Point2D.ZERO);
+                yield startMs + HEAL_MS / 2;
             }
         };
+    }
+
+    /** One big explosion that shakes the board (airstrike, cruise missile); returns when it is over. */
+    private double blast(Schedule schedule, double startMs, Point2D center) {
+        effects.frames(schedule, startMs, EXPLOSION_FRAME_MS, sprites.explosion(), center, AIRSTRIKE_SCALE, Point2D.ZERO);
+        schedule.add(startMs, BASE_SHAKE_MS, Interpolator.LINEAR, f -> {
+            double strength = AIRSTRIKE_SHAKE_PX * (1 - f);
+            board.setTranslateX(Math.round(strength * Math.sin(10 * Math.PI * f)));
+            board.setTranslateY(Math.round(strength * Math.sin(8 * Math.PI * f) * 0.6));
+        });
+        return startMs + EXPLOSION_MS;
     }
 
     private void damageNumber(Schedule schedule, double startMs, UnitDamaged event) {

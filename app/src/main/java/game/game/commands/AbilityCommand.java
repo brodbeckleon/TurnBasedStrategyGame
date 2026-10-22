@@ -3,6 +3,9 @@ package game.game.commands;
 import game.events.GameEvent;
 import game.game.Ability;
 import game.game.Command;
+import game.game.Movement;
+import game.enums.TerrainEnum;
+import game.units.assaultClasses.infantry.RifleSquad;
 import game.game.Player;
 import game.model.Game;
 import game.tools.CircleGenerator;
@@ -21,7 +24,8 @@ import java.util.Set;
 
 /**
  * Calls in one of the player's abilities on a tile. Nothing strikes back at an ability, and its kills earn no
- * veterancy. The barrage and the airstrike need eyes on the target tile; the radar sweep is what gives them.
+ * veterancy. The barrage, the airstrike and the paratroopers need eyes on the target tile; the radar sweep is what
+ * gives them. The cruise missile flies to any enemy building.
  */
 public class AbilityCommand extends Command {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
@@ -53,6 +57,14 @@ public class AbilityCommand extends Command {
                 }
             }
             case AIRSTRIKE -> events.addAll(strike(ability, airstrikeTarget(player, target)));
+            case CRUISE_MISSILE -> events.addAll(strike(ability, cruiseTarget(player, target)));
+            case PARATROOPERS -> {
+                RifleSquad squad = new RifleSquad(player.getPlayerID(), target);
+                player.getPlayerDeck().addUnit(squad);
+                readyNewUnit(player, squad);
+                events.add(new GameEvent.UnitDeployed(player.getPlayerID(), getGameModel().getUnitID(squad),
+                        squad.getUnitName(), target));
+            }
         }
         return new CommandResult(true, ability.label() + " called in.", events);
     }
@@ -69,6 +81,9 @@ public class AbilityCommand extends Command {
         if (ability == Ability.RADAR_SWEEP) {
             return null;
         }
+        if (ability == Ability.CRUISE_MISSILE) {
+            return cruiseTarget(player, target) == null ? "Pick an enemy building: the missile finds it anywhere." : null;
+        }
         if (!getGameModel().getVisibleTiles(player).contains(target)) {
             return "Pick a tile you can see: the guns and bombers need eyes on the target.";
         }
@@ -77,6 +92,17 @@ public class AbilityCommand extends Command {
             return host != null && getGameModel().getGuestOf(host) != null
                     ? "A unit on top of the " + host.getUnitName() + " takes the strike first: you need to see it."
                     : "Pick an enemy unit or building you can see.";
+        }
+        if (ability == Ability.PARATROOPERS) {
+            if (isHiddenEnemy(player, target)) {
+                return "An enemy hidden in the fog is in the way!";
+            }
+            if (!canDrop(player, target)) {
+                return "Paratroopers need a free tile that infantry can stand on.";
+            }
+            if (getGameModel().getArmySize(player) >= getGameModel().getArmyLimit(player)) {
+                return "Your army is at its limit (" + getGameModel().getArmyLimit(player) + " units).";
+            }
         }
         return null;
     }
@@ -96,22 +122,51 @@ public class AbilityCommand extends Command {
         return null;
     }
 
-    /** The tiles the player may aim the ability at: anywhere for the sweep, else what it sees (enemies for the airstrike). */
+    /**
+     * The tiles the player may aim the ability at: anywhere for the sweep, every enemy building for the missile,
+     * else what it sees (enemies for the airstrike, free ground for the paratroopers).
+     */
     public Set<Point> targetTiles(Player player, Ability ability) {
+        Set<Point> everywhere = getGameModel().getBattlefield().getGeography().keySet();
         if (ability == Ability.RADAR_SWEEP) {
-            return Set.copyOf(getGameModel().getBattlefield().getGeography().keySet());
+            return Set.copyOf(everywhere);
         }
-        Set<Point> visible = getGameModel().getVisibleTiles(player);
+        Set<Point> candidates = ability == Ability.CRUISE_MISSILE ? everywhere : getGameModel().getVisibleTiles(player);
         if (ability == Ability.ARTILLERY_BARRAGE) {
-            return visible;
+            return candidates;
         }
         Set<Point> targets = new LinkedHashSet<>();
-        for (Point tile : visible) {
-            if (isEnemyTarget(player, airstrikeTarget(player, tile))) {
-                targets.add(tile);
-            }
+        for (Point tile : candidates) {
+            boolean fits = switch (ability) {
+                case AIRSTRIKE -> isEnemyTarget(player, airstrikeTarget(player, tile));
+                case CRUISE_MISSILE -> cruiseTarget(player, tile) != null;
+                case PARATROOPERS -> canDrop(player, tile);
+                default -> false;
+            };
+            if (fits) targets.add(tile);
         }
         return targets;
+    }
+
+    /** The enemy building on the tile a cruise missile would hit, or null: buildings are never hidden. */
+    public Unit cruiseTarget(Player player, Point tile) {
+        for (Unit unit : getGameModel().getUnitsAt(tile)) {
+            if (unit instanceof Infrastructure && unit.getPlayerID() != player.getPlayerID() && unit.getHealthPoints() > 0
+                    && !getGameModel().isEliminated(getGameModel().getOwner(unit))) {
+                return unit;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * True if a rifle squad could land on the tile as far as the player knows: nothing on it it can see, not ruins,
+     * and ground infantry can stand on (an enemy hidden there only turns up when the drop is called in).
+     */
+    private boolean canDrop(Player player, Point tile) {
+        TerrainEnum terrain = getGameModel().getBattlefield().getGeographyOfPoint(tile);
+        return terrain != null && looksFree(player, tile) && !getGameModel().getBattlefield().isBaseSite(tile)
+                && Movement.cost(new RifleSquad(0, tile), terrain) != Movement.IMPASSABLE;
     }
 
     /** Every tile on the map the ability reaches when aimed at the target: the barrage a square, the sweep a circle. */
@@ -170,7 +225,7 @@ public class AbilityCommand extends Command {
     private List<GameEvent> strike(Ability ability, Unit target) {
         Player owner = getGameModel().getOwner(target);
         int id = getGameModel().getUnitID(target);
-        Unit passenger = getGameModel().getGuestOf(target);
+        List<Unit> passengers = getGameModel().getGuestsOf(target);
         int damage = predictDamage(ability, target);
         int hpBefore = target.getHealthPoints();
         target.setHealthPoints(-damage);
@@ -186,12 +241,8 @@ public class AbilityCommand extends Command {
                 owner.getPlayerDeck().removeUnit(id); // a fallen headquarters stays as ruins
             }
             events.add(new GameEvent.UnitDestroyed(target.getPlayerID(), id, target.getUnitName(), target.getPosition(), isBase));
-            if (target instanceof TransportShip && passenger != null && owner.getPlayerDeck().getUnits().containsValue(passenger)) {
-                // a sunk transport takes the unit on its deck down with it
-                int passengerId = getGameModel().getUnitID(passenger);
-                owner.getPlayerDeck().removeUnit(passengerId);
-                events.add(new GameEvent.UnitDestroyed(passenger.getPlayerID(), passengerId, passenger.getUnitName(),
-                        passenger.getPosition(), false));
+            if (target instanceof TransportShip) {
+                events.addAll(attackCommand.sinkPassengers(owner, passengers)); // they go down with their ship
             }
         }
         return events;

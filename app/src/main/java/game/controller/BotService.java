@@ -81,6 +81,8 @@ public class BotService {
     private static final double MAX_CAUTION = 1.5;
     private static final double FERRY_BONUS = 6;
     private static final double ABILITY_WORTH = 0.8; // what an ability's score must reach per resource point it costs
+    private static final double MISSILE_WORTH = 0.5;
+    private static final double PICK_UP_DETOUR = 4; // how far an amphibious ship with a unit aboard goes for another
     private static final int MAX_PURCHASES = 4; // units bought per turn at most
     private static final int RICH = 20; // resource points beyond which the bot upgrades even with little to spare
     private static final int EXTRA_PURCHASE_BUDGET = 12; // savings needed to buy more than one unit a turn
@@ -287,11 +289,24 @@ public class BotService {
             purchasePending = purchases < MAX_PURCHASES;
             List<GameEvent> events = purchaseNewUnits(botPlayer, purchases > 1);
             if (!events.isEmpty()) {
+                actAtOnce(events);
                 return Optional.of(events);
             }
             purchasePending = false;
         }
         return Optional.empty();
+    }
+
+    /** With Rapid Deployment a unit just deployed can act this turn: it joins the queue of units still to act. */
+    private void actAtOnce(List<GameEvent> events) {
+        for (GameEvent event : events) {
+            if (event instanceof GameEvent.UnitDeployed deployed) {
+                Unit unit = me().getPlayerDeck().getUnit(deployed.unitId());
+                if (unit != null && unit.isAvailable() && !(unit instanceof Infrastructure)) {
+                    pendingUnitIds.add(deployed.unitId());
+                }
+            }
+        }
     }
 
     // --- Unit actions ---
@@ -491,6 +506,15 @@ public class BotService {
     private List<GameEvent> sail(TransportShip ship, int unitId, Player botPlayer) {
         if (ship instanceof Osumi) {
             Unit passenger = model.getGuestOf(ship);
+            Optional<Unit> waiting = strandedUnits(botPlayer).stream()
+                    .min(Comparator.comparingDouble(unit -> unit.getPosition().distance(ship.getPosition())));
+            // with room on deck it picks up a unit waiting close by first (any, while the deck is empty)
+            if (waiting.isPresent() && model.hasRoomOnTop(ship)
+                    && (passenger == null || waiting.get().getPosition().distance(ship.getPosition()) <= PICK_UP_DETOUR)) {
+                Point at = waiting.get().getPosition();
+                return moveTo(botPlayer, unitId, ship, bestTile(ship, at,
+                        tile -> tile.distance(at) < 1.5 ? FERRY_BONUS : 0));
+            }
             if (passenger != null) {
                 // dock at a shore from which the unit on deck can get where it wants to go
                 Point target = destinationOf(passenger);
@@ -498,14 +522,6 @@ public class BotService {
                     return moveTo(botPlayer, unitId, ship, bestTile(ship, target,
                             tile -> landsFrom(tile, target) ? FERRY_BONUS : 0));
                 }
-            }
-            Optional<Unit> waiting = strandedUnits(botPlayer).stream()
-                    .min(Comparator.comparingDouble(unit -> unit.getPosition().distance(ship.getPosition())));
-            if (passenger == null && waiting.isPresent()) {
-                // pick it up: dock right next to it
-                Point at = waiting.get().getPosition();
-                return moveTo(botPlayer, unitId, ship, bestTile(ship, at,
-                        tile -> tile.distance(at) < 1.5 ? FERRY_BONUS : 0));
             }
         }
         Point enemyBase = enemyBase();
@@ -605,7 +621,7 @@ public class BotService {
     /** A unit that cannot get there over land boards the nearest free amphibious ship, or heads for it. */
     private List<GameEvent> ferry(Unit unit, int unitId, Player botPlayer) {
         Optional<Unit> ship = botPlayer.getPlayerDeck().getUnits().values().stream()
-                .filter(own -> own instanceof Osumi && own.getHealthPoints() > 0 && model.getGuestOf(own) == null)
+                .filter(own -> own instanceof Osumi && own.getHealthPoints() > 0 && model.hasRoomOnTop(own))
                 .min(Comparator.comparingDouble(own -> own.getPosition().distance(unit.getPosition())));
         if (ship.isEmpty()) {
             return List.of();
@@ -815,7 +831,7 @@ public class BotService {
         boolean overflowing = rp + model.getIncome(botPlayer) > RICH;
         boolean threatened = isThreatened(botPlayer.getPlayerDeck().getBase().getPosition());
         return botPlayer.getPlayerDeck().getUnits().entrySet().stream()
-                .filter(entry -> entry.getValue() instanceof MilitaryBase base && base.canUpgrade()
+                .filter(entry -> entry.getValue() instanceof MilitaryBase base && base.canUpgrade(model.getMaxBaseLevel(botPlayer))
                         && base.getHealthPoints() > 0)
                 .min(Comparator.comparingInt((Map.Entry<Integer, Unit> entry) -> ((MilitaryBase) entry.getValue()).getUpgradeCost())
                         .thenComparing(entry -> entry.getValue() instanceof Base ? 0 : 1))
@@ -917,15 +933,23 @@ public class BotService {
         return List.of();
     }
 
-    /** The order the bot researches in: more room for units, then the abilities, the stealth fighter, the fleet. */
+    /**
+     * The order the bot researches in: more room for units, the abilities, better troops, then the rest; the
+     * fleet only with a harbour on a sea that reaches the enemy, more ferrying only on islands.
+     */
     private List<Research> researchPlan(Player botPlayer) {
         List<Research> plan = new ArrayList<>(List.of(Research.SUPPLY_LINES, Research.RADAR_SWEEP,
-                Research.ARTILLERY_BARRAGE, Research.AIRSTRIKE, Research.STEALTH_PROGRAM, Research.FIELD_WORKSHOPS,
-                Research.MASS_MOBILISATION));
+                Research.ARTILLERY_BARRAGE, Research.BOOT_CAMP, Research.AIRSTRIKE, Research.RAPID_DEPLOYMENT,
+                Research.COMPOSITE_ARMOUR, Research.AEGIS_UPGRADE, Research.CRUISE_MISSILE, Research.MASS_MOBILISATION,
+                Research.FIELD_WORKSHOPS, Research.PRECISION_MUNITIONS, Research.STEALTH_PROGRAM,
+                Research.THERMAL_SIGHTS, Research.INDUSTRIAL_EXPANSION, Research.PARATROOPERS, Research.FORWARD_COMMAND));
         boolean usefulFleet = botPlayer.getPlayerDeck().getBuildings().stream()
                 .anyMatch(building -> building instanceof NavyBase && waterReachesEnemy(building.getPosition()));
         if (usefulFleet) {
-            plan.addAll(List.of(Research.CARRIER_AVIATION, Research.BATTLESHIPS));
+            plan.addAll(List.of(Research.IMPROVED_SONAR, Research.CARRIER_AVIATION, Research.BATTLESHIPS));
+        }
+        if (!reachableOverLand(botPlayer.getPlayerDeck().getBase().getPosition(), enemyBase())) {
+            plan.addAll(List.of(Research.IMPROVED_SONAR, Research.AMPHIBIOUS_DOCTRINE)); // islands: ferry more
         }
         return plan;
     }
@@ -939,16 +963,21 @@ public class BotService {
         List<Unit> enemies = visibleEnemies().stream()
                 .filter(enemy -> enemy.getHealthPoints() > 0 && !model.isEliminated(model.getOwner(enemy)))
                 .toList();
-        for (Ability ability : List.of(Ability.AIRSTRIKE, Ability.ARTILLERY_BARRAGE)) {
+        for (Ability ability : List.of(Ability.CRUISE_MISSILE, Ability.AIRSTRIKE, Ability.ARTILLERY_BARRAGE)) {
             if (abilityCommand.notReady(botPlayer, ability) != null || spare < ability.cost()) continue;
             Point bestTile = null;
-            double bestScore = ability.cost() * ABILITY_WORTH;
+            // the missile is the siege weapon: worth it on a building even if it only takes a share off
+            double bestScore = ability.cost() * (ability == Ability.CRUISE_MISSILE ? MISSILE_WORTH : ABILITY_WORTH);
             for (Unit enemy : enemies) {
                 Point tile = enemy.getPosition();
                 if (abilityCommand.refusal(botPlayer, ability, tile) != null) continue;
                 double score = 0;
-                for (Unit hit : ability == Ability.AIRSTRIKE ? List.of(abilityCommand.airstrikeTarget(botPlayer, tile))
-                        : enemiesSeenIn(abilityCommand.area(ability, tile), enemies)) {
+                List<Unit> hits = switch (ability) {
+                    case AIRSTRIKE -> List.of(abilityCommand.airstrikeTarget(botPlayer, tile));
+                    case CRUISE_MISSILE -> List.of(abilityCommand.cruiseTarget(botPlayer, tile));
+                    default -> enemiesSeenIn(abilityCommand.area(ability, tile), enemies);
+                };
+                for (Unit hit : hits) {
                     score += strikeScore(ability, hit);
                 }
                 if (score > bestScore) {
@@ -961,7 +990,31 @@ public class BotService {
                 return abilityCommand.execute(botPlayer, ability, bestTile).getEvents();
             }
         }
-        return List.of();
+        return paradrop(botPlayer, spare);
+    }
+
+    /**
+     * With money piling up and room in the army, drops a rifle squad where it gets closest to the enemy base
+     * without landing in a storm of fire.
+     */
+    private List<GameEvent> paradrop(Player botPlayer, int spare) {
+        Ability drop = Ability.PARATROOPERS;
+        if (abilityCommand.notReady(botPlayer, drop) != null || spare < drop.cost() || botPlayer.getResourcePoints() <= RICH
+                || addCommand.isArmyFull(botPlayer)) {
+            return List.of();
+        }
+        Point goal = enemyBase();
+        Unit squad = unitFactory.createUnit(playerId, UnitEnum.INFANTRY, new Point());
+        Optional<Point> best = abilityCommand.targetTiles(botPlayer, drop).stream()
+                .filter(tile -> abilityCommand.refusal(botPlayer, drop, tile) == null)
+                .max(Comparator.comparingDouble(tile -> -GOAL_WEIGHT * tile.distance(goal) - danger(squad, tile)));
+        if (best.isEmpty()) {
+            return List.of();
+        }
+        System.out.println("Bot: Paratroopers on " + best.get().x + ", " + best.get().y);
+        List<GameEvent> events = abilityCommand.execute(botPlayer, drop, best.get()).getEvents();
+        actAtOnce(events);
+        return events;
     }
 
     private static List<Unit> enemiesSeenIn(List<Point> area, List<Unit> enemies) {

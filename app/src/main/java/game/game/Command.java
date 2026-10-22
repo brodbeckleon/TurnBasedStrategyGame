@@ -4,6 +4,7 @@ import game.enums.TerrainEnum;
 import game.game.map.Battlefield;
 import game.model.Game; // Using the Game model directly
 import game.tools.CircleGenerator;
+import game.units.AssaultClass;
 import game.units.Base;
 import game.interfaces.Host;
 import game.units.Infrastructure;
@@ -32,6 +33,20 @@ public class Command {
         return gameModel;
     }
 
+    /**
+     * Gets a unit that was just added to the player's deck ready: a combat unit starts at the first rank with Boot
+     * Camp, and a new unit waits for the next turn unless the player has Rapid Deployment.
+     */
+    protected void readyNewUnit(Player player, Unit unit) {
+        if (unit instanceof Infrastructure) {
+            return;
+        }
+        if (unit instanceof AssaultClass recruit && player.hasResearched(Research.BOOT_CAMP)) {
+            recruit.addKill(); // trained, as if it had its first kill already
+        }
+        unit.setIsAvailable(player.hasResearched(Research.RAPID_DEPLOYMENT));
+    }
+
     /** True if nothing stands there and it is not base ruins (rubble no unit can stop on). */
     public boolean checkIfPositionIsFree(Point position) {
         return gameModel.isPositionFree(position);
@@ -48,8 +63,8 @@ public class Command {
         }
         if (unit instanceof Infrastructure) {
             for (Infrastructure building : player.getPlayerDeck().getBuildings()) {
-                if (building.getConstructionRadius() > 0 && circleGenerator
-                        .getCoordinatesInRange(building.getPosition(), building.getConstructionRadius()).contains(position)) {
+                int radius = gameModel.getConstructionRadius(building);
+                if (radius > 0 && circleGenerator.getCoordinatesInRange(building.getPosition(), radius).contains(position)) {
                     return true;
                 }
             }
@@ -73,8 +88,9 @@ public class Command {
             return deployTiles(player, unit);
         }
         for (Infrastructure building : player.getPlayerDeck().getBuildings()) {
-            if (building.getConstructionRadius() <= 0) continue;
-            for (Point point : circleGenerator.getCoordinatesInRange(building.getPosition(), building.getConstructionRadius())) {
+            int radius = gameModel.getConstructionRadius(building);
+            if (radius <= 0) continue;
+            for (Point point : circleGenerator.getCoordinatesInRange(building.getPosition(), radius)) {
                 if (looksFree(player, point) && checkIfTerrainIsDeployable(unit, point)) {
                     positions.add(point);
                 }
@@ -112,7 +128,7 @@ public class Command {
     }
 
     private boolean hasRoomOnTop(Unit host, Unit unit) {
-        return host instanceof Host room && room.canHost(unit) && gameModel.getGuestOf(host) == null;
+        return host instanceof Host room && room.canHost(unit) && gameModel.hasRoomOnTop(host);
     }
 
     /** True if land lies on one of the eight tiles around the point: a ship there is docked at the coast. */

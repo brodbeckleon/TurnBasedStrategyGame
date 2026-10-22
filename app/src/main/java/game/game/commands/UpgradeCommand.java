@@ -3,6 +3,7 @@ package game.game.commands;
 import game.events.GameEvent;
 import game.game.Command;
 import game.game.Player;
+import game.game.Research;
 import game.model.Game;
 import game.units.MilitaryBase;
 import game.units.Unit;
@@ -20,8 +21,10 @@ public class UpgradeCommand extends Command {
         if (!(unit instanceof MilitaryBase base) || base.getHealthPoints() <= 0) {
             return new CommandResult(false, "Only your bases can be upgraded.");
         }
-        if (!base.canUpgrade()) {
-            return new CommandResult(false, base.getUnitName() + " is already at the highest level.");
+        if (!base.canUpgrade(getGameModel().getMaxBaseLevel(player))) {
+            return new CommandResult(false, base.getLevel() < MilitaryBase.MAX_LEVEL
+                    ? "Research " + Research.INDUSTRIAL_EXPANSION.label() + " for a fourth level."
+                    : base.getUnitName() + " is already at the highest level.");
         }
         int cost = base.getUpgradeCost();
         if (player.getResourcePoints() < cost) {

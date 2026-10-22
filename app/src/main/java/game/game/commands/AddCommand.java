@@ -81,11 +81,8 @@ public class AddCommand extends Command {
         if (isSiteBuilding(unit)) {
             player.getPlayerDeck().setUnitUnavailable(findBuilder(player, position).orElseThrow());
         }
-        // a new unit has to wait for the next turn before it moves or acts
-        if (!(unit instanceof Infrastructure)) {
-            unit.setIsAvailable(false);
-        }
         player.getPlayerDeck().addUnit(unit);
+        readyNewUnit(player, unit); // a new unit waits for the next turn, unless researched otherwise
         player.removeResourcePoints(unit.getResourceCost());
 
         GameEvent deployed = new GameEvent.UnitDeployed(player.getPlayerID(), getGameModel().getUnitID(unit), unit.getUnitName(), position);

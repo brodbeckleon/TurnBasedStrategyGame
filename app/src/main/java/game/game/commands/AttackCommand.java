@@ -4,6 +4,8 @@ import game.events.GameEvent;
 import game.events.Weapon;
 import game.game.Command;
 import game.game.Player;
+import game.game.Research;
+import game.interfaces.Host;
 import game.enums.TerrainEnum;
 import game.interfaces.AntiAir;
 import game.interfaces.TankHunter;
@@ -173,14 +175,23 @@ public class AttackCommand extends Command {
     }
 
     /**
-     * True if a unit the attacker could hit stands on top of the building or ship: it takes the attacks first, seen
-     * or not (an attacker that cannot see it cannot attack the tile until it does). Only a stealth fighter the
-     * attacker's side cannot see shields nothing: parked on its air base, the base is a fair target.
+     * True if a unit the attacker could hit stands above the target, on top of the building or ship (or before it on
+     * the same deck): it takes the attacks first, seen or not (an attacker that cannot see it cannot attack the tile
+     * until it does). Only a stealth fighter the attacker's side cannot see shields nothing: parked on its air base,
+     * the base is a fair target.
      */
     public boolean isShielded(Unit target, Unit attacker) {
-        Unit guest = getGameModel().getGuestOf(target);
-        if (guest == null || !canTarget(attacker, guest)) return false;
-        return !(guest instanceof FThirtyFive) || getGameModel().isVisibleTo(getGameModel().getOwner(attacker), guest);
+        // the units above the target: everyone on deck for a building or ship, those before it for a unit on deck
+        Unit host = target instanceof Host ? target : getGameModel().getHostOf(target);
+        if (host == null) return false;
+        for (Unit guest : getGameModel().getGuestsOf(host)) {
+            if (guest == target) return false;
+            if (canTarget(attacker, guest) && (!(guest instanceof FThirtyFive)
+                    || getGameModel().isVisibleTo(getGameModel().getOwner(attacker), guest))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** What attacking the target would do, or null if the attack is not possible. */
@@ -251,7 +262,7 @@ public class AttackCommand extends Command {
         int damage = predictDamage(attacker, defendingUnit);
 
         int hpBefore = defendingUnit.getHealthPoints();
-        Unit passenger = getGameModel().getGuestOf(defendingUnit);
+        List<Unit> passengers = getGameModel().getGuestsOf(defendingUnit);
         defendingUnit.setHealthPoints(-damage);
         if (defendingUnit instanceof Infrastructure building) {
             building.markUnderFire();
@@ -261,17 +272,27 @@ public class AttackCommand extends Command {
             defender.getPlayerDeck().removeUnit(defendingUnitID);
         }
         List<GameEvent> events = describeAttack(attackingUnitID, attackingUnit, defendingUnitID, defendingUnit, damage, hpBefore);
-        if (defendingUnit.getHealthPoints() <= 0 && defendingUnit instanceof TransportShip && passenger != null) {
-            // a sunk transport takes the unit on its deck down with it
-            int passengerId = getGameModel().getUnitID(passenger);
-            defender.getPlayerDeck().removeUnit(passengerId);
+        if (defendingUnit.getHealthPoints() <= 0 && defendingUnit instanceof TransportShip) {
+            // a sunk transport takes the units on its deck down with it
             events = new ArrayList<>(events);
-            events.add(new GameEvent.UnitDestroyed(passenger.getPlayerID(), passengerId, passenger.getUnitName(),
-                    passenger.getPosition(), false));
+            events.addAll(sinkPassengers(defender, passengers));
         }
         if (defendingUnit.getHealthPoints() <= 0) {
             events = new ArrayList<>(events);
             events.addAll(creditKill(attackingUnitID, attackingUnit));
+        }
+        return events;
+    }
+
+    /** Removes the units that went down with their ship; returns their destruction. */
+    List<GameEvent> sinkPassengers(Player owner, List<Unit> passengers) {
+        List<GameEvent> events = new ArrayList<>();
+        for (Unit passenger : passengers) {
+            int passengerId = getGameModel().getUnitID(passenger);
+            if (passengerId < 0) continue; // already gone
+            owner.getPlayerDeck().removeUnit(passengerId);
+            events.add(new GameEvent.UnitDestroyed(passenger.getPlayerID(), passengerId, passenger.getUnitName(),
+                    passenger.getPosition(), false));
         }
         return events;
     }
@@ -295,10 +316,10 @@ public class AttackCommand extends Command {
      * share off, and on the ground cover does too.
      */
     public int strikeDamage(double damage, Unit target) {
-        if (target instanceof Infrastructure building) {
-            return afterArmor(damage, building.getArmorValue());
+        if (target instanceof Infrastructure) {
+            return afterArmor(damage, getGameModel().getArmorValue(target));
         }
-        int dealt = afterArmor(damage, target instanceof AssaultTank tank ? tank.getArmorValue() : 0);
+        int dealt = afterArmor(damage, getGameModel().getArmorValue(target));
         return (int) Math.round(dealt * (100 - coverPercent(target, target.getPosition())) / 100.0);
     }
 
@@ -319,22 +340,27 @@ public class AttackCommand extends Command {
     private static final double ANTI_AIR_VS_GROUND = 0.5;
     private static final double GROUND_VS_HELICOPTER = 1;
     private static final double TORPEDO_VS_SHIP = 2;
+    private static final double PRECISION_MUNITIONS_BONUS = 1.25;
 
-    /** Artillery, tanks and aircraft are made to break buildings, everything else barely scratches them. */
-    private static int structureDamage(AssaultClass attacker, Infrastructure building) {
+    /**
+     * Artillery, tanks and aircraft are made to break buildings (aircraft better with Precision Munitions),
+     * everything else barely scratches them.
+     */
+    private int structureDamage(AssaultClass attacker, Infrastructure building) {
         double multiplier;
         if (attacker instanceof SelfPropelledArtillery) multiplier = ARTILLERY_VS_STRUCTURE;
         else if (attacker instanceof AssaultTank) multiplier = TANK_VS_STRUCTURE;
-        else if (attacker instanceof Aircraft) multiplier = AIRCRAFT_VS_STRUCTURE;
+        else if (attacker instanceof Aircraft) multiplier = AIRCRAFT_VS_STRUCTURE
+                * (getGameModel().getOwner(attacker).hasResearched(Research.PRECISION_MUNITIONS) ? PRECISION_MUNITIONS_BONUS : 1);
         else multiplier = OTHER_VS_STRUCTURE;
-        return afterArmor(attacker.getDamage() * multiplier, building.getArmorValue());
+        return afterArmor(attacker.getDamage() * multiplier, getGameModel().getArmorValue(building));
     }
 
     /**
      * Anti-air hits aircraft twice as hard but ground targets only half as hard; other ground and sea units only
      * graze aircraft. Tank armour takes its percentage off.
      */
-    private static int unitDamage(AssaultClass attacker, Unit target) {
+    private int unitDamage(AssaultClass attacker, Unit target) {
         double damage = attacker.getDamage();
         if (target instanceof Aircraft) {
             if (attacker instanceof AntiAir) damage *= ANTI_AIR_VS_AIRCRAFT;
@@ -349,7 +375,7 @@ public class AttackCommand extends Command {
         if (attacker instanceof Submarine && isVessel(target)) {
             damage *= TORPEDO_VS_SHIP;
         }
-        return afterArmor(damage, target instanceof AssaultTank tank ? tank.getArmorValue() : 0);
+        return afterArmor(damage, getGameModel().getArmorValue(target));
     }
 
     /**

@@ -3,13 +3,14 @@ package game.units;
 import java.awt.*;
 
 /**
- * A base: produces resource points every round and can be upgraded twice. Each level adds income, health and
- * armour. Apart from the headquarters, bases can only be built
+ * A base: produces resource points every round and can be upgraded twice (three times with the Industrial
+ * Expansion research). Each level adds income, health and armour. Apart from the headquarters, bases can only be built
  * on base ruins by a recovery vehicle.
  */
 public abstract class MilitaryBase extends Infrastructure {
-    public static final int MAX_LEVEL = 3;
-    private static final int[] UPGRADE_COSTS = {0, 6, 10}; // indexed by the current level
+    public static final int STANDARD_MAX_LEVEL = 3;
+    public static final int MAX_LEVEL = 4; // with Industrial Expansion
+    private static final int[] UPGRADE_COSTS = {0, 6, 10, 14}; // indexed by the current level
     private static final int ARMOR_PER_LEVEL = 5; // percentage points
     private static final double HEALTH_PER_LEVEL = 0.1; // share of the level 1 health
 
@@ -33,17 +34,18 @@ public abstract class MilitaryBase extends Infrastructure {
         return baseIncome + level - 1;
     }
 
-    public boolean canUpgrade() {
-        return level < MAX_LEVEL;
+    /** True if it is below the highest level its owner may build (see {@code Game.getMaxBaseLevel}). */
+    public boolean canUpgrade(int maxLevel) {
+        return level < Math.min(maxLevel, MAX_LEVEL);
     }
 
-    /** The price of the next level; only meaningful while {@link #canUpgrade()}. */
+    /** The price of the next level; 0 at the highest level there is. */
     public int getUpgradeCost() {
-        return canUpgrade() ? UPGRADE_COSTS[level] : 0;
+        return level < MAX_LEVEL ? UPGRADE_COSTS[level] : 0;
     }
 
     public void upgrade() {
-        if (!canUpgrade()) {
+        if (level >= MAX_LEVEL) {
             throw new IllegalStateException(getUnitName() + " is already at the highest level");
         }
         level++;

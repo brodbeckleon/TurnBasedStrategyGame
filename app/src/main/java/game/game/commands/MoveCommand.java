@@ -48,7 +48,7 @@ public class MoveCommand extends Command {
         position = path.get(stop);
 
         Point from = unit.getPosition();
-        Unit passenger = unit instanceof TransportShip ? getGameModel().getGuestOf(unit) : null;
+        List<Unit> passengers = unit instanceof TransportShip ? getGameModel().getGuestsOf(unit) : List.of();
         player.getPlayerDeck().moveUnit(unitID, position);
         unit.setHasMoved(true);
         // light and medium units may still act this turn; everything else is done
@@ -58,8 +58,8 @@ public class MoveCommand extends Command {
 
         List<GameEvent> events = new ArrayList<>();
         events.add(new GameEvent.UnitMoved(player.getPlayerID(), unitID, unit.getUnitName(), from, position, path));
-        if (passenger != null) {
-            // the unit on deck sails along (the view plays both moves together)
+        for (Unit passenger : passengers) {
+            // the units on deck sail along (the view plays the moves together)
             int passengerId = getGameModel().getUnitID(passenger);
             player.getPlayerDeck().moveUnit(passengerId, position);
             events.add(new GameEvent.UnitMoved(player.getPlayerID(), passengerId, passenger.getUnitName(), from, position, path));

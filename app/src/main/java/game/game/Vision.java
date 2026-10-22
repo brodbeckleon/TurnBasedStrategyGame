@@ -1,5 +1,6 @@
 package game.game;
 
+import game.interfaces.militaryBranches.Army;
 import game.model.Game;
 import game.tools.CircleGenerator;
 import game.units.Infrastructure;
@@ -27,6 +28,8 @@ import java.util.Set;
 public final class Vision {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
     private static final int SONAR_RANGE = 4;
+    private static final int IMPROVED_SONAR_BONUS = 2;
+    private static final int THERMAL_SIGHTS_BONUS = 1;
     private static final int STEALTH_RANGE = 2;
 
     private Vision() {
@@ -43,12 +46,19 @@ public final class Vision {
         return 3;
     }
 
+    /** Units that fight on the ground: the army's vehicles and infantry, not its helicopters and not buildings. */
+    public static boolean isGround(Unit unit) {
+        return unit instanceof Army && !(unit instanceof Aircraft) && !(unit instanceof Infrastructure);
+    }
+
     /** Every tile the player's units and buildings can see, and what its radar sweep reveals. */
     public static Set<Point> visibleTiles(Game game, Player player) {
         Set<Point> tiles = new HashSet<>(player.getRevealedTiles());
+        boolean thermal = player.hasResearched(Research.THERMAL_SIGHTS);
         for (Unit unit : player.getPlayerDeck().getUnits().values()) {
             if (unit.getHealthPoints() > 0) {
-                tiles.addAll(circleGenerator.getCoordinatesInRange(unit.getPosition(), range(unit)));
+                int range = range(unit) + (thermal && isGround(unit) ? THERMAL_SIGHTS_BONUS : 0);
+                tiles.addAll(circleGenerator.getCoordinatesInRange(unit.getPosition(), range));
             }
         }
         return tiles;
@@ -65,9 +75,10 @@ public final class Vision {
             return true;
         }
         if (unit instanceof Submarine) {
+            int sonar = SONAR_RANGE + (viewer.hasResearched(Research.IMPROVED_SONAR) ? IMPROVED_SONAR_BONUS : 0);
             for (Unit own : viewer.getPlayerDeck().getUnits().values()) {
                 double distance = own.getPosition().distance(position);
-                if (distance < 1.5 || (own instanceof Kongo && distance <= SONAR_RANGE + 0.4)) {
+                if (distance < 1.5 || (own instanceof Kongo && distance <= sonar + 0.4)) {
                     return true;
                 }
             }
