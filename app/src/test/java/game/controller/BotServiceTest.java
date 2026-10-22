@@ -7,16 +7,21 @@ import game.events.GameEvent.UnitDamaged;
 import game.events.GameEvent.UnitDeployed;
 import game.events.GameEvent.UnitDestroyed;
 import game.events.GameEvent.UnitMoved;
+import game.game.Ability;
 import game.game.Player;
+import game.game.Research;
 import game.game.commands.AddCommand;
 import game.game.commands.AttackCommand;
 import game.game.commands.HealCommand;
 import game.game.commands.MoveCommand;
 import game.model.Game;
 import game.testing.Fixtures;
+import game.units.Base;
+import game.units.Infrastructure;
 import game.units.Unit;
 import game.units.assaultClasses.AssaultTanks.TypeNinety;
 import game.units.assaultClasses.AssaultTanks.TypeTen;
+import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
 import game.units.assaultClasses.ships.Yamato;
 import game.units.infrastructures.NavyBase;
 import game.units.transports.Osumi;
@@ -196,6 +201,9 @@ class BotServiceTest {
                     case UnitDestroyed e -> destroyed.add(e.unitId());
                     case GameEvent.UnitHealed e -> health.put(e.targetId(), e.hpAfter());
                     case GameEvent.BaseUpgraded e -> health.put(e.unitId(), e.hpAfter());
+                    case GameEvent.UnitPromoted e -> assertEquals(positions.get(e.unitId()), e.pos());
+                    case GameEvent.ResearchCompleted e -> { }
+                    case GameEvent.AbilityUsed e -> { }
                 }
             }
         }
@@ -306,5 +314,98 @@ class BotServiceTest {
         long bought = runSteps(bot).stream().flatMap(List::stream).filter(event -> event instanceof UnitDeployed).count();
 
         assertTrue(bought >= 2, "bought " + bought);
+    }
+
+    // --- Late game: army limit, research, abilities ---
+
+    /** Fills the bot's army up to its limit with fighting vehicles parked on its side of the board. */
+    private void fillBotArmy() {
+        Player botPlayer = game.getPlayerTwo();
+        int limit = game.getArmyLimit(botPlayer);
+        for (int i = 0; game.getArmySize(botPlayer) < limit; i++) {
+            Fixtures.place(game, 2, new TypeEightyNine(2, new Point(15 - i % 4, 10 - i / 4)));
+        }
+    }
+
+    @Test
+    void theBotNeverDeploysPastItsArmyLimit() {
+        Player botPlayer = game.getPlayerTwo();
+        botPlayer.addResourcePoints(200);
+        for (Research project : List.of(Research.SUPPLY_LINES, Research.FIELD_WORKSHOPS, Research.MASS_MOBILISATION)) {
+            botPlayer.completeResearch(project); // nothing left that would raise the limit this turn
+        }
+        fillBotArmy();
+
+        List<GameEvent> events = runSteps(bot).stream().flatMap(List::stream).toList();
+
+        assertTrue(events.stream().noneMatch(event -> event instanceof UnitDeployed deployed
+                && !(game.findUnitById(deployed.unitId()) instanceof Infrastructure)));
+        assertTrue(game.getArmySize(botPlayer) <= game.getArmyLimit(botPlayer));
+    }
+
+    @Test
+    void theBotResearchesOnceItsArmyIsFull() {
+        Player botPlayer = game.getPlayerTwo();
+        botPlayer.addResourcePoints(30);
+        fillBotArmy();
+
+        List<GameEvent> events = runSteps(bot).stream().flatMap(List::stream).toList();
+
+        assertTrue(events.contains(new GameEvent.ResearchCompleted(2, Research.SUPPLY_LINES.label())), events.toString());
+        assertTrue(botPlayer.hasResearched(Research.SUPPLY_LINES));
+    }
+
+    @Test
+    void theBotCallsInAnAirstrikeOnAnEnemyItCanFinishOff() {
+        Player botPlayer = game.getPlayerTwo();
+        for (Research project : List.of(Research.RADAR_SWEEP, Research.ARTILLERY_BARRAGE, Research.AIRSTRIKE)) {
+            botPlayer.completeResearch(project);
+        }
+        botPlayer.addResourcePoints(30);
+        TypeNinety battered = new TypeNinety(1, new Point(13, 13)); // in sight of the bot's base
+        int batteredId = Fixtures.place(game, 1, battered);
+        battered.setHealthPoints(-(battered.getMaxHealthPoints() - 200));
+
+        List<List<GameEvent>> steps = runSteps(bot);
+
+        assertInstanceOf(GameEvent.AbilityUsed.class, steps.get(0).get(0), "the strike comes first");
+        assertEquals(Ability.AIRSTRIKE, ((GameEvent.AbilityUsed) steps.get(0).get(0)).ability());
+        assertNull(game.findUnitById(batteredId));
+        assertTrue(botPlayer.getCooldown(Ability.AIRSTRIKE) > 0);
+    }
+
+    @Test
+    void theBotAttacksTheUnitOnTopOfABaseNotTheBase() {
+        Base base = game.getPlayerOne().getPlayerDeck().getBase();
+        base.setHealthPoints(-(base.getMaxHealthPoints() - 300)); // one shot from falling: the bot's favourite target
+        int baseHp = base.getHealthPoints();
+        TypeEightyNine guard = new TypeEightyNine(1, new Point(0, 0)); // just deployed on the headquarters
+        Fixtures.place(game, 1, guard);
+        Fixtures.place(game, 2, new TypeTen(2, new Point(2, 1)));
+
+        List<GameEvent> events = runSteps(bot).stream().flatMap(List::stream).toList();
+
+        assertTrue(events.stream().anyMatch(e -> e instanceof UnitAttacked a && a.targetId() == game.getUnitID(guard)),
+                "the bot goes for the unit on top: " + events);
+        assertEquals(baseHp, base.getHealthPoints());
+        assertTrue(guard.getHealthPoints() < guard.getMaxHealthPoints());
+    }
+
+    @Test
+    void theBotFiresACruiseMissileAtTheEnemyHeadquarters() {
+        Player botPlayer = game.getPlayerTwo();
+        for (Research project : List.of(Research.RADAR_SWEEP, Research.ARTILLERY_BARRAGE, Research.AIRSTRIKE,
+                Research.CRUISE_MISSILE)) {
+            botPlayer.completeResearch(project);
+        }
+        botPlayer.addResourcePoints(30);
+        Base base = game.getPlayerOne().getPlayerDeck().getBase();
+
+        List<List<GameEvent>> steps = runSteps(bot);
+
+        GameEvent.AbilityUsed used = assertInstanceOf(GameEvent.AbilityUsed.class, steps.get(0).get(0));
+        assertEquals(Ability.CRUISE_MISSILE, used.ability());
+        assertEquals(base.getPosition(), used.target());
+        assertTrue(base.getHealthPoints() < base.getMaxHealthPoints());
     }
 }

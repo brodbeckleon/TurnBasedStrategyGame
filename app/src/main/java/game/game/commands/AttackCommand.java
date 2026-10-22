@@ -4,6 +4,8 @@ import game.events.GameEvent;
 import game.events.Weapon;
 import game.game.Command;
 import game.game.Player;
+import game.game.Research;
+import game.interfaces.Host;
 import game.enums.TerrainEnum;
 import game.interfaces.AntiAir;
 import game.interfaces.TankHunter;
@@ -21,6 +23,7 @@ import game.units.assaultClasses.AssaultTank;
 import game.units.assaultClasses.SelfPropelledAntiAir;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.Unit;
+import game.units.assaultClasses.aircraft.FThirtyFive;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -57,8 +60,13 @@ public class AttackCommand extends Command {
         }
 
         // Determine possible targets in range (includes the enemy bases)
-        List<Integer> targetsInRange = scout(attackingUnitID, attackerPlayer);
+        List<Integer> targetsInRange = findTargets(attackerPlayer, attackingUnitID);
         if (!targetsInRange.contains(targetID)) {
+            Unit target = getGameModel().findUnitById(targetID);
+            if (target != null && isShielded(target, attackingUnit)) {
+                return new CommandResult(false, "A unit on top of the " + target.getUnitName()
+                        + " takes the attacks first: attack that unit (you need to see it).");
+            }
             return new CommandResult(false, "Target is not in range.");
         }
         Player defenderPlayer = getGameModel().getOwner(getGameModel().findUnitById(targetID));
@@ -130,21 +138,33 @@ public class AttackCommand extends Command {
         int damage = counterDamage(defender, attacker);
         int hpBefore = attacker.getHealthPoints();
         attacker.setHealthPoints(-damage);
+        List<GameEvent> events = describeAttack(defenderID, defender, attackingUnitID, attacker, damage, hpBefore);
         if (attacker.getHealthPoints() <= 0) {
             attackerPlayer.getPlayerDeck().removeUnit(attackingUnitID);
+            events.addAll(creditKill(defenderID, defender));
         }
-        return describeAttack(defenderID, defender, attackingUnitID, attacker, damage, hpBefore);
+        return events;
     }
 
-    /** The enemies of every other player the unit can hit right now. */
-    private List<Integer> scout(int attackingUnitID, Player attacker) {
-        Unit attackingUnit = attacker.getPlayerDeck().getUnit(attackingUnitID);
-        Point attackingPos = attackingUnit.getPosition();
-        int range = getGameModel().getShootingRange((AssaultClass) attackingUnit);
+    /** Counts a kill for the unit; returns its promotion if the kill raised its rank. */
+    private static List<GameEvent> creditKill(int unitId, Unit unit) {
+        if (unit instanceof AssaultClass veteran && unit.getHealthPoints() > 0 && veteran.addKill()) {
+            return List.of(new GameEvent.UnitPromoted(unit.getPlayerID(), unitId, unit.getUnitName(), unit.getPosition(),
+                    veteran.getRank()));
+        }
+        return List.of();
+    }
+
+    /**
+     * The enemies of every other player the unit could hit from the tile (its own: right now). The one place that
+     * decides what can be attacked: the player's clicks, the board's markers and the bot all go through it.
+     */
+    private List<Integer> scout(Player attacker, Unit attackingUnit, Point from) {
+        int range = getGameModel().getShootingRange((AssaultClass) attackingUnit, from);
 
         List<Integer> targets = new ArrayList<>();
         for (Player defender : getGameModel().getEnemies(attacker)) {
-            defender.getPlayerDeck().getUnitIDsInRange(attackingPos, range).stream()
+            defender.getPlayerDeck().getUnitIDsInRange(from, range).stream()
                     .distinct()
                     .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
                     .filter(id -> !isShielded(defender.getPlayerDeck().getUnit(id), attackingUnit))
@@ -155,13 +175,23 @@ public class AttackCommand extends Command {
     }
 
     /**
-     * True if a unit the attacker could hit stands on top of the building or ship: it takes the attack first. One the
-     * attacker's side cannot see (a stealth fighter on its air base) shields nothing, the building is a fair target.
+     * True if a unit the attacker could hit stands above the target, on top of the building or ship (or before it on
+     * the same deck): it takes the attacks first, seen or not (an attacker that cannot see it cannot attack the tile
+     * until it does). Only a stealth fighter the attacker's side cannot see shields nothing: parked on its air base,
+     * the base is a fair target.
      */
     public boolean isShielded(Unit target, Unit attacker) {
-        Unit guest = getGameModel().getGuestOf(target);
-        return guest != null && canTarget(attacker, guest)
-                && getGameModel().isVisibleTo(getGameModel().getOwner(attacker), guest);
+        // the units above the target: everyone on deck for a building or ship, those before it for a unit on deck
+        Unit host = target instanceof Host ? target : getGameModel().getHostOf(target);
+        if (host == null) return false;
+        for (Unit guest : getGameModel().getGuestsOf(host)) {
+            if (guest == target) return false;
+            if (canTarget(attacker, guest) && (!(guest instanceof FThirtyFive)
+                    || getGameModel().isVisibleTo(getGameModel().getOwner(attacker), guest))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** What attacking the target would do, or null if the attack is not possible. */
@@ -199,8 +229,14 @@ public class AttackCommand extends Command {
     /** The ids of the enemies the player's unit could attack right now. */
     public List<Integer> findTargets(Player attacker, int attackingUnitID) {
         Unit unit = attacker.getPlayerDeck().getUnit(attackingUnitID);
+        return unit == null ? List.of() : findTargetsFrom(attacker, attackingUnitID, unit.getPosition());
+    }
+
+    /** The ids of the enemies the player's unit could attack if it stood on the tile (for the bot's planning). */
+    public List<Integer> findTargetsFrom(Player attacker, int attackingUnitID, Point from) {
+        Unit unit = attacker.getPlayerDeck().getUnit(attackingUnitID);
         if (!(unit instanceof AssaultClass)) return List.of();
-        return scout(attackingUnitID, attacker);
+        return scout(attacker, unit, from);
     }
 
     private List<GameEvent> attackBase(int attackingUnitID, Unit attackingUnit, Player defender) {
@@ -209,11 +245,13 @@ public class AttackCommand extends Command {
         int damage = structureDamage((AssaultClass) attackingUnit, base);
 
         base.setHealthPoints(-damage);
+        base.markUnderFire();
 
+        List<GameEvent> events = describeAttack(attackingUnitID, attackingUnit, base.getBaseID(), base, damage, hpBefore);
         if (base.getHealthPoints() <= 0) {
-            //Todo:
+            events.addAll(creditKill(attackingUnitID, attackingUnit));
         }
-        return describeAttack(attackingUnitID, attackingUnit, base.getBaseID(), base, damage, hpBefore);
+        return events;
     }
 
     private List<GameEvent> attackUnit(int attackingUnitID, Unit attackingUnit, Player defender, int defendingUnitID) {
@@ -224,18 +262,35 @@ public class AttackCommand extends Command {
         int damage = predictDamage(attacker, defendingUnit);
 
         int hpBefore = defendingUnit.getHealthPoints();
-        Unit passenger = getGameModel().getGuestOf(defendingUnit);
+        List<Unit> passengers = getGameModel().getGuestsOf(defendingUnit);
         defendingUnit.setHealthPoints(-damage);
+        if (defendingUnit instanceof Infrastructure building) {
+            building.markUnderFire();
+        }
 
         if (defendingUnit.getHealthPoints() <= 0) {
             defender.getPlayerDeck().removeUnit(defendingUnitID);
         }
         List<GameEvent> events = describeAttack(attackingUnitID, attackingUnit, defendingUnitID, defendingUnit, damage, hpBefore);
-        if (defendingUnit.getHealthPoints() <= 0 && defendingUnit instanceof TransportShip && passenger != null) {
-            // a sunk transport takes the unit on its deck down with it
-            int passengerId = getGameModel().getUnitID(passenger);
-            defender.getPlayerDeck().removeUnit(passengerId);
+        if (defendingUnit.getHealthPoints() <= 0 && defendingUnit instanceof TransportShip) {
+            // a sunk transport takes the units on its deck down with it
             events = new ArrayList<>(events);
+            events.addAll(sinkPassengers(defender, passengers));
+        }
+        if (defendingUnit.getHealthPoints() <= 0) {
+            events = new ArrayList<>(events);
+            events.addAll(creditKill(attackingUnitID, attackingUnit));
+        }
+        return events;
+    }
+
+    /** Removes the units that went down with their ship; returns their destruction. */
+    List<GameEvent> sinkPassengers(Player owner, List<Unit> passengers) {
+        List<GameEvent> events = new ArrayList<>();
+        for (Unit passenger : passengers) {
+            int passengerId = getGameModel().getUnitID(passenger);
+            if (passengerId < 0) continue; // already gone
+            owner.getPlayerDeck().removeUnit(passengerId);
             events.add(new GameEvent.UnitDestroyed(passenger.getPlayerID(), passengerId, passenger.getUnitName(),
                     passenger.getPosition(), false));
         }
@@ -256,6 +311,18 @@ public class AttackCommand extends Command {
         return (int) Math.round(damage * (100 - coverPercent(target, targetPosition)) / 100.0);
     }
 
+    /**
+     * What a strike of the given strength that comes from no unit (an ability) does to the target: armour takes its
+     * share off, and on the ground cover does too.
+     */
+    public int strikeDamage(double damage, Unit target) {
+        if (target instanceof Infrastructure) {
+            return afterArmor(damage, getGameModel().getArmorValue(target));
+        }
+        int dealt = afterArmor(damage, getGameModel().getArmorValue(target));
+        return (int) Math.round(dealt * (100 - coverPercent(target, target.getPosition())) / 100.0);
+    }
+
     /** Forests and mountains shelter units on the ground; aircraft and ships get no cover. */
     public int coverPercent(Unit unit, Point position) {
         if (unit instanceof Aircraft || isVessel(unit) || unit instanceof Infrastructure) return 0;
@@ -273,22 +340,27 @@ public class AttackCommand extends Command {
     private static final double ANTI_AIR_VS_GROUND = 0.5;
     private static final double GROUND_VS_HELICOPTER = 1;
     private static final double TORPEDO_VS_SHIP = 2;
+    private static final double PRECISION_MUNITIONS_BONUS = 1.25;
 
-    /** Artillery, tanks and aircraft are made to break buildings, everything else barely scratches them. */
-    private static int structureDamage(AssaultClass attacker, Infrastructure building) {
+    /**
+     * Artillery, tanks and aircraft are made to break buildings (aircraft better with Precision Munitions),
+     * everything else barely scratches them.
+     */
+    private int structureDamage(AssaultClass attacker, Infrastructure building) {
         double multiplier;
         if (attacker instanceof SelfPropelledArtillery) multiplier = ARTILLERY_VS_STRUCTURE;
         else if (attacker instanceof AssaultTank) multiplier = TANK_VS_STRUCTURE;
-        else if (attacker instanceof Aircraft) multiplier = AIRCRAFT_VS_STRUCTURE;
+        else if (attacker instanceof Aircraft) multiplier = AIRCRAFT_VS_STRUCTURE
+                * (getGameModel().getOwner(attacker).hasResearched(Research.PRECISION_MUNITIONS) ? PRECISION_MUNITIONS_BONUS : 1);
         else multiplier = OTHER_VS_STRUCTURE;
-        return afterArmor(attacker.getDamage() * multiplier, building.getArmorValue());
+        return afterArmor(attacker.getDamage() * multiplier, getGameModel().getArmorValue(building));
     }
 
     /**
      * Anti-air hits aircraft twice as hard but ground targets only half as hard; other ground and sea units only
      * graze aircraft. Tank armour takes its percentage off.
      */
-    private static int unitDamage(AssaultClass attacker, Unit target) {
+    private int unitDamage(AssaultClass attacker, Unit target) {
         double damage = attacker.getDamage();
         if (target instanceof Aircraft) {
             if (attacker instanceof AntiAir) damage *= ANTI_AIR_VS_AIRCRAFT;
@@ -303,7 +375,7 @@ public class AttackCommand extends Command {
         if (attacker instanceof Submarine && isVessel(target)) {
             damage *= TORPEDO_VS_SHIP;
         }
-        return afterArmor(damage, target instanceof AssaultTank tank ? tank.getArmorValue() : 0);
+        return afterArmor(damage, getGameModel().getArmorValue(target));
     }
 
     /**

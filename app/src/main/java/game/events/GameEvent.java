@@ -1,5 +1,7 @@
 package game.events;
 
+import game.game.Ability;
+
 import java.awt.Point;
 import java.util.List;
 
@@ -65,6 +67,28 @@ public sealed interface GameEvent {
                         int hpBefore, int maxHpBefore, int hpAfter, int maxHpAfter) implements GameEvent {
         public BaseUpgraded {
             pos = new Point(pos);
+        }
+    }
+
+    /** A unit's kill raised its veterancy rank (each rank adds damage). */
+    record UnitPromoted(int playerId, int unitId, String unitName, Point pos, int rank) implements GameEvent {
+        public UnitPromoted {
+            pos = new Point(pos);
+        }
+    }
+
+    /** A player finished a research project. */
+    record ResearchCompleted(int playerId, String researchName) implements GameEvent {
+    }
+
+    /**
+     * A player called in an ability on the target tile; it reaches every tile of the area. The damage it does
+     * follows as separate events.
+     */
+    record AbilityUsed(int playerId, Ability ability, Point target, List<Point> area) implements GameEvent {
+        public AbilityUsed {
+            target = new Point(target);
+            area = area.stream().map(Point::new).toList();
         }
     }
 }

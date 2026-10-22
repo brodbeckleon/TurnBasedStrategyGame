@@ -38,6 +38,7 @@ public class BalanceLab {
     static String[] firstBuy = new String[3];
     static Map<String, int[]> openings = new TreeMap<>();
     static List<String> log = new ArrayList<>();
+    static Map<String, Integer> uses = new TreeMap<>(); // abilities called in and projects researched, over all games
 
     static Result play(long seed, Predicate<UnitEnum> roster1, Predicate<UnitEnum> roster2, boolean record) {
         return play(seed, roster1, roster2, record, Difficulty.NORMAL, Difficulty.NORMAL);
@@ -90,6 +91,8 @@ public class BalanceLab {
                                 if (d.isBase() && d.hpAfter() <= 0) hqKiller = lastAttacker;
                             }
                             case GameEvent.UnitDestroyed d -> { if (record && !d.isBase()) { st(lastAttacker).kills++; st(d.unitName()).lost++; } }
+                            case GameEvent.AbilityUsed a -> { if (record) uses.merge(a.ability().label(), 1, Integer::sum); }
+                            case GameEvent.ResearchCompleted r -> { if (record) uses.merge("research " + r.researchName(), 1, Integer::sum); }
                             default -> {}
                         }
                     }
@@ -151,11 +154,13 @@ public class BalanceLab {
         int[] wins = new int[3]; int totalRounds = 0; Map<String, Integer> killers = new TreeMap<>();
         List<Integer> lengths = new ArrayList<>();
         double contact = 0, hqHit = 0; int timeoutsShown = 0;
+        List<Integer> sieges = new ArrayList<>(); // rounds from the first hit on a headquarters to the end of the game
         for (int g = 0; g < games; g++) {
             Result r = play(g, t -> true, t -> true, true);
             wins[r.winner]++; totalRounds += r.rounds; lengths.add(r.rounds);
             if (r.hqKiller != null) killers.merge(r.hqKiller, 1, Integer::sum);
             contact += r.firstContact; hqHit += r.firstHqHit;
+            if (r.winner != 0 && r.firstHqHit > 0) sieges.add(r.rounds - r.firstHqHit);
             if (r.winner == 0 && timeoutsShown++ < 5) out.println("  timeout: " + r.end);
         }
         out.printf("first contact avg round %.1f, first HQ hit avg round %.1f%n", contact / (double) games, hqHit / (double) games);
@@ -165,6 +170,13 @@ public class BalanceLab {
         out.printf("MIRROR %d games: P1 %d  P2 %d  timeout %d | rounds avg %.1f median %d min %d max %d%n", games,
                 wins[1], wins[2], wins[0], totalRounds / (double) games, lengths.get(games / 2), lengths.get(0), lengths.get(games - 1));
         out.println("HQ destroyed by: " + killers);
+        Collections.sort(sieges);
+        if (!sieges.isEmpty()) {
+            out.printf("siege (first HQ hit to game over, decided games): avg %.1f median %d max %d rounds%n",
+                    sieges.stream().mapToInt(Integer::intValue).average().orElse(0), sieges.get(sieges.size() / 2),
+                    sieges.get(sieges.size() - 1));
+        }
+        uses.forEach((k, n) -> out.printf("  %-34s %5d times, %.1f per game%n", k, n, n / (double) games));
         if (System.getenv("BALANCE_CHECK") != null) {
             // CI smoke test: a side that wins far too often or games that never end mean something broke
             double sideShare = Math.max(wins[1], wins[2]) / (double) games;

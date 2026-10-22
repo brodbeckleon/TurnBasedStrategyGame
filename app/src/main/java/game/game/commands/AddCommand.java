@@ -3,6 +3,8 @@ package game.game.commands;
 import game.events.GameEvent;
 import game.game.Command;
 import game.game.Player;
+import game.game.Research;
+import game.enums.UnitEnum;
 import game.game.UnitFactory;
 import game.model.Game;
 import game.units.Infrastructure;
@@ -10,6 +12,7 @@ import game.units.Unit;
 import game.units.infrastructures.NavyBase;
 import java.awt.Point;
 import java.util.List;
+import java.util.Optional;
 
 public class AddCommand extends Command {
     private static final UnitFactory unitFactory = new UnitFactory();
@@ -28,6 +31,17 @@ public class AddCommand extends Command {
     public CommandResult execute(Player player, String unitName, Point position) {
         // Create the unit
         Unit unit = unitFactory.createUnit(player.getPlayerID(), unitName, position);
+
+        // The heaviest units need research, and the army may not grow past its limit
+        Optional<Research> research = Research.requiredFor(UnitEnum.valueOf(unitName));
+        if (research.isPresent() && !player.hasResearched(research.get())) {
+            return new CommandResult(false, "Research " + research.get().label() + " first to unlock the "
+                    + unit.getUnitName() + ".");
+        }
+        if (!(unit instanceof Infrastructure) && isArmyFull(player)) {
+            return new CommandResult(false, "Your army is at its limit (" + getGameModel().getArmyLimit(player)
+                    + " units): hold more bases or research Logistics to field more.");
+        }
 
         // Bases go on free base ruins, everything else on a free tile
         if (isSiteBuilding(unit)) {
@@ -67,14 +81,16 @@ public class AddCommand extends Command {
         if (isSiteBuilding(unit)) {
             player.getPlayerDeck().setUnitUnavailable(findBuilder(player, position).orElseThrow());
         }
-        // a new unit has to wait for the next turn before it moves or acts
-        if (!(unit instanceof Infrastructure)) {
-            unit.setIsAvailable(false);
-        }
         player.getPlayerDeck().addUnit(unit);
+        readyNewUnit(player, unit); // a new unit waits for the next turn, unless researched otherwise
         player.removeResourcePoints(unit.getResourceCost());
 
         GameEvent deployed = new GameEvent.UnitDeployed(player.getPlayerID(), getGameModel().getUnitID(unit), unit.getUnitName(), position);
         return new CommandResult(true, unit.getUnitName() + " added successfully.", List.of(deployed));
+    }
+
+    /** True if the player fields as many units as its army limit allows. */
+    public boolean isArmyFull(Player player) {
+        return getGameModel().getArmySize(player) >= getGameModel().getArmyLimit(player);
     }
 }

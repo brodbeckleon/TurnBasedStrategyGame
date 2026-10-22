@@ -1,9 +1,11 @@
 package game.controller;
 
 import game.events.GameEvent;
+import game.game.Ability;
 import game.game.Command;
 import game.game.Movement;
 import game.game.Player;
+import game.game.Research;
 import game.game.UnitFactory;
 import game.game.Vision;
 import game.game.commands.*;
@@ -55,7 +57,8 @@ public class GameController {
     private enum ControllerState {
         NORMAL,
         UNIT_SELECTED,
-        AWAITING_PLACEMENT
+        AWAITING_PLACEMENT,
+        AWAITING_ABILITY_TARGET
     }
 
     private final Game model;
@@ -66,6 +69,8 @@ public class GameController {
     private final AttackCommand attackCommand;
     private final HealCommand healCommand;
     private final UpgradeCommand upgradeCommand;
+    private final ResearchCommand researchCommand;
+    private final AbilityCommand abilityCommand;
     private final Map<Integer, BotService> bots = new java.util.HashMap<>(); // one per enemy, by player id
     private final UnitFactory unitFactory = new UnitFactory();
     private final CircleGenerator circleGenerator = new CircleGenerator();
@@ -74,6 +79,7 @@ public class GameController {
 
     private ControllerState currentState = ControllerState.NORMAL;
     private UnitEnum unitTypeToAdd = null;
+    private Ability armedAbility = null;
     private int selectedUnitId = -1; // -1 means no unit is selected
     private boolean animating = false; // true while an animation or the bot turn blocks the player's input
     private boolean stopped = false; // the player left the game: nothing more happens in it
@@ -91,6 +97,8 @@ public class GameController {
         this.attackCommand = new AttackCommand(model);
         this.healCommand = new HealCommand(model);
         this.upgradeCommand = new UpgradeCommand(model);
+        this.researchCommand = new ResearchCommand(model);
+        this.abilityCommand = new AbilityCommand(model);
         for (Player player : model.getPlayers()) {
             if (player != model.getPlayerOne()) {
                 bots.put(player.getPlayerID(), new BotService(model, addCommand, moveCommand, attackCommand, healCommand,
@@ -203,6 +211,9 @@ public class GameController {
             view.logInfo("Bot difficulty: " + level + ".");
         });
         view.setOnPickReady(this::selectUnit);
+        view.setResearch(this::research, research -> researchCommand.refusal(model.getPlayerOne(), research));
+        view.setAbilities(this::prepareAbility, ability -> abilityCommand.notReady(model.getPlayerOne(), ability),
+                this::abilityArea);
         view.setFogOfWar(model.isFogOfWar(), fog -> {
             model.setFogOfWar(fog);
             if (canAct()) refresh();
@@ -224,6 +235,12 @@ public class GameController {
             case E -> endTurn();
             case U -> upgradeSelected();
             case N -> selectNextReady();
+            case R -> view.toggleResearch();
+            case Z -> prepareAbility(Ability.RADAR_SWEEP);
+            case X -> prepareAbility(Ability.ARTILLERY_BARRAGE);
+            case C -> prepareAbility(Ability.AIRSTRIKE);
+            case V -> prepareAbility(Ability.CRUISE_MISSILE);
+            case B -> prepareAbility(Ability.PARATROOPERS);
             case ESCAPE -> cancel();
             default -> {
                 String key = event.getText();
@@ -380,6 +397,18 @@ public class GameController {
                 }
                 case GameEvent.BaseUpgraded e -> {
                     if (e.playerId() == 1 || seen.contains(e.pos())) visible.add(e);
+                }
+                case GameEvent.UnitPromoted e -> {
+                    if (e.playerId() == 1 || sees.test(e.unitId(), e.pos())) visible.add(e);
+                }
+                case GameEvent.ResearchCompleted e -> {
+                    if (e.playerId() == 1) visible.add(e); // what the enemy researches stays secret
+                }
+                case GameEvent.AbilityUsed e -> {
+                    // an enemy's sweep goes unnoticed; its shells and bombs are seen where they land
+                    if (e.playerId() == 1 || (e.ability() != Ability.RADAR_SWEEP && e.area().stream().anyMatch(seen::contains))) {
+                        visible.add(e);
+                    }
                 }
             }
         }
@@ -539,6 +568,18 @@ public class GameController {
                         + e.amount() + " HP to " + e.targetName() + ".";
                 case GameEvent.BaseUpgraded e -> owner(e.playerId()) + " " + (e.unitName().equals("Base") ? "base" : e.unitName())
                         + " was upgraded to level " + e.level() + ".";
+                case GameEvent.UnitPromoted e -> owner(e.playerId()) + " " + e.unitName() + " was promoted to "
+                        + AssaultClass.rankTitle(e.rank()) + " (+" + Math.round(e.rank() * AssaultClass.DAMAGE_PER_RANK * 100)
+                        + "% damage).";
+                case GameEvent.ResearchCompleted e -> e.playerId() == 1 ? "Research complete: " + e.researchName() + "."
+                        : model.getPlayerName(e.playerId()) + " researched " + e.researchName() + ".";
+                case GameEvent.AbilityUsed e -> (e.playerId() == 1 ? "You " : model.getPlayerName(e.playerId()) + " ")
+                        + switch (e.ability()) {
+                            case PARATROOPERS -> e.playerId() == 1 ? "drop paratroopers." : "drops paratroopers.";
+                            case AIRSTRIKE -> (e.playerId() == 1 ? "call" : "calls") + " in an airstrike.";
+                            case CRUISE_MISSILE -> (e.playerId() == 1 ? "fire" : "fires") + " a cruise missile.";
+                            default -> (e.playerId() == 1 ? "call" : "calls") + " in a " + e.ability().label().toLowerCase() + ".";
+                        };
             };
             if (line != null) {
                 view.logInfo(line);
@@ -603,6 +644,19 @@ public class GameController {
 
     /** What the selected unit's attack on the unit at the cell would do, for the inspector; null if none. */
     private AttackPreview attackPreview(Point cell) {
+        if (currentState == ControllerState.AWAITING_ABILITY_TARGET && canAct() && armedAbility != Ability.RADAR_SWEEP
+                && armedAbility != Ability.PARATROOPERS) {
+            Unit target = switch (armedAbility) {
+                case AIRSTRIKE -> abilityCommand.airstrikeTarget(model.getCurrentPlayer(), cell);
+                case CRUISE_MISSILE -> abilityCommand.cruiseTarget(model.getCurrentPlayer(), cell);
+                default -> model.getUnitSeenAt(cell, model.getCurrentPlayer());
+            };
+            if (target == null || !model.isVisibleTo(model.getCurrentPlayer(), target)) return null;
+            if (target == null || model.isUnitOwnedByCurrentPlayer(model.getUnitID(target))) return null;
+            int damage = abilityCommand.predictDamage(armedAbility, target);
+            int hpAfter = target.getHealthPoints() - damage;
+            return new AttackPreview(damage, Math.max(0, hpAfter), hpAfter <= 0, 0, 0, false);
+        }
         if (currentState != ControllerState.UNIT_SELECTED || !canAct()) return null;
         Unit target = model.getUnitSeenAt(cell, model.getCurrentPlayer());
         if (target == null || model.isUnitOwnedByCurrentPlayer(model.getUnitID(target))) return null;
@@ -621,6 +675,41 @@ public class GameController {
         if (!playPlayerAction(result)) {
             refresh();
         }
+    }
+
+    /** Starts a research project (a click in the research tree). */
+    private void research(Research research) {
+        if (!canAct()) return;
+        sightBefore = sight();
+        CommandResult result = researchCommand.execute(model.getCurrentPlayer(), research);
+        logResult(result);
+        if (!playPlayerAction(result)) {
+            refresh();
+        }
+    }
+
+    /** Arms an ability for targeting (button or Z/X/C); picking the armed one again cancels it. */
+    private void prepareAbility(Ability ability) {
+        if (!canAct()) return;
+        if (currentState == ControllerState.AWAITING_ABILITY_TARGET && armedAbility == ability) {
+            cancel();
+            return;
+        }
+        String notReady = abilityCommand.notReady(model.getCurrentPlayer(), ability);
+        if (notReady != null) {
+            view.logInfo(ability.label() + ": " + notReady);
+            return;
+        }
+        resetSelection();
+        armedAbility = ability;
+        currentState = ControllerState.AWAITING_ABILITY_TARGET;
+        refresh();
+    }
+
+    /** The tiles the armed ability would reach if aimed at the cell, for the board; empty if none is armed. */
+    private List<Point> abilityArea(Point cell) {
+        if (currentState != ControllerState.AWAITING_ABILITY_TARGET || cell == null || !canAct()) return List.of();
+        return abilityCommand.area(armedAbility, cell);
     }
 
     /** Arms a unit type for placement; picking the armed type again cancels it. */
@@ -653,6 +742,7 @@ public class GameController {
     private void resetSelection() {
         selectedUnitId = -1;
         unitTypeToAdd = null;
+        armedAbility = null;
         currentState = ControllerState.NORMAL;
     }
 
@@ -674,6 +764,17 @@ public class GameController {
         BoardHighlights highlights = computeHighlights();
         sightBefore = sight();
 
+        if (currentState == ControllerState.AWAITING_ABILITY_TARGET) {
+            CommandResult result = abilityCommand.execute(model.getCurrentPlayer(), armedAbility, clickedPoint);
+            logResult(result);
+            if (result.wasSuccessful()) {
+                resetSelection();
+            }
+            if (!playPlayerAction(result)) {
+                refresh();
+            }
+            return;
+        }
         if (currentState == ControllerState.AWAITING_PLACEMENT) {
             CommandResult result = addCommand.execute(model.getCurrentPlayer(), unitTypeToAdd.name(), clickedPoint);
                 logResult(result);
@@ -700,16 +801,17 @@ public class GameController {
             Unit selectedUnit = model.findUnitById(selectedUnitId);
             if (selectedUnit == null) {
                 resetSelection();
-            } else if (clickedUnit != null && model.getUnitID(clickedUnit) == selectedUnitId) {
-                // a second click on a unit on top of a building or ship picks the one underneath
-                Unit host = model.getHostOf(clickedUnit);
-                if (host != null && model.isUnitOwnedByCurrentPlayer(model.getUnitID(host))) {
-                    selectedUnitId = model.getUnitID(host);
+            } else if (clickedUnit != null && selectedUnit.getPosition().equals(clickedPoint)
+                    && model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
+                // clicking the selected unit's tile again goes down the stack (the units on deck, then the building
+                // or ship under them); past the bottom it drops the selection
+                List<Unit> stack = model.getStackAt(clickedPoint);
+                int next = stack.indexOf(selectedUnit) + 1;
+                if (next > 0 && next < stack.size() && model.isUnitOwnedByCurrentPlayer(model.getUnitID(stack.get(next)))) {
+                    selectedUnitId = model.getUnitID(stack.get(next));
                 } else {
                     resetSelection();
                 }
-            } else if (clickedUnit != null && model.getHostOf(clickedUnit) == selectedUnit) {
-                resetSelection(); // the third click on the tile drops the selection
             } else if (clickedUnit != null && !model.isUnitOwnedByCurrentPlayer(model.getUnitID(clickedUnit))) {
                 CommandResult result = attackCommand.execute(currentPlayer, selectedUnitId, model.getUnitID(clickedUnit));
                 logResult(result);
@@ -761,6 +863,7 @@ public class GameController {
     /** The hint, the armed deploy card and the end turn suggestion, which change with the input lock too. */
     private void refreshStatus() {
         view.setArmedDeploy(currentState == ControllerState.AWAITING_PLACEMENT ? unitTypeToAdd : null);
+        view.setArmedAbility(currentState == ControllerState.AWAITING_ABILITY_TARGET ? armedAbility : null);
         view.setBlockedDeploys(blockedDeploys());
         view.setReadyUnits(canAct() ? readyUnits() : List.of());
         view.setEndTurnSuggested(canAct() && currentState == ControllerState.NORMAL && nothingLeftToDo());
@@ -774,6 +877,27 @@ public class GameController {
         }
         if (currentState == ControllerState.AWAITING_PLACEMENT) {
             return new BoardHighlights(-1, Set.of(), Set.of(), Set.of(), Set.of(), deployTiles(unitTypeToAdd));
+        }
+        if (currentState == ControllerState.AWAITING_ABILITY_TARGET) {
+            // the enemies it can hit are marked; the barrage and the sweep may also be aimed at empty ground
+            Set<Point> targets = new HashSet<>();
+            if (armedAbility == Ability.PARATROOPERS) {
+                // where the squad can land, like deploy tiles
+                return new BoardHighlights(-1, Set.of(), Set.of(), Set.of(), Set.of(),
+                        abilityCommand.targetTiles(model.getCurrentPlayer(), armedAbility));
+            }
+            if (armedAbility == Ability.CRUISE_MISSILE) {
+                targets.addAll(abilityCommand.targetTiles(model.getCurrentPlayer(), armedAbility));
+            } else if (armedAbility != Ability.RADAR_SWEEP) {
+                Set<Point> aim = abilityCommand.targetTiles(model.getCurrentPlayer(), armedAbility);
+                for (Unit enemy : model.getVisibleEnemies(model.getCurrentPlayer())) {
+                    if (enemy.getHealthPoints() > 0 && aim.contains(enemy.getPosition())
+                            && !model.isEliminated(model.getOwner(enemy))) {
+                        targets.add(enemy.getPosition());
+                    }
+                }
+            }
+            return new BoardHighlights(-1, Set.of(), Set.of(), targets, Set.of(), Set.of());
         }
         Unit selected = currentState == ControllerState.UNIT_SELECTED ? model.findUnitById(selectedUnitId) : null;
         if (selected == null || !selected.isAvailable()) {
@@ -812,10 +936,18 @@ public class GameController {
 
     /** Why the type cannot be deployed right now (resources aside), or null if it can. */
     private String blockedReason(UnitEnum type) {
+        Optional<Research> research = Research.requiredFor(type);
+        if (research.isPresent() && !model.getCurrentPlayer().hasResearched(research.get())) {
+            return "research " + research.get().label() + " first (Research, R).";
+        }
+        Unit unit = unitFactory.createUnit(model.getCurrentPlayer().getPlayerID(), type, PROBE_POSITION);
+        if (!(unit instanceof Infrastructure) && addCommand.isArmyFull(model.getCurrentPlayer())) {
+            return "your army is at its limit (" + model.getArmyLimit(model.getCurrentPlayer())
+                    + " units): hold more bases or research Logistics.";
+        }
         if (!deployTiles(type).isEmpty()) {
             return null;
         }
-        Unit unit = unitFactory.createUnit(model.getCurrentPlayer().getPlayerID(), type, PROBE_POSITION);
         boolean hasBuilding = model.getCurrentPlayer().getPlayerDeck().getBuildings().stream()
                 .anyMatch(building -> unit instanceof Infrastructure ? building.getConstructionRadius() > 0 : building.canDeploy(unit))
                 || model.getCurrentPlayer().getPlayerDeck().getUnits().values().stream()
@@ -864,7 +996,7 @@ public class GameController {
             }
         }
         int resources = model.getCurrentPlayer().getResourcePoints();
-        return deployOptions.stream().noneMatch(option -> option.cost() <= resources && !deployTiles(option.type()).isEmpty());
+        return deployOptions.stream().noneMatch(option -> option.cost() <= resources && blockedReason(option.type()) == null);
     }
 
     /** True if the unit can still do something this turn: move somewhere, or act from where it stands. */
@@ -897,6 +1029,16 @@ public class GameController {
             return "Click the board or press Space to fast-forward.";
         }
         switch (currentState) {
+            case AWAITING_ABILITY_TARGET -> {
+                String where = switch (armedAbility) {
+                    case RADAR_SWEEP -> "click any tile to reveal everything within " + armedAbility.radius() + " of it";
+                    case ARTILLERY_BARRAGE -> "click a tile you can see: it and every tile around it are shelled";
+                    case AIRSTRIKE -> "click an enemy unit or building you can see";
+                    case CRUISE_MISSILE -> "click any enemy building, seen or not";
+                    case PARATROOPERS -> "click a green tile to drop a rifle squad there";
+                };
+                return armedAbility.label() + " (" + armedAbility.cost() + " RP): " + where + ".  Right-click or Esc to cancel.";
+            }
             case AWAITING_PLACEMENT -> {
                 DeployOption option = optionFor(unitTypeToAdd);
                 if (deployTiles(unitTypeToAdd).isEmpty()) {
@@ -908,9 +1050,12 @@ public class GameController {
             case UNIT_SELECTED -> {
                 Unit selected = model.findUnitById(selectedUnitId);
                 if (selected instanceof MilitaryBase base) {
-                    return base.canUpgrade()
-                            ? "Press U (or Upgrade in the inspector) to raise this base to level " + (base.getLevel() + 1)
-                              + " for " + base.getUpgradeCost() + " RP.  Esc to deselect."
+                    if (base.canUpgrade(model.getMaxBaseLevel(model.getCurrentPlayer()))) {
+                        return "Press U (or Upgrade in the inspector) to raise this base to level " + (base.getLevel() + 1)
+                                + " for " + base.getUpgradeCost() + " RP.  Esc to deselect.";
+                    }
+                    return base.getLevel() < MilitaryBase.MAX_LEVEL
+                            ? "Research Industrial Expansion to raise bases to level " + MilitaryBase.MAX_LEVEL + ".  Esc to deselect."
                             : "This base is fully upgraded.  Esc to deselect.";
                 }
                 if (selected == null || !selected.isAvailable()) {
@@ -939,7 +1084,7 @@ public class GameController {
                     return "Nothing left to do this turn.  Press E to end your turn.";
                 }
                 return "Select a unit (N: next ready one), or deploy with keys 1–9 (Tab switches the deploy tab).  "
-                        + "E: end your turn.";
+                        + "R: research, Z/X/C/V/B: abilities, E: end your turn.";
             }
         }
     }

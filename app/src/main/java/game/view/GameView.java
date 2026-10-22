@@ -3,7 +3,10 @@ package game.view;
 import game.enums.TerrainEnum;
 import game.enums.UnitEnum;
 import game.events.GameEvent;
+import game.game.Ability;
 import game.game.Player;
+import game.game.Research;
+import game.game.commands.HealCommand;
 import game.game.commands.AttackPreview;
 import game.game.Vision;
 import game.game.map.Battlefield;
@@ -73,6 +76,8 @@ public class GameView {
     private static final Color DEPLOY_FILL = Color.rgb(60, 230, 120, 0.42);
     private static final Color DEPLOY_EDGE = Color.rgb(170, 255, 190, 0.9);
     private static final Color SELECTION_COLOR = Color.rgb(255, 245, 170);
+    private static final Color AREA_FILL = Color.rgb(255, 150, 50, 0.3);
+    private static final Color AREA_EDGE = Color.rgb(255, 200, 120, 0.8);
 
     private final BorderPane root;
     private final GridPane grid;
@@ -136,6 +141,18 @@ public class GameView {
     private Function<Point, AttackPreview> attackPreview = cell -> null;
     private java.util.function.IntConsumer onPickReady = id -> { };
     private final FlowPane readyStrip = new FlowPane(4, 4);
+    private final Button researchButton = new Button("Research  [R]");
+    private final Map<Ability, Button> abilityButtons = new EnumMap<>(Ability.class);
+    private final Map<Ability, Label> abilityCosts = new EnumMap<>(Ability.class);
+    private Consumer<Ability> onAbility = ability -> { };
+    private Function<Ability, String> abilityNotReady = ability -> null;
+    private Function<Point, List<Point>> abilityArea = cell -> List.of();
+    private Ability armedAbility;
+    private final List<Node> areaMarks = new ArrayList<>();
+    private Consumer<Research> onResearch = research -> { };
+    private Function<Research, String> researchRefusal = research -> null;
+    private ResearchScreen researchScreen; // the research tree while it is open
+    private final StackPane frame; // the game, with room on top for the research tree
     private final Label readyTitle = sectionTitle("READY");
 
     public GameView(int width, int height) {
@@ -145,6 +162,7 @@ public class GameView {
         PixelFonts.load();
         root = new BorderPane();
         root.getStyleClass().add("game-root");
+        frame = new StackPane(root);
         grid = new GridPane();
 
         for (int i = 0; i < gridWidth; i++) {
@@ -272,6 +290,7 @@ public class GameView {
                 playerCards,
                 skipTurnButton,
                 new VBox(4, readyTitle, readyStrip),
+                sectionTitle("COMMAND"), commandBox(),
                 sectionTitle("DEPLOY"), deployBox,
                 sectionTitle("INSPECT"), inspector,
                 sectionTitle("LOG"), infoArea,
@@ -297,6 +316,51 @@ public class GameView {
         animationsBox.selectedProperty().addListener((observable, wasSelected, selected) -> idleMotion.setEnabled(selected));
         installHover();
         installKeys();
+    }
+
+    /** The research button and one button per ability, three in a row like the deploy tabs. */
+    private VBox commandBox() {
+        researchButton.getStyleClass().add("upgrade-button");
+        researchButton.setMaxWidth(Double.MAX_VALUE);
+        researchButton.setFocusTraversable(false);
+        researchButton.setOnAction(event -> toggleResearch());
+        GridPane row = new GridPane();
+        row.setHgap(4);
+        row.setVgap(4);
+        for (int i = 0; i < 3; i++) {
+            ColumnConstraints third = new ColumnConstraints();
+            third.setPercentWidth(100.0 / 3);
+            row.getColumnConstraints().add(third);
+        }
+        String[] keys = {"Z", "X", "C", "V", "B"};
+        for (Ability ability : Ability.values()) {
+            Label name = new Label(switch (ability) {
+                case RADAR_SWEEP -> "Sweep";
+                case ARTILLERY_BARRAGE -> "Barrage";
+                case AIRSTRIKE -> "Airstrike";
+                case CRUISE_MISSILE -> "Missile";
+                case PARATROOPERS -> "Paradrop";
+            });
+            name.getStyleClass().add("deploy-name");
+            Label cost = new Label();
+            cost.getStyleClass().add("deploy-cost");
+            Label key = new Label(keys[ability.ordinal()]);
+            key.getStyleClass().add("deploy-key");
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+            VBox content = new VBox(2, name, new HBox(4, cost, spacer, key));
+            Button button = new Button();
+            button.setGraphic(content);
+            button.getStyleClass().add("deploy-card");
+            button.setMaxWidth(Double.MAX_VALUE);
+            button.setMaxHeight(Double.MAX_VALUE);
+            button.setFocusTraversable(false);
+            button.setOnAction(event -> onAbility.accept(ability));
+            row.add(button, ability.ordinal() % 3, ability.ordinal() / 3);
+            abilityButtons.put(ability, button);
+            abilityCosts.put(ability, cost);
+        }
+        return new VBox(6, researchButton, row);
     }
 
     private static Label sectionTitle(String text) {
@@ -372,6 +436,10 @@ public class GameView {
             cards.get(i).update(model, player, currentPlayer == player);
         }
         refreshDeployButtons();
+        refreshAbilityButtons();
+        if (researchScreen != null) {
+            showResearch();
+        }
 
         idleMotion.clear();
         unitNodes.clear();
@@ -528,20 +596,38 @@ public class GameView {
         }
         unitStack.setUserData(unitId);
 
-        if (model.getHostOf(unit) != null) {
-            // on top of a building or ship: drawn smaller in the bottom right corner, over it
-            unitStack.getTransforms().add(new javafx.scene.transform.Scale(GUEST_SCALE, GUEST_SCALE, CELL_SIZE, CELL_SIZE));
+        Unit host = model.getHostOf(unit);
+        if (host != null) {
+            // on top of a building or ship: drawn smaller in the bottom right corner over it (a second one: left)
+            double pivotX = model.getGuestsOf(host).indexOf(unit) == 0 ? CELL_SIZE : 0;
+            unitStack.getTransforms().add(new javafx.scene.transform.Scale(GUEST_SCALE, GUEST_SCALE, pivotX, CELL_SIZE));
         }
         cellPane.getChildren().add(unitStack);
         if (unit instanceof MilitaryBase base && base.getLevel() > 1 && unit.getHealthPoints() > 0) {
-            Label badge = new Label(base.getLevel() == 2 ? "II" : "III");
+            Label badge = new Label(switch (base.getLevel()) {
+                case 2 -> "II";
+                case 3 -> "III";
+                default -> "IV";
+            });
             badge.getStyleClass().add("level-badge");
             badge.setMouseTransparent(true);
             StackPane.setAlignment(badge, Pos.BOTTOM_RIGHT);
             cellPane.getChildren().add(badge);
         }
+        if (unit instanceof AssaultClass veteran && veteran.getRank() > 0 && unit.getHealthPoints() > 0) {
+            cellPane.getChildren().add(rankBadge(veteran.getRank()));
+        }
         unitNodes.put(unitId, unitStack);
         addIdleMotion(unitStack, unitId);
+    }
+
+    /** The veteran's rank sign, in the top left corner just under its health bar. */
+    private static Node rankBadge(int rank) {
+        ImageView badge = RankInsignia.of(rank, 1);
+        badge.setTranslateX(2);
+        badge.setTranslateY(6);
+        StackPane.setAlignment(badge, Pos.TOP_LEFT);
+        return badge;
     }
 
     /** The one place that builds a unit sprite with its health bar, for the board and for animation ghosts. */
@@ -815,6 +901,19 @@ public class GameView {
     }
 
     private void refreshHover() {
+        markerLayer.getChildren().removeAll(areaMarks);
+        areaMarks.clear();
+        if (hoveredCell != null && !inputLocked && !gameOver) {
+            for (Point tile : abilityArea.apply(hoveredCell)) {
+                Rectangle mark = new Rectangle(tile.x * CELL_SIZE, tile.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                mark.setFill(AREA_FILL);
+                mark.setStroke(AREA_EDGE);
+                mark.setStrokeWidth(1);
+                mark.setStrokeType(StrokeType.INSIDE);
+                areaMarks.add(mark);
+            }
+            markerLayer.getChildren().addAll(0, areaMarks); // under the hover frame
+        }
         hoverFrame.setVisible(hoveredCell != null);
         if (hoveredCell != null) {
             hoverFrame.setX(hoveredCell.x * CELL_SIZE);
@@ -857,7 +956,9 @@ public class GameView {
 
         if (cell != null && !inputLocked) {
             String action = null;
-            if (highlights.targets().contains(cell)) {
+            if (armedAbility != null) {
+                action = "Click to call in the " + armedAbility.label();
+            } else if (highlights.targets().contains(cell)) {
                 action = "Click to attack";
             } else if (highlights.supportTargets().contains(cell)) {
                 action = "Click to heal / repair";
@@ -916,31 +1017,48 @@ public class GameView {
         }
         if (unit instanceof SupportClass support && support.getSupportPoints() > 0) {
             addStat(stats, column++, support.canSupport(model.getPlayerOne().getPlayerDeck().getBase()) ? "REPAIR" : "HEAL",
-                    support.getSupportPoints());
+                    HealCommand.supportPoints(model.getOwner(unit), support));
         }
         if (unit instanceof Spotter spotter) {
             addStat(stats, column++, "SPOT", spotter.getSpottingRange());
         }
         if (unit instanceof AssaultTank tank) {
-            addStat(stats, column++, "ARM %", tank.getArmorValue());
+            addStat(stats, column++, "ARM %", model.getArmorValue(tank));
         } else if (unit instanceof Infrastructure building) {
             if (building instanceof MilitaryBase base) {
                 addStat(stats, column++, "LV", base.getLevel());
                 addStat(stats, column++, "RP/RND", base.getIncome());
             }
             addStat(stats, column++, "ARM %", building.getArmorValue());
-            if (building.getConstructionRadius() > 0) {
-                addStat(stats, column, "BUILD", building.getConstructionRadius());
+            if (model.getConstructionRadius(building) > 0) {
+                addStat(stats, column, "BUILD", model.getConstructionRadius(building));
             }
         }
 
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
+        if (unit instanceof AssaultClass veteran && veteran.getRank() > 0) {
+            Label rank = new Label(AssaultClass.rankTitle(veteran.getRank()) + "  ·  +"
+                    + Math.round(veteran.getRank() * AssaultClass.DAMAGE_PER_RANK * 100) + "% damage"
+                    + (veteran.getRank() == AssaultClass.MAX_RANK ? " (highest rank)" : ""));
+            rank.getStyleClass().add("veteran");
+            HBox row = new HBox(8, RankInsignia.of(veteran.getRank(), 2), rank);
+            row.setAlignment(Pos.CENTER_LEFT);
+            inspector.getChildren().add(row);
+        }
+        if (unit instanceof Infrastructure building && building.isUnderFire() && unit.getHealthPoints() > 0) {
+            Label underFire = new Label("Under fire: no repairs until a round passes without an attack on it");
+            underFire.getStyleClass().add("preview-bad");
+            underFire.setWrapText(true);
+            underFire.setMinHeight(Region.USE_PREF_SIZE);
+            inspector.getChildren().add(underFire);
+        }
         Unit host = model.getHostOf(unit);
-        Unit guest = model.getGuestOf(unit);
-        if (host != null || guest != null) {
-            Label stack = new Label(host != null ? "On top of " + host.getUnitName() + " (click again to select it)"
-                    : (unit instanceof TransportShip ? "Carrying " : "Holding ") + guest.getUnitName()
-                      + " on top: it takes attacks first");
+        List<Unit> guests = model.getGuestsOf(unit).stream().filter(this::isShown).toList();
+        if (host != null || !guests.isEmpty()) {
+            Label stack = new Label(host != null ? "On top of " + host.getUnitName() + " (click again to go down the stack)"
+                    : (unit instanceof TransportShip ? "Carrying " : "Holding ")
+                      + String.join(" and ", guests.stream().map(Unit::getUnitName).toList())
+                      + " on top: " + (guests.size() == 1 ? "it takes" : "they take") + " attacks first");
             stack.getStyleClass().add("muted");
             stack.setWrapText(true);
             inspector.getChildren().add(stack);
@@ -948,14 +1066,16 @@ public class GameView {
 
         boolean selected = model.findUnitById(highlights.selectedUnitId()) == unit;
         if (unit instanceof MilitaryBase base && unit.getPlayerID() == 1 && selected && unit.getHealthPoints() > 0) {
-            Button upgrade = new Button(base.canUpgrade()
+            boolean canUpgrade = base.canUpgrade(model.getMaxBaseLevel(model.getPlayerOne()));
+            Button upgrade = new Button(canUpgrade
                     ? "Upgrade to level " + (base.getLevel() + 1) + "  ·  " + base.getUpgradeCost() + " RP  [U]"
+                    : base.getLevel() < MilitaryBase.MAX_LEVEL ? "Level " + (base.getLevel() + 1) + ": research Industrial Expansion"
                     : "Fully upgraded");
             upgrade.getStyleClass().add("upgrade-button");
             upgrade.setMaxWidth(Double.MAX_VALUE);
             upgrade.setFocusTraversable(false);
             boolean canAct = model.isPlayerOneTurn() && !inputLocked && !gameOver;
-            upgrade.setDisable(!canAct || !base.canUpgrade()
+            upgrade.setDisable(!canAct || !canUpgrade
                     || model.getPlayerOne().getResourcePoints() < base.getUpgradeCost());
             upgrade.setOnAction(event -> onUpgrade.run());
             inspector.getChildren().add(upgrade);
@@ -1014,7 +1134,7 @@ public class GameView {
         inspector.getChildren().addAll(title, text);
     }
 
-    public Pane getRoot() { return root; }
+    public Pane getRoot() { return frame; }
 
     /** Called with every key the player presses, unless it fast-forwards an animation. */
     public void setKeyHandler(Consumer<KeyEvent> keyHandler) {
@@ -1083,6 +1203,92 @@ public class GameView {
         this.onUpgrade = onUpgrade;
     }
 
+    /**
+     * The abilities: {@code onPick} arms one, {@code notReady} says why one cannot be used this turn (null if it
+     * can), {@code area} gives the tiles the armed one would reach when aimed at a cell (empty if none is armed).
+     */
+    public void setAbilities(Consumer<Ability> onPick, Function<Ability, String> notReady,
+                             Function<Point, List<Point>> area) {
+        onAbility = onPick;
+        abilityNotReady = notReady;
+        abilityArea = area;
+        refreshAbilityButtons();
+    }
+
+    /** Marks the ability that is waiting for its target, or none. */
+    public void setArmedAbility(Ability ability) {
+        armedAbility = ability;
+        refreshAbilityButtons();
+    }
+
+    private void refreshAbilityButtons() {
+        boolean canAct = model != null && model.isPlayerOneTurn() && !inputLocked && !gameOver;
+        researchButton.setDisable(model == null || gameOver);
+        for (Ability ability : Ability.values()) {
+            Button button = abilityButtons.get(ability);
+            Player you = model == null ? null : model.getPlayerOne();
+            String notReady = you == null ? null : abilityNotReady.apply(ability);
+            boolean locked = you != null && !you.hasUnlocked(ability);
+            int cooldown = you == null ? 0 : you.getCooldown(ability);
+            abilityCosts.get(ability).setText(locked ? "Locked" : cooldown > 0 ? cooldown + " turn" + (cooldown == 1 ? "" : "s")
+                    : ability.cost() + " RP");
+            button.setDisable(!canAct);
+            button.getStyleClass().removeAll("armed-card", "locked-card");
+            if (ability == armedAbility) {
+                button.getStyleClass().add("armed-card");
+            } else if (notReady != null) {
+                button.getStyleClass().add("locked-card");
+            }
+            String tip = ability.label() + "  ·  " + ability.cost() + " RP, then ready again after "
+                    + (ability.cooldown() == 1 ? "1 turn" : ability.cooldown() + " turns") + "\n" + ability.description()
+                    + (notReady == null ? "" : "\n\n" + notReady);
+            Tooltip tooltip = new Tooltip(tip);
+            tooltip.setWrapText(true);
+            tooltip.setMaxWidth(280);
+            tooltip.setShowDelay(Duration.millis(250));
+            button.setTooltip(tooltip);
+        }
+    }
+
+    /** The research tree: {@code onPick} starts a project, {@code refusal} says why one cannot be started (null if it can). */
+    public void setResearch(Consumer<Research> onPick, Function<Research, String> refusal) {
+        onResearch = onPick;
+        researchRefusal = refusal;
+    }
+
+    /** Opens the research tree over the whole game, or closes it (R, the Research button). */
+    public void toggleResearch() {
+        if (researchScreen != null) {
+            closeResearch();
+        } else if (model != null && !gameOver) {
+            researchScreen = new ResearchScreen(name -> unitImage(1, name), research -> onResearch.accept(research),
+                    research -> researchRefusal.apply(research), unlockDetails(), this::closeResearch);
+            frame.getChildren().add(researchScreen);
+            showResearch();
+        }
+    }
+
+    private void closeResearch() {
+        if (researchScreen != null) {
+            researchScreen.stop();
+            frame.getChildren().remove(researchScreen);
+            researchScreen = null;
+        }
+    }
+
+    /** Draws the open research tree for the current state. */
+    private void showResearch() {
+        researchScreen.show(model, model.isPlayerOneTurn() && !inputLocked && !gameOver);
+    }
+
+    /** For the projects that unlock a unit: that unit's stats, as its deploy card shows them. */
+    private Map<Research, String> unlockDetails() {
+        Map<Research, String> details = new EnumMap<>(Research.class);
+        deployOptions.forEach((type, option) -> Research.requiredFor(type).ifPresent(research ->
+                details.put(research, option.name() + ": " + option.stats() + ".  " + option.description())));
+        return details;
+    }
+
     /** The settings under the log: animations and fog of war, then the bot's difficulty. */
     private VBox bottomRow() {
         difficultyBox.getItems().setAll(game.controller.Difficulty.values());
@@ -1126,6 +1332,8 @@ public class GameView {
 
     public void showWinner(int winnerId) {
         gameOver = true;
+        closeResearch();
+        refreshAbilityButtons();
         boolean won = winnerId == 1;
         turnLabel.setText(won ? "Victory" : "Defeat");
         turnLabel.getStyleClass().removeIf(style -> style.startsWith("turn-p"));
@@ -1205,6 +1413,7 @@ public class GameView {
         skipTurnButton.setDisable(locked || gameOver);
         fogBox.setDisable(locked); // switching the fog in the middle of the enemy turn would change what the bot sees
         refreshDeployButtons();
+        refreshAbilityButtons();
         refreshHover();
     }
 
@@ -1291,6 +1500,9 @@ public class GameView {
         EventHandler<KeyEvent> keyFilter = event -> {
             if (inputLocked && (event.getCode() == KeyCode.SPACE || event.getCode() == KeyCode.ENTER)) {
                 speedUp();
+                event.consume();
+            } else if (event.getCode() == KeyCode.ESCAPE && researchScreen != null) {
+                closeResearch();
                 event.consume();
             } else if (event.getCode() == KeyCode.TAB) {
                 nextDeployCategory();
@@ -1393,8 +1605,9 @@ public class GameView {
             int count = hidden
                     ? (int) model.getVisibleEnemies(model.getPlayerOne()).stream()
                             .filter(unit -> unit.getPlayerID() == player.getPlayerID() && !(unit instanceof Infrastructure)).count()
-                    : player.getPlayerDeck().getUnits().size() - 1 - buildings;
-            units.setText((count == 1 ? "1 unit" : count + " units") + (hidden ? " seen" : "")
+                    : model.getArmySize(player);
+            units.setText((hidden ? count == 1 ? "1 unit" : count + " units" : count + "/" + model.getArmyLimit(player) + " units")
+                    + (hidden ? " seen" : "")
                     + (buildings == 0 ? "" : buildings == 1 ? ", 1 building" : ", " + buildings + " buildings"));
             getStyleClass().remove(activeStyle);
             if (active) {

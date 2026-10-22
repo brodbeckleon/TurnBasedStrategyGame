@@ -1,12 +1,16 @@
 package game.model;
 
 import game.game.Player;
+import game.game.Research;
 import game.game.Vision;
 import game.game.map.Battlefield;
 import game.interfaces.Host;
 import game.interfaces.Spotter;
 import game.tools.CircleGenerator;
+import game.interfaces.AntiAir;
 import game.units.AssaultClass;
+import game.units.assaultClasses.AssaultTank;
+import game.units.transports.Osumi;
 import game.units.Infrastructure;
 import game.units.MilitaryBase;
 import game.units.Unit;
@@ -27,6 +31,13 @@ import java.util.function.Predicate;
  * of the game; the last one standing wins.
  */
 public class Game {
+    public static final int BASE_ARMY_LIMIT = 6;
+    public static final int ARMY_LIMIT_PER_BASE = 3; // the headquarters included
+    public static final int SUPPLY_LINES_BONUS = 2;
+    public static final int MASS_MOBILISATION_BONUS = 3;
+    public static final int COMPOSITE_ARMOUR_BONUS = 10;
+    public static final int FORWARD_COMMAND_BONUS = 3;
+    public static final int AEGIS_RANGE_BONUS = 1;
     private static final CircleGenerator circleGenerator = new CircleGenerator();
     private final GameSettings settings;
     private int currentIndex = 0;
@@ -100,7 +111,7 @@ public class Game {
         do {
             currentIndex = (currentIndex + 1) % players.size();
         } while (eliminated.contains(getCurrentPlayer()) && eliminated.size() < players.size());
-        getCurrentPlayer().getPlayerDeck().setUnitsAvailable();
+        getCurrentPlayer().startTurn();
     }
 
     /** Resource points have no upper limit: whatever is not spent is saved. */
@@ -117,6 +128,52 @@ public class Game {
             }
         }
         return income;
+    }
+
+    /**
+     * How many units (buildings aside) the player may field: a few to start with, more for every base it holds,
+     * and more with the logistics research.
+     */
+    public int getArmyLimit(Player player) {
+        int bases = 0;
+        for (Infrastructure building : player.getPlayerDeck().getBuildings()) {
+            if (building instanceof MilitaryBase) bases++;
+        }
+        int limit = BASE_ARMY_LIMIT + ARMY_LIMIT_PER_BASE * bases;
+        if (player.hasResearched(Research.SUPPLY_LINES)) limit += SUPPLY_LINES_BONUS;
+        if (player.hasResearched(Research.MASS_MOBILISATION)) limit += MASS_MOBILISATION_BONUS;
+        return limit;
+    }
+
+    /** How many units (buildings aside) the player fields right now. */
+    public int getArmySize(Player player) {
+        return (int) player.getPlayerDeck().getUnits().values().stream()
+                .filter(unit -> !(unit instanceof Infrastructure) && unit.getHealthPoints() > 0)
+                .count();
+    }
+
+    /** The highest level the player's bases can be raised to: one more with Industrial Expansion. */
+    public int getMaxBaseLevel(Player player) {
+        return player.hasResearched(Research.INDUSTRIAL_EXPANSION) ? MilitaryBase.MAX_LEVEL : MilitaryBase.STANDARD_MAX_LEVEL;
+    }
+
+    /** The unit's armour in percent: a tank's (more with Composite Armour) or a building's; 0 for everything else. */
+    public int getArmorValue(Unit unit) {
+        if (unit instanceof AssaultTank tank) {
+            return tank.getArmorValue() + (getOwner(unit).hasResearched(Research.COMPOSITE_ARMOUR) ? COMPOSITE_ARMOUR_BONUS : 0);
+        }
+        return unit instanceof Infrastructure building ? building.getArmorValue() : 0;
+    }
+
+    /** How far from the building new buildings may go (0 if none can): further with Forward Command. */
+    public int getConstructionRadius(Infrastructure building) {
+        int radius = building.getConstructionRadius();
+        return radius > 0 && getOwner(building).hasResearched(Research.FORWARD_COMMAND) ? radius + FORWARD_COMMAND_BONUS : radius;
+    }
+
+    /** How many units can stand on top of the building or ship: two on an Osumi with Amphibious Doctrine. */
+    public int getCapacity(Unit host) {
+        return host instanceof Osumi && getOwner(host).hasResearched(Research.AMPHIBIOUS_DOCTRINE) ? 2 : 1;
     }
 
     /**
@@ -143,14 +200,23 @@ public class Game {
 
     /** The range the unit shoots at right now: one tile further while a friendly spotter covers it. */
     public int getShootingRange(AssaultClass unit) {
+        return getShootingRange(unit, unit.getPosition());
+    }
+
+    /** The range the unit would shoot at from the tile: one tile further where a friendly spotter covers it. */
+    public int getShootingRange(AssaultClass unit, Point from) {
         Player owner = getOwner(unit);
+        int range = unit.getShootingRange();
+        if (unit instanceof AntiAir && owner.hasResearched(Research.AEGIS_UPGRADE)) {
+            range += AEGIS_RANGE_BONUS;
+        }
         for (Unit friend : owner.getPlayerDeck().getUnits().values()) {
             if (friend != unit && friend instanceof Spotter spotter && friend.getHealthPoints() > 0
-                    && circleGenerator.getCoordinatesInRange(friend.getPosition(), spotter.getSpottingRange()).contains(unit.getPosition())) {
-                return unit.getShootingRange() + Spotter.SPOTTING_BONUS;
+                    && circleGenerator.getCoordinatesInRange(friend.getPosition(), spotter.getSpottingRange()).contains(from)) {
+                return range + Spotter.SPOTTING_BONUS;
             }
         }
-        return unit.getShootingRange();
+        return range;
     }
 
     public boolean isFogOfWar() {
@@ -195,7 +261,7 @@ public class Game {
 
     /**
      * True if the unit may end its move on the tile: it is free, or one of the owner's buildings or ships stands
-     * there that can take the unit on top and has nobody on it yet. Terrain is checked by the caller.
+     * there that can take the unit on top and still has room. Terrain is checked by the caller.
      */
     public boolean canStandOn(Unit unit, Point position) {
         List<Unit> there = getUnitsAt(position);
@@ -203,7 +269,8 @@ public class Game {
         if (there.isEmpty()) {
             return battlefield.getGeographyOfPoint(position) != null && !battlefield.isBaseSite(position);
         }
-        return there.size() == 1 && there.get(0) instanceof Host host && host.canHost(unit);
+        Unit host = there.stream().filter(other -> other instanceof Host).findFirst().orElse(null);
+        return host != null && ((Host) host).canHost(unit) && there.size() - 1 < getCapacity(host);
     }
 
     public Battlefield getBattlefield() { return battlefield; }
@@ -228,15 +295,25 @@ public class Game {
         return there;
     }
 
-    /** The unit on the tile, or the one on top if two share it (that is the one seen, clicked and attacked first). */
+    /**
+     * The unit on the tile, or the one on top if several share it (that is the one seen, clicked and attacked
+     * first: the first of the units on deck).
+     */
     public Unit getUnitAt(Point clickedPoint) {
-        List<Unit> there = getUnitsAt(clickedPoint);
-        if (there.size() > 1) {
-            for (Unit unit : there) {
-                if (!(unit instanceof Host)) return unit;
-            }
+        List<Unit> stack = getStackAt(clickedPoint);
+        return stack.isEmpty() ? null : stack.get(0);
+    }
+
+    /** Everything on the tile from the top down: the units on top of a building or ship in deck order, then it. */
+    public List<Unit> getStackAt(Point point) {
+        List<Unit> there = getUnitsAt(point);
+        Unit host = there.stream().filter(unit -> unit instanceof Host).findFirst().orElse(null);
+        if (host == null || there.size() == 1) {
+            return there;
         }
-        return there.isEmpty() ? null : there.get(0);
+        List<Unit> stack = new ArrayList<>(getGuestsOf(host));
+        stack.add(host);
+        return stack;
     }
 
     /** The unit the viewer sees on the tile: the one on top, or the building or ship under it if that one hides. */
@@ -260,13 +337,24 @@ public class Game {
         return null;
     }
 
-    /** The unit standing on top of the building or ship, or null. */
+    /** The unit standing on top of the building or ship (the first one, if there are two), or null. */
     public Unit getGuestOf(Unit host) {
-        if (!(host instanceof Host)) return null;
-        for (Unit other : getUnitsAt(host.getPosition())) {
-            if (other != host) return other;
-        }
-        return null;
+        List<Unit> guests = getGuestsOf(host);
+        return guests.isEmpty() ? null : guests.get(0);
+    }
+
+    /** The units standing on top of the building or ship, in deck order (by unit id: the first to come is on top). */
+    public List<Unit> getGuestsOf(Unit host) {
+        if (!(host instanceof Host)) return List.of();
+        return getUnitsAt(host.getPosition()).stream()
+                .filter(other -> other != host)
+                .sorted(java.util.Comparator.comparingInt(this::getUnitID))
+                .toList();
+    }
+
+    /** True if one more unit fits on top of the building or ship. */
+    public boolean hasRoomOnTop(Unit host) {
+        return host instanceof Host && getGuestsOf(host).size() < getCapacity(host);
     }
 
     public Unit findUnitById(int selectedUnitId) {

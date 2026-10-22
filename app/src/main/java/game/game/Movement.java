@@ -1,7 +1,6 @@
 package game.game;
 
 import game.enums.TerrainEnum;
-import game.interfaces.Host;
 import game.interfaces.MovableUnit;
 import game.interfaces.mobilityType.ByAir;
 import game.interfaces.mobilityType.ByFoot;
@@ -104,8 +103,7 @@ public final class Movement {
 
     /** True if one of the owner's ships with room for the unit lies there, so the unit can board it. */
     private static boolean canBoard(Game game, Unit unit, Point point) {
-        return game.getUnitsAt(point).size() == 1 && game.getUnitAt(point) instanceof Host host
-                && host.canHost(unit) && game.canStandOn(unit, point);
+        return !game.getUnitsAt(point).isEmpty() && game.canStandOn(unit, point);
     }
 
     /** The cheapest way from the unit's tile to the destination, or an empty list if it cannot get there. */

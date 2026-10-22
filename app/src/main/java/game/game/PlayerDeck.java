@@ -94,6 +94,9 @@ public class PlayerDeck {
             // The base's isAvailable() is overridden to always be false, so this is safe
             unit.setIsAvailable(true);
             unit.setHasMoved(false);
+            if (unit instanceof Infrastructure building) {
+                building.coolDown();
+            }
         }
     }
 

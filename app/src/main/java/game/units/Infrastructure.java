@@ -10,8 +10,12 @@ import java.awt.*;
  * around them), one unit can stand on top and shields it, and their armour takes off part of the damage.
  */
 public abstract class Infrastructure extends Unit implements Host {
+    /** A building hit by the enemy cannot be repaired during its owner's next turn either. */
+    private static final int REPAIR_LOCK_TURNS = 2;
+
     private int armorValue;
     private final int deploymentRadius;
+    private int underFire; // the owner's turns to start before it can be repaired again
 
     public Infrastructure(int playerID, String name, Point position, int resourceCost, int healthPoints, int armorValue, int deploymentRadius) {
         super(playerID, name, position, resourceCost, healthPoints);
@@ -49,5 +53,20 @@ public abstract class Infrastructure extends Unit implements Host {
 
     public void setArmorValue(int armorValue) {
         this.armorValue = armorValue;
+    }
+
+    /** The enemy hit it: no repairs until its owner has had a turn without an attack on it. */
+    public void markUnderFire() {
+        underFire = REPAIR_LOCK_TURNS;
+    }
+
+    /** True while it was attacked this round or last round, and cannot be repaired. */
+    public boolean isUnderFire() {
+        return underFire > 0;
+    }
+
+    /** At the start of each of its owner's turns. */
+    public void coolDown() {
+        underFire = Math.max(0, underFire - 1);
     }
 }
