@@ -25,7 +25,8 @@ import java.util.Set;
 /**
  * Calls in one of the player's abilities on a tile. Nothing strikes back at an ability, and its kills earn no
  * veterancy. The barrage, the airstrike and the paratroopers need eyes on the target tile; the radar sweep is what
- * gives them. The cruise missile flies to any enemy building.
+ * gives them. The airstrike may also hit an enemy unit spotted beyond sight, like a submarine on sonar. The cruise
+ * missile flies to any enemy building.
  */
 public class AbilityCommand extends Command {
     private static final CircleGenerator circleGenerator = new CircleGenerator();
@@ -84,7 +85,8 @@ public class AbilityCommand extends Command {
         if (ability == Ability.CRUISE_MISSILE) {
             return cruiseTarget(player, target) == null ? "Pick an enemy building: the missile finds it anywhere." : null;
         }
-        if (!getGameModel().getVisibleTiles(player).contains(target)) {
+        if (!getGameModel().getVisibleTiles(player).contains(target)
+                && !(ability == Ability.AIRSTRIKE && isSpottedBeyondSight(player, target))) {
             return "Pick a tile you can see: the guns and bombers need eyes on the target.";
         }
         if (ability == Ability.AIRSTRIKE && !isEnemyTarget(player, airstrikeTarget(player, target))) {
@@ -125,21 +127,30 @@ public class AbilityCommand extends Command {
 
     /**
      * The tiles the player may aim the ability at: anywhere for the sweep, every enemy building for the missile,
-     * else what it sees (enemies for the airstrike, free ground for the paratroopers).
+     * else what it sees (enemies for the airstrike, also those spotted beyond its sight, free ground for the
+     * paratroopers).
      */
     public Set<Point> targetTiles(Player player, Ability ability) {
         Set<Point> everywhere = getGameModel().getBattlefield().getGeography().keySet();
         if (ability == Ability.RADAR_SWEEP) {
             return Set.copyOf(everywhere);
         }
-        Set<Point> candidates = ability == Ability.CRUISE_MISSILE ? everywhere : getGameModel().getVisibleTiles(player);
+        Set<Point> visible = getGameModel().getVisibleTiles(player);
+        Set<Point> candidates = ability == Ability.CRUISE_MISSILE ? everywhere : visible;
         if (ability == Ability.ARTILLERY_BARRAGE) {
             return candidates;
+        }
+        if (ability == Ability.AIRSTRIKE) {
+            candidates = new LinkedHashSet<>(visible);
+            for (Unit enemy : getGameModel().getVisibleEnemies(player)) {
+                candidates.add(enemy.getPosition()); // a submarine on sonar, say
+            }
         }
         Set<Point> targets = new LinkedHashSet<>();
         for (Point tile : candidates) {
             boolean fits = switch (ability) {
-                case AIRSTRIKE -> isEnemyTarget(player, airstrikeTarget(player, tile));
+                case AIRSTRIKE -> visible.contains(tile) ? isEnemyTarget(player, airstrikeTarget(player, tile))
+                        : isSpottedBeyondSight(player, tile);
                 case CRUISE_MISSILE -> cruiseTarget(player, tile) != null;
                 case PARATROOPERS -> canDrop(player, tile);
                 default -> false;
@@ -203,6 +214,16 @@ public class AbilityCommand extends Command {
     private boolean isEnemyTarget(Player player, Unit unit) {
         return unit != null && unit.getHealthPoints() > 0 && unit.getPlayerID() != player.getPlayerID()
                 && !getGameModel().isEliminated(getGameModel().getOwner(unit)) && getGameModel().isVisibleTo(player, unit);
+    }
+
+    /**
+     * True if an airstrike on the tile would hit an enemy unit the player sees although the tile is beyond its
+     * sight, like a submarine a destroyer's sonar picks up. Buildings do not count: their positions are always
+     * known, but the bombers still need eyes on them.
+     */
+    private boolean isSpottedBeyondSight(Player player, Point tile) {
+        Unit target = airstrikeTarget(player, tile);
+        return !(target instanceof Infrastructure) && isEnemyTarget(player, target);
     }
 
     /**

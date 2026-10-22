@@ -15,6 +15,7 @@ import game.units.AssaultClass;
 import game.units.Base;
 import game.units.assaultClasses.AssaultTanks.TypeTen;
 import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
+import game.units.assaultClasses.ships.Kongo;
 import game.units.assaultClasses.ships.Soryu;
 import game.units.infrastructures.AirForceBase;
 import game.units.infrastructures.ArmyBase;
@@ -244,6 +245,44 @@ class LateGameTest {
         assertEquals(enemyBase.getMaxHealthPoints() - expected, enemyBase.getHealthPoints());
         assertEquals(2, events.size(), "the strike and the damage, nothing strikes back");
         assertTrue(enemyBase.isUnderFire());
+    }
+
+    @Test
+    void anAirstrikeMayHitASubmarineOnSonarBeyondSight() {
+        game.setFogOfWar(true);
+        researchAll(player, Research.RADAR_SWEEP, Research.ARTILLERY_BARRAGE, Research.AIRSTRIKE, Research.PARATROOPERS,
+                Research.IMPROVED_SONAR);
+        Fixtures.place(game, 1, new Kongo(1, new Point(2, 8)));
+        Soryu submarine = new Soryu(2, new Point(8, 8)); // six tiles off: past the Kongo's sight, within improved sonar
+        Fixtures.place(game, 2, submarine);
+        Point tile = submarine.getPosition();
+        assertFalse(game.getVisibleTiles(player).contains(tile));
+        assertTrue(game.isVisibleTo(player, submarine));
+
+        assertNull(abilities.refusal(player, Ability.AIRSTRIKE, tile));
+        assertTrue(abilities.targetTiles(player, Ability.AIRSTRIKE).contains(tile));
+        assertNotNull(abilities.refusal(player, Ability.ARTILLERY_BARRAGE, tile), "the guns still need the tile in sight");
+        assertNotNull(abilities.refusal(player, Ability.PARATROOPERS, tile));
+
+        assertTrue(abilities.execute(player, Ability.AIRSTRIKE, tile).wasSuccessful());
+        assertTrue(submarine.getHealthPoints() < submarine.getMaxHealthPoints());
+    }
+
+    @Test
+    void anAirstrikeBeyondSightNeedsAUnitThePlayerSees() {
+        game.setFogOfWar(true);
+        researchAll(player, Research.RADAR_SWEEP, Research.ARTILLERY_BARRAGE, Research.AIRSTRIKE);
+        Fixtures.place(game, 1, new Kongo(1, new Point(2, 8)));
+        Soryu submarine = new Soryu(2, new Point(8, 8)); // past the sonar's four tiles without Improved Sonar
+        Fixtures.place(game, 2, submarine);
+        Base enemyBase = game.getPlayerTwo().getPlayerDeck().getBase(); // always known, but out of sight
+        assertFalse(game.getVisibleTiles(player).contains(enemyBase.getPosition()));
+
+        for (Point tile : List.of(submarine.getPosition(), enemyBase.getPosition())) {
+            assertEquals("Pick a tile you can see: the guns and bombers need eyes on the target.",
+                    abilities.refusal(player, Ability.AIRSTRIKE, tile), "no hint what is there");
+            assertFalse(abilities.targetTiles(player, Ability.AIRSTRIKE).contains(tile));
+        }
     }
 
     // --- Veterancy ---
