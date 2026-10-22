@@ -11,6 +11,7 @@ import game.game.UnitFactory;
 import game.game.commands.AbilityCommand;
 import game.game.commands.AddCommand;
 import game.game.commands.AttackCommand;
+import game.game.commands.CommandResult;
 import game.game.commands.HealCommand;
 import game.game.commands.MoveCommand;
 import game.game.commands.ResearchCommand;
@@ -200,7 +201,7 @@ public class BotService {
         purchasePending = true;
         purchases = 0;
         boldness = boldness();
-        mapLand();
+        landmasses.clear(); // mapped afresh when first needed
     }
 
     /**
@@ -349,7 +350,7 @@ public class BotService {
             return moveTo(botPlayer, unitId, attacker, strike.get().tile()); // and shoot on its next step
         }
         Point goal = goalFor(attacker);
-        if (isGround(attacker) && !reachableOverLand(attacker.getPosition(), goal)) {
+        if (isGround(attacker) && !reachableOverLand(attacker, attacker.getPosition(), goal)) {
             List<GameEvent> boarding = ferry(attacker, unitId, botPlayer);
             if (!boarding.isEmpty()) return boarding;
         }
@@ -442,7 +443,7 @@ public class BotService {
 
     /**
      * Where the unit is heading: anti-air hunts aircraft (or escorts the army), aircraft go for the most valuable
-     * target, everything else for the nearest enemy unit close by, or else the enemy base.
+     * target, everything else for the nearest enemy unit close by it can fight, or else the enemy base.
      */
     private Point goalFor(AssaultClass unit) {
         Point position = unit.getPosition();
@@ -461,8 +462,10 @@ public class BotService {
                     .max(Comparator.comparingDouble(enemy -> valueOf(enemy) / (1 + enemy.getPosition().distance(position) / 6)))
                     .map(Unit::getPosition).orElse(enemyBase);
         }
+        // a ground unit only chases what it can fight from land: not a ship out at sea, nor what its guns cannot hit
         return enemies.stream()
                 .filter(enemy -> !(enemy instanceof Base) && enemy.getPosition().distance(position) <= 8)
+                .filter(enemy -> !isGround(unit) || AttackCommand.canTarget(unit, enemy) && canLandAt(unit, enemy.getPosition()))
                 .min(Comparator.comparingDouble(enemy -> enemy.getPosition().distance(position)))
                 .map(Unit::getPosition).orElse(enemyBase);
     }
@@ -522,7 +525,7 @@ public class BotService {
                 Point target = destinationOf(passenger);
                 if (target != null) {
                     return moveTo(botPlayer, unitId, ship, bestTile(ship, target,
-                            tile -> landsFrom(tile, target) ? FERRY_BONUS : 0));
+                            tile -> landsFrom(passenger, tile, target) ? FERRY_BONUS : 0));
                 }
             }
         }
@@ -535,21 +538,32 @@ public class BotService {
 
     // --- Ferrying ---
 
-    /** Which landmass each land tile belongs to (any land, the eight directions units move in); water has none. */
-    private Map<Point, Integer> landIds = Map.of();
+    /**
+     * Which landmass each tile belongs to, per way of getting around: a map for every set of terrains a unit can
+     * cross (the eight directions units move in), so a ridge cuts a vehicle off where infantry walks over it. Tiles
+     * the unit cannot enter have none. Built when first needed each turn.
+     */
+    private final Map<List<Boolean>, Map<Point, Integer>> landmasses = new java.util.HashMap<>();
 
-    private void mapLand() {
+    private Map<Point, Integer> landIds(Unit unit) {
+        List<Boolean> passable = java.util.Arrays.stream(TerrainEnum.values())
+                .map(terrain -> terrain != TerrainEnum.WATER && Movement.cost(unit, terrain) != Movement.IMPASSABLE)
+                .toList();
+        return landmasses.computeIfAbsent(passable, key -> floodFill(terrain -> key.get(terrain.ordinal())));
+    }
+
+    private Map<Point, Integer> floodFill(Predicate<TerrainEnum> passable) {
         Map<Point, Integer> ids = new java.util.HashMap<>();
         int next = 0;
         for (Map.Entry<Point, TerrainEnum> entry : model.getBattlefield().getGeography().entrySet()) {
-            if (entry.getValue() == TerrainEnum.WATER || ids.containsKey(entry.getKey())) continue;
+            if (!passable.test(entry.getValue()) || ids.containsKey(entry.getKey())) continue;
             Deque<Point> queue = new ArrayDeque<>(List.of(entry.getKey()));
             ids.put(entry.getKey(), next);
             while (!queue.isEmpty()) {
                 Point point = queue.poll();
                 for (Point around : around(point)) {
                     TerrainEnum terrain = model.getBattlefield().getGeographyOfPoint(around);
-                    if (terrain != null && terrain != TerrainEnum.WATER && !ids.containsKey(around)) {
+                    if (terrain != null && passable.test(terrain) && !ids.containsKey(around)) {
                         ids.put(around, next);
                         queue.add(around);
                     }
@@ -557,12 +571,12 @@ public class BotService {
             }
             next++;
         }
-        landIds = ids;
+        return ids;
     }
 
-    private int landOf(Point point) {
-        if (landIds.isEmpty()) mapLand();
-        return landIds.getOrDefault(point, -1);
+    /** The landmass the unit would be on at the point, or -1 if it cannot stand there on its own (water, a ridge). */
+    private int landOf(Unit unit, Point point) {
+        return landIds(unit).getOrDefault(point, -1);
     }
 
     private static List<Point> around(Point point) {
@@ -575,23 +589,37 @@ public class BotService {
         return around;
     }
 
-    /** True if a ground unit standing on the land tile can get onto or next to the target without crossing water. */
-    private boolean reachableOverLand(Point from, Point target) {
-        int land = landOf(from);
+    /**
+     * True if the ground unit, standing on the land tile, can get onto or next to the target without crossing water
+     * or ground it cannot enter.
+     */
+    private boolean reachableOverLand(Unit unit, Point from, Point target) {
+        int land = landOf(unit, from);
         if (land < 0) return false;
-        if (landOf(target) == land) return true;
-        return around(target).stream().anyMatch(point -> landOf(point) == land);
+        if (landOf(unit, target) == land) return true;
+        return around(target).stream().anyMatch(point -> landOf(unit, point) == land);
     }
 
-    /** True if a unit on a ship at the tile could go ashore somewhere from which it reaches the target over land. */
-    private boolean landsFrom(Point tile, Point target) {
-        return around(tile).stream().anyMatch(shore -> landOf(shore) >= 0 && reachableOverLand(shore, target));
+    /** True if the land route from the bot's headquarters to the enemy's is open, at least on foot. */
+    private boolean headquartersConnected(Player botPlayer) {
+        Unit walker = unitFactory.createUnit(playerId, UnitEnum.INFANTRY, new Point());
+        return reachableOverLand(walker, botPlayer.getPlayerDeck().getBase().getPosition(), enemyBase());
+    }
+
+    /** True if the unit, on a ship at the tile, could go ashore somewhere from which it reaches the target over land. */
+    private boolean landsFrom(Unit unit, Point tile, Point target) {
+        return around(tile).stream().anyMatch(shore -> reachableOverLand(unit, shore, target));
     }
 
     /** True if the unit on deck can go ashore this turn onto land from which it reaches the target. */
     private boolean landsWithin(Unit unit, Point target) {
         return isNextTo(unit.getPosition(), target) || Movement.reachable(model, unit).keySet().stream()
-                .anyMatch(tile -> landOf(tile) >= 0 && reachableOverLand(tile, target));
+                .anyMatch(tile -> reachableOverLand(unit, tile, target));
+    }
+
+    /** True if the ground unit could stand on or next to the point, wherever it is (it may need a ship to get there). */
+    private boolean canLandAt(Unit unit, Point point) {
+        return landOf(unit, point) >= 0 || around(point).stream().anyMatch(next -> landOf(unit, next) >= 0);
     }
 
     /** Ground units: what amphibious ships carry. */
@@ -612,19 +640,17 @@ public class BotService {
     private List<Unit> strandedUnits(Player botPlayer) {
         return botPlayer.getPlayerDeck().getUnits().values().stream()
                 .filter(unit -> isGround(unit) && (unit instanceof AssaultClass || unit instanceof ArmoredRecoveryVehicle))
-                .filter(unit -> model.getHostOf(unit) == null && landOf(unit.getPosition()) >= 0)
+                .filter(unit -> model.getHostOf(unit) == null && landOf(unit, unit.getPosition()) >= 0)
                 .filter(unit -> {
                     Point target = destinationOf(unit);
-                    return target != null && !reachableOverLand(unit.getPosition(), target);
+                    return target != null && !reachableOverLand(unit, unit.getPosition(), target);
                 })
                 .toList();
     }
 
     /** A unit that cannot get there over land boards the nearest free amphibious ship, or heads for it. */
     private List<GameEvent> ferry(Unit unit, int unitId, Player botPlayer) {
-        Optional<Unit> ship = botPlayer.getPlayerDeck().getUnits().values().stream()
-                .filter(own -> own instanceof Osumi && own.getHealthPoints() > 0 && model.hasRoomOnTop(own))
-                .min(Comparator.comparingDouble(own -> own.getPosition().distance(unit.getPosition())));
+        Optional<Unit> ship = freeFerry(botPlayer, unit);
         if (ship.isEmpty()) {
             return List.of();
         }
@@ -634,6 +660,13 @@ public class BotService {
             return moveTo(botPlayer, unitId, unit, deck);
         }
         return moveTo(botPlayer, unitId, unit, bestTile(unit, deck, tile -> 0));
+    }
+
+    /** The bot's amphibious ship with room on deck closest to the unit, if it has one. */
+    private Optional<Unit> freeFerry(Player botPlayer, Unit unit) {
+        return botPlayer.getPlayerDeck().getUnits().values().stream()
+                .filter(own -> own instanceof Osumi && own.getHealthPoints() > 0 && model.hasRoomOnTop(own))
+                .min(Comparator.comparingDouble(own -> own.getPosition().distance(unit.getPosition())));
     }
 
     /**
@@ -653,7 +686,7 @@ public class BotService {
         }
         Point goal = target;
         Optional<Point> ashore = Movement.reachable(model, unit).keySet().stream()
-                .filter(tile -> landOf(tile) >= 0 && reachableOverLand(tile, goal))
+                .filter(tile -> reachableOverLand(unit, tile, goal))
                 .min(Comparator.comparingDouble((Point tile) -> danger(unit, tile) + GOAL_WEIGHT * tile.distance(goal)));
         if (ashore.isEmpty()) {
             return List.of();
@@ -687,15 +720,17 @@ public class BotService {
         if (site.isPresent()) {
             Point goal = site.get();
             boolean aboard = model.getHostOf(recovery) instanceof Osumi;
-            boolean overLand = reachableOverLand(recovery.getPosition(), goal);
             if (aboard && !landsWithin(recovery, goal)) {
                 return List.of(); // the ship takes it there
             }
-            if (!aboard && !overLand) {
-                return ferry(recovery, unitId, botPlayer); // ruins on another island
+            List<GameEvent> events = !aboard && !reachableOverLand(recovery, recovery.getPosition(), goal)
+                    ? ferry(recovery, unitId, botPlayer) // ruins on another island
+                    : moveTo(botPlayer, unitId, recovery, bestTile(recovery, null,
+                            tile -> isNextTo(tile, goal) ? 10 : -tile.distance(goal)));
+            if (!events.isEmpty()) {
+                return events;
             }
-            return moveTo(botPlayer, unitId, recovery, bestTile(recovery, null,
-                    tile -> isNextTo(tile, goal) ? 10 : -tile.distance(goal)));
+            // stuck on the way: it may as well see to the buildings
         }
         Optional<Unit> damaged = botPlayer.getPlayerDeck().getBuildings().stream()
                 .filter(building -> building.getHealthPoints() < building.getMaxHealthPoints())
@@ -706,12 +741,19 @@ public class BotService {
         return List.of();
     }
 
-    /** The free, safe ruins worth claiming: close to the vehicle and not too far from home. */
+    /**
+     * The free, safe ruins worth claiming that the vehicle can get to: over land if any, else across the water when
+     * it is aboard an amphibious ship or one has room for it. Close to the vehicle and not too far from home.
+     */
     private Optional<Point> targetSite(Player botPlayer, Unit recovery) {
         Point home = botPlayer.getPlayerDeck().getBase().getPosition();
+        Point position = recovery.getPosition();
+        boolean shipping = model.getHostOf(recovery) instanceof Osumi || freeFerry(botPlayer, recovery).isPresent();
         return model.getBattlefield().getBaseSites().stream()
                 .filter(site -> addCommand.isFreeSite(site) && !isThreatened(site))
-                .min(Comparator.comparingDouble(site -> site.distance(recovery.getPosition()) + 0.5 * site.distance(home)));
+                .filter(site -> reachableOverLand(recovery, position, site) || shipping && canLandAt(recovery, site))
+                .min(Comparator.comparing((Point site) -> !reachableOverLand(recovery, position, site))
+                        .thenComparingDouble(site -> site.distance(position) + 0.5 * site.distance(home)));
     }
 
     /**
@@ -950,7 +992,7 @@ public class BotService {
         if (usefulFleet) {
             plan.addAll(List.of(Research.IMPROVED_SONAR, Research.CARRIER_AVIATION, Research.BATTLESHIPS));
         }
-        if (!reachableOverLand(botPlayer.getPlayerDeck().getBase().getPosition(), enemyBase())) {
+        if (!headquartersConnected(botPlayer)) {
             plan.addAll(List.of(Research.IMPROVED_SONAR, Research.AMPHIBIOUS_DOCTRINE)); // islands: ferry more
         }
         return plan;
@@ -1007,16 +1049,20 @@ public class BotService {
         }
         Point goal = enemyBase();
         Unit squad = unitFactory.createUnit(playerId, UnitEnum.INFANTRY, new Point());
+        // the tiles that look free to it: an enemy hidden in the fog only turns up when the drop is called in
         Optional<Point> best = abilityCommand.targetTiles(botPlayer, drop).stream()
-                .filter(tile -> abilityCommand.refusal(botPlayer, drop, tile) == null)
                 .max(Comparator.comparingDouble(tile -> -GOAL_WEIGHT * tile.distance(goal) - danger(squad, tile)));
         if (best.isEmpty()) {
             return List.of();
         }
         System.out.println("Bot: Paratroopers on " + best.get().x + ", " + best.get().y);
-        List<GameEvent> events = abilityCommand.execute(botPlayer, drop, best.get()).getEvents();
-        actAtOnce(events);
-        return events;
+        CommandResult result = abilityCommand.execute(botPlayer, drop, best.get());
+        if (!result.wasSuccessful()) {
+            System.out.println("Bot: " + result.getMessage()); // refused, nothing spent: no drop this turn
+            return List.of();
+        }
+        actAtOnce(result.getEvents());
+        return result.getEvents();
     }
 
     private static List<Unit> enemiesSeenIn(List<Point> area, List<Unit> enemies) {
@@ -1103,7 +1149,7 @@ public class BotService {
             carriers = count(own, Izumo.class);
             amphibious = count(own, Osumi.class);
             stranded = strandedUnits(botPlayer).size();
-            cutOff = !reachableOverLand(botPlayer.getPlayerDeck().getBase().getPosition(), enemyBase());
+            cutOff = !headquartersConnected(botPlayer);
             enemyAircraft = count(enemy, Aircraft.class);
             enemyTanks = count(enemy, AssaultTank.class);
             enemyShips = count(enemy, Ship.class);

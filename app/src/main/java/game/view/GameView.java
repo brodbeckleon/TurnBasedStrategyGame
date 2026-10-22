@@ -1008,31 +1008,8 @@ public class GameView {
         stats.setHgap(14);
         stats.setVgap(2);
         int column = 0;
-        if (unit instanceof AssaultClass assault) {
-            addStat(stats, column++, "DMG", assault.getDamage());
-            addStat(stats, column++, "RNG", model.getShootingRange(assault));
-        }
-        if (unit instanceof MovableUnit movable) {
-            addStat(stats, column++, "MOV", movable.getMovingRange());
-        }
-        if (unit instanceof SupportClass support && support.getSupportPoints() > 0) {
-            addStat(stats, column++, support.canSupport(model.getPlayerOne().getPlayerDeck().getBase()) ? "REPAIR" : "HEAL",
-                    HealCommand.supportPoints(model.getOwner(unit), support));
-        }
-        if (unit instanceof Spotter spotter) {
-            addStat(stats, column++, "SPOT", spotter.getSpottingRange());
-        }
-        if (unit instanceof AssaultTank tank) {
-            addStat(stats, column++, "ARM %", model.getArmorValue(tank));
-        } else if (unit instanceof Infrastructure building) {
-            if (building instanceof MilitaryBase base) {
-                addStat(stats, column++, "LV", base.getLevel());
-                addStat(stats, column++, "RP/RND", base.getIncome());
-            }
-            addStat(stats, column++, "ARM %", building.getArmorValue());
-            if (model.getConstructionRadius(building) > 0) {
-                addStat(stats, column, "BUILD", model.getConstructionRadius(building));
-            }
+        for (Map.Entry<String, Integer> stat : inspectorStats(model, unit).entrySet()) {
+            addStat(stats, column++, stat.getKey(), stat.getValue());
         }
 
         inspector.getChildren().addAll(top, hpBar, hpText, stats);
@@ -1089,6 +1066,43 @@ public class GameView {
             status.getStyleClass().add(unit.isAvailable() ? "status-ready" : "status-spent");
             inspector.getChildren().add(status);
         }
+    }
+
+    /**
+     * The stats the inspector shows for the unit, in order. The player's own units show what they are worth right
+     * now; an enemy's show without its owner's research and spotters, which the player is not told about.
+     */
+    static Map<String, Integer> inspectorStats(Game model, Unit unit) {
+        boolean own = unit.getPlayerID() == 1;
+        Map<String, Integer> stats = new LinkedHashMap<>();
+        if (unit instanceof AssaultClass assault) {
+            stats.put("DMG", assault.getDamage());
+            stats.put("RNG", own ? model.getShootingRange(assault) : assault.getShootingRange());
+        }
+        if (unit instanceof MovableUnit movable) {
+            stats.put("MOV", movable.getMovingRange());
+        }
+        if (unit instanceof SupportClass support && support.getSupportPoints() > 0) {
+            stats.put(support.canSupport(model.getPlayerOne().getPlayerDeck().getBase()) ? "REPAIR" : "HEAL",
+                    own ? HealCommand.supportPoints(model.getOwner(unit), support) : support.getSupportPoints());
+        }
+        if (unit instanceof Spotter spotter) {
+            stats.put("SPOT", spotter.getSpottingRange());
+        }
+        if (unit instanceof AssaultTank tank) {
+            stats.put("ARM %", own ? model.getArmorValue(tank) : tank.getArmorValue());
+        } else if (unit instanceof Infrastructure building) {
+            if (building instanceof MilitaryBase base) {
+                stats.put("LV", base.getLevel());
+                stats.put("RP/RND", base.getIncome());
+            }
+            stats.put("ARM %", building.getArmorValue());
+            int radius = own ? model.getConstructionRadius(building) : building.getConstructionRadius();
+            if (radius > 0) {
+                stats.put("BUILD", radius);
+            }
+        }
+        return stats;
     }
 
     private static void addStat(GridPane stats, int column, String key, int value) {
@@ -1313,6 +1327,11 @@ public class GameView {
     public void setFogOfWar(boolean fog, Consumer<Boolean> onChange) {
         fogBox.setSelected(fog);
         fogBox.selectedProperty().addListener((observable, was, now) -> onChange.accept(now));
+    }
+
+    /** Puts the fog of war switch to the setting, e.g. back after a change that was not allowed. */
+    public void showFogOfWar(boolean fog) {
+        fogBox.setSelected(fog);
     }
 
     /** True if the player (player one) can see the unit: its own, buildings, and enemies outside the fog. */

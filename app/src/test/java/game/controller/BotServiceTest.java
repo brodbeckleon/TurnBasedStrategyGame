@@ -310,6 +310,126 @@ class BotServiceTest {
     }
 
     @Test
+    void aTankDoesNotBoardAShipToChaseAnEnemyShipOutAtSea() {
+        // a lake in the bot's corner with an enemy battleship far out on it: the tank cannot fight it from land
+        for (int x = 9; x < 16; x++) {
+            for (int y = 0; y <= 7; y++) Fixtures.setTerrain(game, new Point(x, y), TerrainEnum.WATER);
+        }
+        game.getPlayerTwo().removeResourcePoints(game.getPlayerTwo().getResourcePoints());
+        Fixtures.place(game, 1, new Yamato(1, new Point(13, 3)));
+        TypeNinety tank = new TypeNinety(2, new Point(10, 10));
+        Fixtures.place(game, 2, tank);
+        Fixtures.place(game, 2, new Osumi(2, new Point(11, 7)));
+
+        boolean boarded = false;
+        for (int turn = 0; turn < 3; turn++) {
+            runSteps(bot);
+            boarded |= game.getHostOf(tank) != null;
+            game.switchTurn();
+            game.switchTurn();
+        }
+
+        assertFalse(boarded, "the tank stays on land");
+        assertTrue(tank.getPosition().distance(new Point(0, 0)) < new Point(10, 10).distance(new Point(0, 0)),
+                "it heads for the enemy base instead, at " + tank.getPosition());
+    }
+
+    @Test
+    void aTankCutOffByAMountainRidgeTakesTheShip() {
+        // a ridge at x = 6 that infantry could climb but vehicles cannot cross, and a sea along the south edge
+        for (int y = 0; y <= 13; y++) Fixtures.setTerrain(game, new Point(6, y), TerrainEnum.MOUNTAIN);
+        for (int x = 0; x <= 12; x++) {
+            for (int y = 14; y < 16; y++) Fixtures.setTerrain(game, new Point(x, y), TerrainEnum.WATER);
+        }
+        game.getPlayerTwo().removeResourcePoints(game.getPlayerTwo().getResourcePoints());
+        TypeNinety tank = new TypeNinety(2, new Point(9, 11));
+        Fixtures.place(game, 2, tank);
+        var ship = new Osumi(2, new Point(9, 14));
+        Fixtures.place(game, 2, ship);
+
+        boolean boarded = false;
+        for (int turn = 0; turn < 6 && tank.getPosition().x >= 6; turn++) {
+            runSteps(bot);
+            boarded |= game.getHostOf(tank) == ship;
+            game.switchTurn();
+            game.switchTurn();
+        }
+
+        assertTrue(boarded, "the tank went aboard");
+        assertTrue(tank.getPosition().x < 6, "and ashore beyond the ridge, at " + tank.getPosition());
+    }
+
+    @Test
+    void aRecoveryVehicleRepairsInsteadOfWaitingForRuinsItCannotReach() {
+        // the only ruins lie across the strait and the bot has no ship
+        for (int x = 5; x <= 9; x++) {
+            for (int y = 0; y < 16; y++) Fixtures.setTerrain(game, new Point(x, y), TerrainEnum.WATER);
+        }
+        Fixtures.addBaseSite(game, new Point(3, 8));
+        game.getPlayerTwo().removeResourcePoints(game.getPlayerTwo().getResourcePoints());
+        Base headquarters = game.getPlayerTwo().getPlayerDeck().getBase();
+        headquarters.setHealthPoints(-500);
+        var recovery = new game.units.supportClasses.ArmoredRecoveryVehicle(2, new Point(12, 8));
+        Fixtures.place(game, 2, recovery);
+
+        runSteps(bot);
+
+        assertTrue(recovery.getPosition().distance(headquarters.getPosition()) < new Point(12, 8).distance(headquarters.getPosition()),
+                "it heads home to repair the headquarters, at " + recovery.getPosition());
+    }
+
+    @Test
+    void theBotSavesNothingForRuinsItsRecoveryVehicleCannotReach() {
+        for (int x = 5; x <= 9; x++) {
+            for (int y = 0; y < 16; y++) Fixtures.setTerrain(game, new Point(x, y), TerrainEnum.WATER);
+        }
+        Fixtures.addBaseSite(game, new Point(4, 8)); // close enough that it would hold back the price of a base
+        Fixtures.place(game, 2, new game.units.supportClasses.ArmoredRecoveryVehicle(2, new Point(10, 8)));
+        Player botPlayer = game.getPlayerTwo();
+        botPlayer.addResourcePoints(14 - botPlayer.getResourcePoints());
+
+        runSteps(bot);
+
+        assertTrue(botPlayer.getResourcePoints() < 12, "spent its money, has " + botPlayer.getResourcePoints() + " left");
+    }
+
+    /** A bot that can call in paratroopers, playing in the fog of war. */
+    private Game paratrooperGame() {
+        Game fogged = Fixtures.plainGame();
+        fogged.switchTurn();
+        fogged.setFogOfWar(true);
+        Player botPlayer = fogged.getPlayerTwo();
+        botPlayer.completeResearch(Research.RADAR_SWEEP);
+        botPlayer.completeResearch(Research.PARATROOPERS);
+        botPlayer.addResourcePoints(30);
+        return fogged;
+    }
+
+    @Test
+    void paratroopersAreNotSteeredAroundAnEnemyHiddenInTheFog() {
+        // where the bot drops its squad when nothing is in the way
+        Game clear = paratrooperGame();
+        Point drop = runSteps(newBot(clear)).stream().flatMap(List::stream)
+                .filter(event -> event instanceof GameEvent.AbilityUsed used && used.ability() == Ability.PARATROOPERS)
+                .map(event -> ((GameEvent.AbilityUsed) event).target())
+                .findFirst().orElseThrow();
+
+        // the same, with a stealth fighter on that tile the bot cannot see
+        Game fogged = paratrooperGame();
+        Player botPlayer = fogged.getPlayerTwo();
+        var stealth = new game.units.assaultClasses.aircraft.FThirtyFive(1, drop);
+        Fixtures.place(fogged, 1, stealth);
+        assertFalse(fogged.isVisibleTo(botPlayer, stealth), "the fighter hides from the bot");
+
+        List<GameEvent> events = runSteps(newBot(fogged)).stream().flatMap(List::stream).toList();
+
+        assertTrue(events.stream().noneMatch(event -> event instanceof GameEvent.AbilityUsed),
+                "the drop on the hidden enemy is refused, no other tile is tried: " + events);
+        assertEquals(0, botPlayer.getCooldown(Ability.PARATROOPERS), "nothing was spent");
+        assertEquals(drop, stealth.getPosition());
+    }
+
+    @Test
     void aBotWithSavingsBuysSeveralUnitsInOneTurn() {
         Fixtures.place(game, 2, new game.units.infrastructures.ArmyBase(2, new Point(12, 12)));
         Fixtures.place(game, 2, new game.units.infrastructures.AirForceBase(2, new Point(12, 15)));

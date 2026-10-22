@@ -34,6 +34,7 @@ import game.view.DeployOption;
 import game.view.GameView;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
@@ -47,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public class GameController {
 
@@ -215,6 +217,11 @@ public class GameController {
         view.setAbilities(this::prepareAbility, ability -> abilityCommand.notReady(model.getPlayerOne(), ability),
                 this::abilityArea);
         view.setFogOfWar(model.isFogOfWar(), fog -> {
+            if (fog == model.isFogOfWar()) return;
+            if (!model.isPlayerOneTurn() && !model.isGameOver()) {
+                view.showFogOfWar(model.isFogOfWar()); // mid enemy turn it would change what the bot sees
+                return;
+            }
             model.setFogOfWar(fog);
             if (canAct()) refresh();
         });
@@ -230,12 +237,15 @@ public class GameController {
     }
 
     private void handleKey(KeyEvent event) {
+        if (event.getCode() == KeyCode.R) {
+            view.toggleResearch(); // like the button, also in the enemy turn; starting a project is still gated
+            return;
+        }
         if (!canAct()) return;
         switch (event.getCode()) {
             case E -> endTurn();
             case U -> upgradeSelected();
             case N -> selectNextReady();
-            case R -> view.toggleResearch();
             case Z -> prepareAbility(Ability.RADAR_SWEEP);
             case X -> prepareAbility(Ability.ARTILLERY_BARRAGE);
             case C -> prepareAbility(Ability.AIRSTRIKE);
@@ -320,7 +330,7 @@ public class GameController {
         List<GameEvent> visible = seenEvents(step.get(), before);
         enemyTurn.addAll(visible);
         logEvents(visible);
-        play(visible, this::afterBotStep);
+        play(visible, this::afterBotStep, this::guardedBot);
     }
 
     /** The enemy units and the tiles player one sees, taken before an action so its events can be filtered. */
@@ -512,9 +522,17 @@ public class GameController {
      * and again when the animation is over; then {@code afterwards} continues the game.
      */
     private void play(List<GameEvent> events, Runnable afterwards) {
-        guarded(() -> {
+        play(events, afterwards, this::guarded);
+    }
+
+    /**
+     * Plays the events like {@link #play(List, Runnable)}, with both halves run through the guard: {@code guarded}
+     * for the player's actions, {@code guardedBot} for the bot's, so a failure there still ends the bot's turn.
+     */
+    private void play(List<GameEvent> events, Runnable afterwards, Consumer<Runnable> guard) {
+        guard.accept(() -> {
             boolean[] finished = {false};
-            view.playEvents(events, () -> guarded(() -> {
+            view.playEvents(events, () -> guard.accept(() -> {
                 finished[0] = true;
                 refresh();
                 afterwards.run();
@@ -633,7 +651,9 @@ public class GameController {
                 view.logInfo("The enemy turn was cut short by an error.");
                 endTurn();
             }
-            unlockInput();
+            if (model.isPlayerOneTurn() || model.isGameOver()) {
+                unlockInput(); // else the next bot's turn has just begun and keeps the input locked
+            }
         }
     }
 
