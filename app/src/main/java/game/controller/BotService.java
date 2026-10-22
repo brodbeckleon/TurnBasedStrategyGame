@@ -843,7 +843,7 @@ public class BotService {
                 // only units that can act after moving threaten tiles beyond their shooting range
                 int reach = attacker.getShootingRange()
                         + (enemy instanceof ActsAfterMoving && enemy instanceof MovableUnit movable ? movable.getMovingRange() : 0);
-                if (tile.distance(enemy.getPosition()) <= reach + 0.4) {
+                if (tile.distance(enemy.getPosition()) <= reach + 0.4 && !AttackCommand.isTooClose(attacker, enemy.getPosition(), tile)) {
                     expected += Math.min(1, (double) attackCommand.predictDamage(attacker, unit, tile) / unit.getHealthPoints());
                 }
             }
@@ -1089,8 +1089,8 @@ public class BotService {
         return switch (type) {
             case TYPETEN -> 2 + 0.6 * army.enemyTanks + defence;
             case TYPENINETY -> 2 + 0.5 * army.enemyTanks + 1.5 * defence;
-            case TYPESIXTEEN -> 1.5 + 0.4 * army.enemySoft;
-            case TYPEEIGHTYNINE -> 1.5 + 0.4 * army.enemySoft;
+            case TYPESIXTEEN -> 1.5 + 0.4 * (army.enemySoft - army.enemyInfantry);
+            case TYPEEIGHTYNINE -> 1.2 + 0.6 * army.enemyInfantry;
             // artillery needs a front line to hide behind
             case TYPENINETYNINESPH -> army.combat - army.artillery < 3 ? 0 : army.artillery * 5 < army.combat ? 2 + defence : 0;
             case TYPEEIGHTYONEC, TYPENINETYTHREE, TYPEEIGHTYSEVEN -> {
@@ -1137,7 +1137,7 @@ public class BotService {
         final long combat, antiAir, artillery, infantry, aircraft, ambulances, recon, recovery, radar, carriers, amphibious;
         final long stranded;
         final boolean cutOff;
-        final long enemyAircraft, enemyTanks, enemySoft, enemyShips, enemySubmarines;
+        final long enemyAircraft, enemyTanks, enemySoft, enemyInfantry, enemyShips, enemySubmarines;
         final boolean claimableSite, hqDamaged, usefulFleet;
         private final List<Unit> own;
 
@@ -1161,6 +1161,7 @@ public class BotService {
             enemyTanks = count(enemy, AssaultTank.class);
             enemyShips = count(enemy, Ship.class);
             enemySubmarines = count(enemy, Submarine.class);
+            enemyInfantry = count(enemy, Infantry.class);
             enemySoft = enemy.stream().filter(unit -> unit instanceof AssaultClass
                     && !(unit instanceof AssaultTank) && !(unit instanceof Aircraft)).count();
             claimableSite = model.getBattlefield().getBaseSites().stream()

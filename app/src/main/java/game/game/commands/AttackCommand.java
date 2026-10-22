@@ -21,6 +21,7 @@ import game.units.Infrastructure;
 import game.units.TransportShip;
 import game.units.assaultClasses.Aircraft;
 import game.units.assaultClasses.AssaultTank;
+import game.units.assaultClasses.Infantry;
 import game.units.assaultClasses.SelfPropelledAntiAir;
 import game.units.assaultClasses.SelfPropelledArtillery;
 import game.units.Unit;
@@ -33,6 +34,7 @@ import game.units.assaultClasses.aircraft.FThirtyFive;
 import game.units.assaultClasses.aircraft.FTwo;
 import game.units.assaultClasses.antiAir.TypeEightyOneC;
 import game.units.assaultClasses.antiAir.TypeEightySeven;
+import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -120,8 +122,9 @@ public class AttackCommand extends Command {
     }
 
     /**
-     * True if the defender could fire at the attacker standing on the tile: it is alive, has the tile in range, its
-     * weapons reach the attacker, and it sees it (a stealth fighter its side cannot see strikes unanswered).
+     * True if the defender could fire at the attacker standing on the tile: it is alive, not artillery (which never
+     * strikes back), has the tile in range, its weapons reach the attacker, and it sees it (a stealth fighter its side
+     * cannot see strikes unanswered).
      */
     public boolean couldStrikeBack(AssaultClass defender, Unit attacker, Point from) {
         return inReach(defender, attacker, from) && !(attacker instanceof FThirtyFive
@@ -129,14 +132,22 @@ public class AttackCommand extends Command {
     }
 
     private boolean inReach(AssaultClass defender, Unit attacker, Point from) {
-        return defender.getHealthPoints() > 0 && canTarget(defender, attacker)
+        return defender.getHealthPoints() > 0 && !(defender instanceof SelfPropelledArtillery) && canTarget(defender, attacker)
                 && circleGenerator.getCoordinatesInRange(defender.getPosition(), getGameModel().getShootingRange(defender))
                         .contains(from);
     }
 
-    /** True if the attacker hits the target from beyond the reach of its answer: the F-2's missiles against a ship. */
+    /**
+     * True if the attacker hits the target from beyond the reach of its answer: artillery's indirect fire, and the
+     * F-2's missiles against a ship.
+     */
     public static boolean isStandoff(Unit attacker, Unit target) {
-        return attacker instanceof FTwo && isVessel(target);
+        return attacker instanceof SelfPropelledArtillery || attacker instanceof FTwo && isVessel(target);
+    }
+
+    /** True if the target tile is too close for the attacker standing on the tile: artillery cannot fire point-blank. */
+    public static boolean isTooClose(Unit attacker, Point from, Point target) {
+        return attacker instanceof SelfPropelledArtillery && from.distance(target) < 1.5;
     }
 
     /**
@@ -199,6 +210,7 @@ public class AttackCommand extends Command {
             defender.getPlayerDeck().getUnitIDsInRange(from, range).stream()
                     .distinct()
                     .filter(id -> canTarget(attackingUnit, defender.getPlayerDeck().getUnit(id)))
+                    .filter(id -> !isTooClose(attackingUnit, from, defender.getPlayerDeck().getUnit(id).getPosition()))
                     .filter(id -> !isShielded(defender.getPlayerDeck().getUnit(id), attackingUnit))
                     .filter(id -> getGameModel().isVisibleTo(attacker, defender.getPlayerDeck().getUnit(id))) // fog of war
                     .forEach(targets::add);
@@ -378,7 +390,8 @@ public class AttackCommand extends Command {
     private static final double ANTI_AIR_VS_GROUND = 0.5;
     private static final double GROUND_VS_HELICOPTER = 1;
     private static final double ARMOURED_COCKPIT = 0.5;
-    private static final double RAIDER_VS_SOFT = 1.5;
+    private static final double RAIDER_VS_LIGHT_VEHICLE = 1.5;
+    private static final double AUTOCANNON_VS_INFANTRY = 1.75;
     private static final double MISSILE_VS_SHIP = 2;
     private static final double TORPEDO_VS_SHIP = 2;
     private static final double PRECISION_MUNITIONS_BONUS = 1.25;
@@ -400,7 +413,7 @@ public class AttackCommand extends Command {
     /**
      * Anti-air hits aircraft twice as hard (the A-10's armoured cockpit halves that) but what does not fly only half as
      * hard; other ground and sea units only graze aircraft. The specialists hit their prey harder: tank hunters tanks,
-     * the Type 16 soft ground targets, the F-2 and the submarine ships. Tank armour takes its percentage off, except
+     * the Type 16 light vehicles, the Type 89 infantry, the F-2 and the submarine ships. Tank armour takes its percentage off, except
      * against the A-10's cannon.
      */
     private int unitDamage(AssaultClass attacker, Unit target) {
@@ -415,8 +428,12 @@ public class AttackCommand extends Command {
         if (attacker instanceof TankHunter hunter && target instanceof AssaultTank) {
             damage *= hunter.antiTankMultiplier();
         }
-        if (attacker instanceof TypeSixteen && Vision.isGround(target) && !(target instanceof AssaultTank)) {
-            damage *= RAIDER_VS_SOFT;
+        if (attacker instanceof TypeSixteen && Vision.isGround(target) && !(target instanceof AssaultTank)
+                && !(target instanceof Infantry)) {
+            damage *= RAIDER_VS_LIGHT_VEHICLE;
+        }
+        if (attacker instanceof TypeEightyNine && target instanceof Infantry) {
+            damage *= AUTOCANNON_VS_INFANTRY;
         }
         if (attacker instanceof FTwo && isVessel(target)) {
             damage *= MISSILE_VS_SHIP;

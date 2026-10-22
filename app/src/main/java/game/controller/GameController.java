@@ -163,9 +163,9 @@ public class GameController {
         String text = switch (unit.getUnitName()) {
             case "Type 10" -> "Medium main battle tank: hard-hitting and quick. Its fire control ignores the cover of forests and mountains.";
             case "Type 90" -> "Heavy main battle tank: the toughest armour, an anchor for your line. Strikes back at full strength however damaged.";
-            case "Type 16" -> "Wheeled raider: fast and cheap, lightly armoured. 1.5x damage to infantry and other unarmoured ground units.";
-            case "Type 89" -> "Infantry fighting vehicle: tough and cheap.";
-            case "Type 99 SPH" -> "Self-propelled howitzer: shoots very far and wrecks buildings, but is fragile.";
+            case "Type 16" -> "Wheeled raider: fast and cheap, lightly armoured. 1.5x damage to unarmoured vehicles (IFVs, artillery, anti-air, support).";
+            case "Type 89" -> "Infantry fighting vehicle: tough and cheap. Its autocannon deals 1.75x damage to infantry.";
+            case "Type 99 SPH" -> "Self-propelled howitzer: shoots very far and wrecks buildings. Indirect fire: its targets cannot strike back, but it cannot fire at adjacent units and never strikes back itself. Fragile and short-sighted.";
             case "Type 87" -> "Gun anti-air: double damage to aircraft, short-ranged. Its 35 mm guns also hit infantry and light vehicles at full strength (tanks at half). Fires at every enemy aircraft that attacks within its range.";
             case "Type 81 (C)" -> "Missile anti-air: double damage to aircraft at long range, but cannot attack anything on the ground. Fires at every enemy aircraft that attacks within its range.";
             case "Type 93" -> "Light anti-air: double damage to aircraft, half to ground targets. Hidden in a forest until an enemy comes right next to it. Fires at every enemy aircraft that attacks within its range.";

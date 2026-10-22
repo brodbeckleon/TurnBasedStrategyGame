@@ -5,8 +5,9 @@ import game.units.assaultClasses.InfantryFightingVehicle;
 
 import java.awt.*;
 
+/** The infantry fighting vehicle: tough and cheap, and its autocannon tears through infantry. */
 public class TypeEightyNine extends InfantryFightingVehicle implements ActsAfterMoving {
     public TypeEightyNine(int playerID, Point position) {
-        super(playerID, "Type 89", position, 3, 500, 3, 3, 350);
+        super(playerID, "Type 89", position, 3, 500, 3, 3, 300);
     }
 }

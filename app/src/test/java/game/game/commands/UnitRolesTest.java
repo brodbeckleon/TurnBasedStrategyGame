@@ -20,6 +20,8 @@ import game.units.assaultClasses.aircraft.FTwo;
 import game.units.assaultClasses.antiAir.TypeEightyOneC;
 import game.units.assaultClasses.antiAir.TypeEightySeven;
 import game.units.assaultClasses.antiAir.TypeNinetyThree;
+import game.units.assaultClasses.artillery.TypeNinetyNineSPH;
+import game.units.assaultClasses.infantry.AntiTankTeam;
 import game.units.assaultClasses.infantry.RifleSquad;
 import game.units.assaultClasses.infantryFightingVehicles.TypeEightyNine;
 import game.units.assaultClasses.ships.Kongo;
@@ -32,7 +34,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Every aircraft, anti-air vehicle and tank has a rule of its own. */
+/** Every aircraft, anti-air vehicle, tank, the IFV and the howitzer have a rule of their own. */
 class UnitRolesTest {
 
     private Game game;
@@ -253,11 +255,57 @@ class UnitRolesTest {
     }
 
     @Test
-    void theType16RaidsSoftTargetsButNotTanks() {
+    void theType16RaidsLightVehiclesButNotTanksOrInfantry() {
         TypeSixteen raider = new TypeSixteen(1, new Point(5, 5));
         TypeTen tank = new TypeTen(2, new Point(7, 5));
 
         assertEquals(Math.round(raider.getDamage() * 1.5), attack.predictDamage(raider, new TypeEightyNine(2, new Point(7, 5))));
         assertEquals(Math.round(raider.getDamage() * (100 - tank.getArmorValue()) / 100.0), attack.predictDamage(raider, tank));
+        assertEquals(raider.getDamage(), attack.predictDamage(raider, new RifleSquad(2, new Point(7, 5))));
+    }
+
+    @Test
+    void theType89TearsThroughInfantry() {
+        TypeEightyNine ifv = new TypeEightyNine(1, new Point(5, 5));
+        RifleSquad squad = new RifleSquad(2, new Point(7, 5));
+
+        assertEquals(Math.round(ifv.getDamage() * 1.75), attack.predictDamage(ifv, squad));
+        assertEquals(Math.round(ifv.getDamage() * 1.75), attack.predictDamage(ifv, new AntiTankTeam(2, new Point(7, 5))));
+        assertEquals(ifv.getDamage(), attack.predictDamage(ifv, new TypeEightySeven(2, new Point(7, 5))));
+        Fixtures.setTerrain(game, new Point(7, 5), TerrainEnum.FOREST);
+        assertTrue(attack.predictDamage(ifv, squad) < squad.getHealthPoints(), "infantry in a forest survives a burst");
+    }
+
+    // --- Artillery ---
+
+    @Test
+    void artilleryCannotFireAtAdjacentUnits() {
+        int howitzer = Fixtures.place(game, 1, new TypeNinetyNineSPH(1, new Point(5, 5)));
+        Fixtures.place(game, 2, new TypeTen(2, new Point(6, 6)));
+        int far = Fixtures.place(game, 2, new TypeTen(2, new Point(5, 7)));
+
+        assertEquals(List.of(far), attack.findTargets(player, howitzer));
+    }
+
+    @Test
+    void artilleryFireIsNeverAnswered() {
+        TypeNinetyNineSPH howitzer = new TypeNinetyNineSPH(1, new Point(5, 5));
+        int howitzerId = Fixtures.place(game, 1, howitzer);
+        int target = Fixtures.place(game, 2, new TypeNinetyNineSPH(2, new Point(9, 5))); // could reach it back
+
+        assertEquals(0, attack.preview(player, howitzerId, target).counterDamage());
+        attack.execute(player, howitzerId, target);
+        assertEquals(howitzer.getMaxHealthPoints(), howitzer.getHealthPoints());
+    }
+
+    @Test
+    void artilleryNeverStrikesBack() {
+        TypeTen tank = new TypeTen(1, new Point(5, 5));
+        int tankId = Fixtures.place(game, 1, tank);
+        int howitzer = Fixtures.place(game, 2, new TypeNinetyNineSPH(2, new Point(8, 5)));
+
+        assertEquals(0, attack.preview(player, tankId, howitzer).counterDamage());
+        attack.execute(player, tankId, howitzer);
+        assertEquals(tank.getMaxHealthPoints(), tank.getHealthPoints());
     }
 }
