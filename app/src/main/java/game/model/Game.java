@@ -256,7 +256,10 @@ public class Game {
                 .toList();
     }
 
-    /** True if nothing stands there and it is not base ruins (rubble no unit can stop on). */
+    /**
+     * True if nothing stands there and it is not base ruins (rubble no unit can stop on). A unit that stood on a base
+     * when it fell stays on the ruins, keeping them blocked until it moves off.
+     */
     public boolean isPositionFree(Point position) {
         if (battlefield.isBaseSite(position)) return false;
         for (Player player : players) {
