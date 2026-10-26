@@ -248,6 +248,32 @@ class ResearchEffectsTest {
     }
 
     @Test
+    void aUnitOnTopOfABaseThatFallsSurvivesAndBlocksTheRuinsUntilItMovesOff() {
+        research(Research.CRUISE_MISSILE);
+        Point site = new Point(12, 12);
+        Fixtures.addBaseSite(game, site);
+        ArmyBase target = new ArmyBase(2, site);
+        int targetId = Fixtures.place(game, 2, target);
+        target.setHealthPoints(-(target.getHealthPoints() - 1));
+        TypeTen guard = new TypeTen(2, site);
+        int guardId = Fixtures.place(game, 2, guard);
+
+        assertTrue(abilities.execute(player, Ability.CRUISE_MISSILE, site).wasSuccessful());
+
+        assertNull(game.findUnitById(targetId), "the base is gone");
+        assertSame(guard, game.getUnitAt(site), "the tank still stands on the ruins");
+        assertEquals(guard.getMaxHealthPoints(), guard.getHealthPoints());
+        AddCommand add = new AddCommand(game);
+        assertFalse(add.isFreeSite(site), "nothing can be built there while it stands on them");
+        assertFalse(game.canStandOn(new TypeTen(1, new Point(11, 12)), site), "nor can anyone else move in");
+
+        assertTrue(new MoveCommand(game).execute(game.getPlayerTwo(), guardId, new Point(13, 12)).wasSuccessful(),
+                "it can drive off");
+        assertTrue(add.isFreeSite(site), "then the ruins are free to rebuild");
+        assertFalse(game.canStandOn(guard, site), "and, like all ruins, no unit can stop on them");
+    }
+
+    @Test
     void paratroopersLandOnFreeGroundInSightAndCountTowardsTheLimit() {
         game.setFogOfWar(true);
         research(Research.PARATROOPERS);

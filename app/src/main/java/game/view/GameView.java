@@ -493,7 +493,8 @@ public class GameView {
                 if (cellPane == null) continue;
 
                 cellPane.getChildren().clear();
-                if (battlefield.isBaseSite(pos) && model.getUnitAt(pos) == null) {
+                // the rubble shows unless a base is built on it: under a unit that survived its fall, too
+                if (battlefield.isBaseSite(pos) && model.getUnitsAt(pos).stream().noneMatch(unit -> unit instanceof Infrastructure)) {
                     cellPane.getChildren().add(createRuins());
                 }
             }
